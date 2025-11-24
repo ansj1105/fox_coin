@@ -1,0 +1,32 @@
+{
+  "http": {
+    "port": 8080
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "foxya_coin",
+    "user": "postgres",
+    "password": "postgres",
+    "pool_size": 10,
+    "idle_timeout": 60,
+    "pool_cleaner_period": 60
+  },
+  "jwt": {
+    "secret": "change-me-in-production-please",
+    "expiresInSeconds": 86400
+  },
+  "blockchain": {
+    "tron": {
+      "fullNode": "https://api.trongrid.io",
+      "solidityNode": "https://api.trongrid.io",
+      "eventServer": "https://api.trongrid.io",
+      "apiKey": ""
+    }
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": ""
+  }
+}

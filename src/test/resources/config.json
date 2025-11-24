@@ -1,0 +1,17 @@
+{
+  "http": {
+    "port": 8081
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "foxya_coin_test",
+    "user": "postgres",
+    "password": "postgres",
+    "pool_size": 5
+  },
+  "jwt": {
+    "secret": "test-secret-key",
+    "expiresInSeconds": 3600
+  }
+}

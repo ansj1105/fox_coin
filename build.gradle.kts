@@ -1,0 +1,111 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+plugins {
+    java
+    application
+    id("com.github.johnrengelman.shadow") version "8.1.1"
+}
+
+group = "com.foxya"
+version = "1.0.0-SNAPSHOT"
+
+repositories {
+    mavenCentral()
+}
+
+val vertxVersion = "4.5.1"
+val log4jVersion = "2.22.0"
+val jacksonVersion = "2.16.0"
+val junitVersion = "5.10.1"
+val bcryptVersion = "0.10.2"
+val postgresqlVersion = "42.7.1"
+val assertjVersion = "3.25.1"
+
+val mainVerticleName = "com.foxya.coin.MainVerticle"
+val launcherClassName = "io.vertx.core.Launcher"
+
+val watchForChange = "src/**/*"
+val doOnChange = "${projectDir}/gradlew classes"
+
+application {
+    mainClass.set(launcherClassName)
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+dependencies {
+    // Vert.x Core
+    implementation(platform("io.vertx:vertx-stack-depchain:$vertxVersion"))
+    implementation("io.vertx:vertx-core")
+    implementation("io.vertx:vertx-web")
+    implementation("io.vertx:vertx-web-client")
+    
+    // Vert.x Config
+    implementation("io.vertx:vertx-config")
+    
+    // Vert.x PostgreSQL Client
+    implementation("io.vertx:vertx-pg-client")
+    implementation("io.vertx:vertx-sql-client-templates")
+    
+    // Vert.x Auth JWT
+    implementation("io.vertx:vertx-auth-jwt")
+    
+    // PostgreSQL JDBC (Flyway용)
+    implementation("org.postgresql:postgresql:$postgresqlVersion")
+    
+    // Flyway
+    implementation("org.flywaydb:flyway-core:10.4.1")
+    implementation("org.flywaydb:flyway-database-postgresql:10.4.1")
+    
+    // Log4j2
+    implementation("org.apache.logging.log4j:log4j-api:$log4jVersion")
+    implementation("org.apache.logging.log4j:log4j-core:$log4jVersion")
+    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:$log4jVersion")
+    
+    // Jackson
+    implementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion")
+    
+    // BCrypt
+    implementation("at.favre.lib:bcrypt:$bcryptVersion")
+    
+    // Test
+    testImplementation("io.vertx:vertx-junit5")
+    testImplementation("org.junit.jupiter:junit-jupiter:$junitVersion")
+    testImplementation("org.assertj:assertj-core:$assertjVersion")
+}
+
+tasks.withType<ShadowJar> {
+    archiveClassifier.set("fat")
+    manifest {
+        attributes(mapOf(
+            "Main-Verticle" to mainVerticleName,
+            "Main-Class" to launcherClassName
+        ))
+    }
+    mergeServiceFiles()
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
+}
+
+tasks.withType<JavaExec> {
+    args = listOf(
+        "run", 
+        mainVerticleName,
+        "--redeploy=$watchForChange",
+        "--launcher-class=$launcherClassName",
+        "--on-redeploy=$doOnChange"
+    )
+}
+
+tasks.register("stage") {
+    dependsOn("shadowJar")
+}
