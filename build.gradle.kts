@@ -4,6 +4,7 @@ plugins {
     java
     application
     id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("com.google.cloud.tools.jib") version "3.4.0"
 }
 
 group = "com.foxya"
@@ -108,4 +109,35 @@ tasks.withType<JavaExec> {
 
 tasks.register("stage") {
     dependsOn("shadowJar")
+}
+
+// Jib 설정 (Docker 이미지 빌드)
+jib {
+    from {
+        image = "eclipse-temurin:17-jre-alpine"
+        platforms {
+            platform {
+                architecture = "amd64"
+                os = "linux"
+            }
+        }
+    }
+    to {
+        image = "foxya-coin-api"
+        tags = setOf("latest", version.toString())
+    }
+    container {
+        mainClass = launcherClassName
+        jvmFlags = listOf(
+            "-Xmx1024m",
+            "-Xms512m", 
+            "-XX:+UseG1GC",
+            "-XX:MaxGCPauseMillis=200"
+        )
+        ports = listOf("8080")
+        environment = mapOf(
+            "TZ" to "Asia/Seoul"
+        )
+        creationTime.set("USE_CURRENT_TIMESTAMP")
+    }
 }

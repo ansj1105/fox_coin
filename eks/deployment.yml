@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foxya-coin-api-deployment
+  namespace: foxya-coin
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: foxya-coin-api
+  template:
+    metadata:
+      labels:
+        app: foxya-coin-api
+    spec:
+      containers:
+        - name: foxya-coin-api
+          image: YOUR_ECR_REPO/foxya-coin-api:latest
+          ports:
+            - name: api-port
+              containerPort: 8080
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+            requests:
+              memory: 512Mi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          env:
+            - name: TZ
+              value: "Asia/Seoul"
+            - name: JAVA_OPTS
+              value: "-Xmx1024m -Xms512m -XX:+UseG1GC"
+          envFrom:
+            - configMapRef:
+                name: foxya-coin-api-config
+            - secretRef:
+                name: foxya-coin-api-secret
+          imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: foxya-coin-api-service
+  namespace: foxya-coin
+spec:
+  type: LoadBalancer
+  selector:
+    app: foxya-coin-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foxya-coin-api-config
+  namespace: foxya-coin
+data:
+  HTTP_PORT: "8080"
+  DB_HOST: "postgres.foxya-coin.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "foxya_coin"
+  REDIS_HOST: "redis.foxya-coin.svc.cluster.local"
+  REDIS_PORT: "6379"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: foxya-coin-api-secret
+  namespace: foxya-coin
+type: Opaque
+stringData:
+  DB_USER: "postgres"
+  DB_PASSWORD: "your-secure-password"
+  JWT_SECRET: "your-jwt-secret-key"
+  REDIS_PASSWORD: ""
+
