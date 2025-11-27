@@ -32,7 +32,7 @@ public class UserHandler extends BaseHandler {
     
     @Override
     public Router getRouter() {
-        Router router = Router.router(vertx);
+        Router router = Router.router(getVertx());
         
         SchemaParser parser = createSchemaParser();
         

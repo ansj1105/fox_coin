@@ -20,7 +20,7 @@ public class WalletHandler extends BaseHandler {
     
     @Override
     public Router getRouter() {
-        Router router = Router.router(vertx);
+        Router router = Router.router(getVertx());
         
         // 인증 필요 - 본인 지갑만 조회 가능
         router.get("/my")
