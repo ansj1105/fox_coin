@@ -19,8 +19,10 @@ val log4jVersion = "2.22.0"
 val jacksonVersion = "2.16.0"
 val junitVersion = "5.10.1"
 val bcryptVersion = "0.10.2"
+val jbcryptVersion = "0.4"
 val postgresqlVersion = "42.7.1"
 val assertjVersion = "3.25.1"
+val lombokVersion = "1.18.30"
 
 val mainVerticleName = "com.foxya.coin.MainVerticle"
 val launcherClassName = "io.vertx.core.Launcher"
@@ -43,6 +45,8 @@ dependencies {
     implementation("io.vertx:vertx-core")
     implementation("io.vertx:vertx-web")
     implementation("io.vertx:vertx-web-client")
+    implementation("io.vertx:vertx-web-validation")
+    implementation("io.vertx:vertx-json-schema")
     
     // Vert.x Config
     implementation("io.vertx:vertx-config")
@@ -71,7 +75,13 @@ dependencies {
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion")
     
     // BCrypt
-    implementation("at.favre.lib:bcrypt:$bcryptVersion")
+    implementation("org.mindrot:jbcrypt:$jbcryptVersion")
+    
+    // Lombok
+    compileOnly("org.projectlombok:lombok:$lombokVersion")
+    annotationProcessor("org.projectlombok:lombok:$lombokVersion")
+    testCompileOnly("org.projectlombok:lombok:$lombokVersion")
+    testAnnotationProcessor("org.projectlombok:lombok:$lombokVersion")
     
     // Test
     testImplementation("io.vertx:vertx-junit5")
