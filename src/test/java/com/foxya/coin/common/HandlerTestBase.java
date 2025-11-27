@@ -126,7 +126,10 @@ public class HandlerTestBase {
         
         flyway = Flyway.configure()
             .dataSource(jdbcUrl, user, password)
-            .locations("filesystem:src/test/resources/db/migration")
+            .locations(
+                "filesystem:src/test/resources/db/migration",
+                "filesystem:src/test/resources/db/seed"
+            )
             .cleanDisabled(false)
             .load();
     }
