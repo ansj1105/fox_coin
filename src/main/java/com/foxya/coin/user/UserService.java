@@ -48,13 +48,11 @@ public class UserService extends BaseService {
                     return Future.failedFuture(new UnauthorizedException("비밀번호가 일치하지 않습니다."));
                 }
                 
-                // JWT 토큰 생성
-                String token = jwtAuth.generateToken(
-                    new JsonObject()
-                        .put("userId", user.getId())
-                        .put("username", user.getUsername()),
-                    new io.vertx.ext.auth.jwt.JWTOptions()
-                        .setExpiresInSeconds(jwtConfig.getInteger("expiresInSeconds", 86400))
+                // JWT 토큰 생성 (기본 USER 권한)
+                String token = com.foxya.coin.common.utils.AuthUtils.generateAccessToken(
+                    jwtAuth,
+                    user.getId(),
+                    com.foxya.coin.common.enums.UserRole.USER
                 );
                 
                 return Future.succeededFuture(

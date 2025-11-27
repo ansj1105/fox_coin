@@ -16,6 +16,8 @@ public class ErrorHandler {
             statusCode = 400;
         } else if (failure instanceof UnauthorizedException) {
             statusCode = 401;
+        } else if (failure instanceof ForbiddenException) {
+            statusCode = 403;
         } else if (failure instanceof NotFoundException) {
             statusCode = 404;
         } else if (statusCode == -1) {

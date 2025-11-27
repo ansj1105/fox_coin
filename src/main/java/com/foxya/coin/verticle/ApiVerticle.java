@@ -59,10 +59,12 @@ public class ApiVerticle extends AbstractVerticle {
         CurrencyRepository currencyRepository = new CurrencyRepository();
         
         // Service 초기화
+        com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(pool, userRepository, jwtAuth, jwtConfig);
         UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
         
         // Handler 초기화
+        com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         
@@ -72,9 +74,16 @@ public class ApiVerticle extends AbstractVerticle {
         // 전역 핸들러
         setupGlobalHandlers(mainRouter);
         
-        // API 라우팅
+        // 공개 API (인증 불필요)
+        mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/users", userHandler.getRouter());
-        mainRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
+        
+        // JWT 인증이 필요한 API
+        Router protectedRouter = Router.router(vertx);
+        protectedRouter.route().handler(io.vertx.ext.web.handler.JWTAuthHandler.create(jwtAuth));
+        protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
+        
+        mainRouter.mountSubRouter("/", protectedRouter);
         
         // HTTP 서버 시작
         HttpServerOptions serverOptions = new HttpServerOptions().setCompressionSupported(true);
