@@ -13,13 +13,10 @@ import java.time.LocalDateTime;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class User {
     private Long id;
-    private String username;
-    private String email;
+    private String loginId;
     private String passwordHash;
-    private String phone;
-    private String status;
     private String referralCode;
-    private Long referredBy;
+    private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -35,10 +35,8 @@ public class AuthHandlerTest extends HandlerTestBase {
         @DisplayName("성공 - 정상 회원가입")
         void success(VertxTestContext tc) {
             JsonObject data = new JsonObject()
-                .put("username", "testuser")
-                .put("email", "test@example.com")
-                .put("password", "Test1234!@")
-                .put("phone", "010-1234-5678");
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@");
             
             reqPost(getUrl("/register"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
@@ -47,7 +45,7 @@ public class AuthHandlerTest extends HandlerTestBase {
                     
                     assertThat(dto.getAccessToken()).isNotNull();
                     assertThat(dto.getRefreshToken()).isNotNull();
-                    assertThat(dto.getUsername()).isEqualTo("testuser");
+                    assertThat(dto.getLoginId()).isEqualTo("testuser");
                     
                     tc.completeNow();
                 })));
@@ -58,10 +56,8 @@ public class AuthHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 비밀번호 형식 오류")
         void failInvalidPassword(VertxTestContext tc) {
             JsonObject data = new JsonObject()
-                .put("username", "testuser2")
-                .put("email", "test2@example.com")
-                .put("password", "weak")
-                .put("phone", "010-1234-5678");
+                .put("loginId", "testuser2")
+                .put("password", "weak");
             
             reqPost(getUrl("/register"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
@@ -80,7 +76,7 @@ public class AuthHandlerTest extends HandlerTestBase {
         @DisplayName("성공 - 정상 로그인")
         void success(VertxTestContext tc) {
             JsonObject data = new JsonObject()
-                .put("username", "testuser")
+                .put("loginId", "testuser")
                 .put("password", "Test1234!@");
             
             reqPost(getUrl("/login"))
@@ -90,7 +86,7 @@ public class AuthHandlerTest extends HandlerTestBase {
                     
                     assertThat(dto.getAccessToken()).isNotNull();
                     assertThat(dto.getRefreshToken()).isNotNull();
-                    assertThat(dto.getUsername()).isEqualTo("testuser");
+                    assertThat(dto.getLoginId()).isEqualTo("testuser");
                     
                     tc.completeNow();
                 })));
@@ -101,7 +97,7 @@ public class AuthHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 잘못된 비밀번호")
         void failWrongPassword(VertxTestContext tc) {
             JsonObject data = new JsonObject()
-                .put("username", "testuser")
+                .put("loginId", "testuser")
                 .put("password", "WrongPassword123!");
             
             reqPost(getUrl("/login"))

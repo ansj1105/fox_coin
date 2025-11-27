@@ -55,10 +55,8 @@ public class UserHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("username", stringSchema().with(minLength(3), maxLength(50)))
-                    .requiredProperty("email", emailSchema())
+                    .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", passwordSchema())
-                    .requiredProperty("phone", phoneSchema())
                     .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)))
                     .allowAdditionalProperties(false)
             ))
@@ -72,7 +70,7 @@ public class UserHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("username", stringSchema().with(minLength(3), maxLength(50)))
+                    .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", stringSchema().with(minLength(8), maxLength(20)))
                     .allowAdditionalProperties(false)
             ))

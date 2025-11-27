@@ -37,7 +37,7 @@ public class UserService extends BaseService {
     }
     
     public Future<LoginResponseDto> login(LoginDto dto) {
-        return userRepository.getUserByUsername(pool, dto.getUsername())
+        return userRepository.getUserByLoginId(pool, dto.getLoginId())
             .compose(user -> {
                 if (user == null) {
                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
@@ -49,7 +49,13 @@ public class UserService extends BaseService {
                 }
                 
                 // JWT 토큰 생성 (기본 USER 권한)
-                String token = com.foxya.coin.common.utils.AuthUtils.generateAccessToken(
+                String accessToken = com.foxya.coin.common.utils.AuthUtils.generateAccessToken(
+                    jwtAuth,
+                    user.getId(),
+                    com.foxya.coin.common.enums.UserRole.USER
+                );
+                
+                String refreshToken = com.foxya.coin.common.utils.AuthUtils.generateRefreshToken(
                     jwtAuth,
                     user.getId(),
                     com.foxya.coin.common.enums.UserRole.USER
@@ -57,9 +63,10 @@ public class UserService extends BaseService {
                 
                 return Future.succeededFuture(
                     LoginResponseDto.builder()
-                        .token(token)
+                        .accessToken(accessToken)
+                        .refreshToken(refreshToken)
                         .userId(user.getId())
-                        .username(user.getUsername())
+                        .loginId(user.getLoginId())
                         .build()
                 );
             });

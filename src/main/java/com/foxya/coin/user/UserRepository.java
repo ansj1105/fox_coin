@@ -17,13 +17,10 @@ public class UserRepository extends BaseRepository {
     
     private final RowMapper<User> userMapper = row -> User.builder()
         .id(getLongColumnValue(row, "id"))
-        .username(getStringColumnValue(row, "username"))
-        .email(getStringColumnValue(row, "email"))
+        .loginId(getStringColumnValue(row, "login_id"))
         .passwordHash(getStringColumnValue(row, "password_hash"))
-        .phone(getStringColumnValue(row, "phone"))
-        .status(getStringColumnValue(row, "status"))
         .referralCode(getStringColumnValue(row, "referral_code"))
-        .referredBy(getLongColumnValue(row, "referred_by"))
+        .status(getStringColumnValue(row, "status"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
@@ -35,15 +32,15 @@ public class UserRepository extends BaseRepository {
             .onFailure(throwable -> log.error("사용자 생성 실패: {}", throwable.getMessage()));
     }
     
-    public Future<User> getUserByUsername(SqlClient client, String username) {
+    public Future<User> getUserByLoginId(SqlClient client, String loginId) {
         String sql = QueryBuilder
             .select("users")
-            .where("username", Op.Equal, "username")
+            .where("login_id", Op.Equal, "login_id")
             .build();
         
-        return query(client, sql, Collections.singletonMap("username", username))
+        return query(client, sql, Collections.singletonMap("login_id", loginId))
             .map(rows -> fetchOne(userMapper, rows))
-            .onFailure(throwable -> log.error("사용자 조회 실패 - username: {}", username));
+            .onFailure(throwable -> log.error("사용자 조회 실패 - loginId: {}", loginId));
     }
     
     public Future<User> getUserById(SqlClient client, Long id) {
@@ -57,4 +54,3 @@ public class UserRepository extends BaseRepository {
             .onFailure(throwable -> log.error("사용자 조회 실패 - id: {}", id));
     }
 }
-
