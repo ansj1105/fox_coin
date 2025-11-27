@@ -11,13 +11,16 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class MainVerticle extends AbstractVerticle {
     
+    private final String configPath;
     private final String environment;
     
     public MainVerticle() {
+        this.configPath = null;
         this.environment = null;
     }
     
-    public MainVerticle(String environment) {
+    public MainVerticle(String configPath, String environment) {
+        this.configPath = configPath;
         this.environment = environment;
     }
     
@@ -25,10 +28,15 @@ public class MainVerticle extends AbstractVerticle {
     public void start(Promise<Void> startPromise) throws Exception {
         log.info("Starting MainVerticle...");
         
-        // 환경이 지정되어 있으면 해당 환경 로드, 아니면 기본 로드
-        Future<JsonObject> configFuture = (environment != null) 
-            ? ConfigLoader.loadForEnv(vertx, environment)
-            : ConfigLoader.load(vertx);
+        // 환경과 경로가 지정되어 있으면 해당 환경 로드, 아니면 기본 로드
+        Future<JsonObject> configFuture;
+        if (configPath != null && environment != null) {
+            configFuture = ConfigLoader.loadForEnv(vertx, configPath, environment);
+        } else if (environment != null) {
+            configFuture = ConfigLoader.loadForEnv(vertx, environment);
+        } else {
+            configFuture = ConfigLoader.load(vertx);
+        }
         
         configFuture
             .compose(config -> {

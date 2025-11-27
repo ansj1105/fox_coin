@@ -91,9 +91,9 @@ public class HandlerTestBase {
             // Flyway 설정
             configureFlyway(flywayConfig);
             
-            // MainVerticle 배포 (test 환경으로 명시적 지정)
+            // MainVerticle 배포 (test용 config.json과 test 환경 지정)
             vertx.deployVerticle(
-                new MainVerticle("test"),
+                new MainVerticle("src/test/resources/config.json", "test"),
                 testContext.succeedingThenComplete()
             );
         });

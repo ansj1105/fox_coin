@@ -44,19 +44,19 @@ public class ConfigLoader {
     }
     
     /**
-     * 테스트용: 특정 환경의 설정 로드
+     * 테스트용: 특정 파일과 환경의 설정 로드
      */
-    public static Future<JsonObject> loadForEnv(Vertx vertx, String env) {
+    public static Future<JsonObject> loadForEnv(Vertx vertx, String configPath, String env) {
         return vertx.fileSystem()
-            .readFile("src/main/resources/config.json")
+            .readFile(configPath)
             .map(buffer -> {
                 JsonObject fullConfig = new JsonObject(buffer.toString());
                 
-                log.info("Loading config for environment: {}", env);
+                log.info("Loading config for environment: {} from {}", env, configPath);
                 
                 JsonObject envConfig = fullConfig.getJsonObject(env);
                 if (envConfig == null) {
-                    throw new IllegalArgumentException("Environment '" + env + "' not found in config");
+                    throw new IllegalArgumentException("Environment '" + env + "' not found in config at " + configPath);
                 }
                 
                 envConfig.put("env", env);
@@ -64,7 +64,14 @@ public class ConfigLoader {
                 return envConfig;
             })
             .onSuccess(config -> log.info("Config loaded successfully for env: {}", env))
-            .onFailure(throwable -> log.error("Failed to load config for env: {}", env, throwable));
+            .onFailure(throwable -> log.error("Failed to load config for env: {} from {}", env, configPath, throwable));
+    }
+    
+    /**
+     * 테스트용: 특정 환경의 설정 로드 (기본 경로)
+     */
+    public static Future<JsonObject> loadForEnv(Vertx vertx, String env) {
+        return loadForEnv(vertx, "src/main/resources/config.json", env);
     }
 }
 

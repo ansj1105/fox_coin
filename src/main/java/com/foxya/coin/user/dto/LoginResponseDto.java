@@ -3,6 +3,7 @@ package com.foxya.coin.user.dto;
 import lombok.*;
 
 @Getter
+@NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class LoginResponseDto {
