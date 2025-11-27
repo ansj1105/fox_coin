@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Properties>
-        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+        <!-- 콘솔용 컬러 패턴 -->
+        <Property name="CONSOLE_LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight{[%t] %-5level}{FATAL=red blink, ERROR=red, WARN=yellow bold, INFO=green, DEBUG=cyan, TRACE=blue} %style{%logger{36}}{bright,cyan} - %msg%n</Property>
+        <!-- 파일용 일반 패턴 -->
+        <Property name="FILE_LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
         <Property name="LOG_PATH">logs</Property>
     </Properties>
 
     <Appenders>
-        <!-- Console Appender -->
+        <!-- Console Appender with Colors -->
         <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <PatternLayout pattern="${CONSOLE_LOG_PATTERN}" disableAnsi="false"/>
         </Console>
 
         <!-- Rolling File Appender -->
         <RollingFile name="RollingFile"
                      fileName="${LOG_PATH}/foxya-coin-service.log"
                      filePattern="${LOG_PATH}/foxya-coin-service-%d{yyyy-MM-dd}-%i.log.gz">
-            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <PatternLayout pattern="${FILE_LOG_PATTERN}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
                 <SizeBasedTriggeringPolicy size="100MB"/>
@@ -27,7 +30,7 @@
         <RollingFile name="ErrorFile"
                      fileName="${LOG_PATH}/error.log"
                      filePattern="${LOG_PATH}/error-%d{yyyy-MM-dd}-%i.log.gz">
-            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <PatternLayout pattern="${FILE_LOG_PATTERN}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
                 <SizeBasedTriggeringPolicy size="50MB"/>
