@@ -2,6 +2,8 @@ package com.foxya.coin;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
+import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import com.foxya.coin.config.ConfigLoader;
 import com.foxya.coin.verticle.ApiVerticle;
 import lombok.extern.slf4j.Slf4j;
@@ -9,11 +11,26 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class MainVerticle extends AbstractVerticle {
     
+    private final String environment;
+    
+    public MainVerticle() {
+        this.environment = null;
+    }
+    
+    public MainVerticle(String environment) {
+        this.environment = environment;
+    }
+    
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
         log.info("Starting MainVerticle...");
         
-        ConfigLoader.load(vertx)
+        // 환경이 지정되어 있으면 해당 환경 로드, 아니면 기본 로드
+        Future<JsonObject> configFuture = (environment != null) 
+            ? ConfigLoader.loadForEnv(vertx, environment)
+            : ConfigLoader.load(vertx);
+        
+        configFuture
             .compose(config -> {
                 // ApiVerticle 배포
                 return vertx.deployVerticle(
