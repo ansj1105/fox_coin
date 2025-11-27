@@ -41,7 +41,7 @@ public class UserHandlerTest extends HandlerTestBase {
                     User user = expectSuccessAndGetResponse(res, refUser);
                     
                     assertThat(user.getId()).isEqualTo(1L);
-                    assertThat(user.getUsername()).isNotNull();
+                    assertThat(user.getLoginId()).isNotNull();
                     
                     tc.completeNow();
                 })));

@@ -39,7 +39,7 @@ public class AuthService extends BaseService {
      * 로그인
      */
     public Future<LoginResponseDto> login(LoginDto dto) {
-        return userRepository.getUserByUsername(pool, dto.getUsername())
+        return userRepository.getUserByLoginId(pool, dto.getLoginId())
             .compose(user -> {
                 if (user == null) {
                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
@@ -59,7 +59,7 @@ public class AuthService extends BaseService {
                         .accessToken(accessToken)
                         .refreshToken(refreshToken)
                         .userId(user.getId())
-                        .username(user.getUsername())
+                        .loginId(user.getLoginId())
                         .build()
                 );
             });
@@ -84,7 +84,7 @@ public class AuthService extends BaseService {
                         .accessToken(accessToken)
                         .refreshToken(refreshToken)
                         .userId(user.getId())
-                        .username(user.getUsername())
+                        .loginId(user.getLoginId())
                         .build()
                 );
             });

@@ -56,13 +56,13 @@ public class HandlerTestBase {
         webClient = WebClient.create(vertx);
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
         
-        // config.json에서 test 환경 설정 로드
-        String configContent = vertx.fileSystem().readFileBlocking("src/main/resources/config.json").toString();
+        // test용 config.json에서 test 환경 설정 로드
+        String configContent = vertx.fileSystem().readFileBlocking("src/test/resources/config.json").toString();
         JsonObject fullConfig = new JsonObject(configContent);
         JsonObject config = fullConfig.getJsonObject("test");
         
         if (config == null) {
-            throw new IllegalStateException("Test environment config not found in config.json");
+            throw new IllegalStateException("Test environment config not found in src/test/resources/config.json");
         }
         
         JsonObject dbConfig = config.getJsonObject("database");
@@ -127,11 +127,13 @@ public class HandlerTestBase {
         flyway = Flyway.configure()
             .dataSource(jdbcUrl, user, password)
             .locations("filesystem:src/test/resources/db/migration")
+            .cleanDisabled(false)
             .load();
     }
     
     private void migration() {
-        log.debug("TEST migration");
+        log.debug("TEST migration - clean and migrate");
+        flyway.clean();  // 테스트마다 DB 초기화
         flyway.migrate();
     }
     

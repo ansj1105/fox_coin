@@ -31,42 +31,6 @@
       "password": ""
     }
   },
-  "test": {
-    "http": {
-      "port": 8089
-    },
-    "database": {
-      "host": "localhost",
-      "port": 5432,
-      "database": "coin_system_cloud",
-      "user": "an",
-      "password": "1234",
-      "pool_size": 5
-    },
-    "jwt": {
-      "secret": "test-secret-key-for-foxya-coin-service",
-      "access_token_expire_minutes": 30,
-      "refresh_token_expire_minutes": 14400
-    },
-    "flyway": {
-      "url": "jdbc:postgresql://localhost:5432/coin_system_cloud",
-      "user": "an",
-      "password": "1234"
-    },
-    "blockchain": {
-      "tron": {
-        "fullNode": "https://api.trongrid.io",
-        "solidityNode": "https://api.trongrid.io",
-        "eventServer": "https://api.trongrid.io",
-        "apiKey": ""
-      }
-    },
-    "redis": {
-      "host": "localhost",
-      "port": 6379,
-      "password": ""
-    }
-  },
   "prod": {
     "http": {
       "port": 8080
