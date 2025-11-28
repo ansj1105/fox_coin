@@ -14,6 +14,8 @@ import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.security.SecureRandom;
+
 @Slf4j
 public class UserService extends BaseService {
     
@@ -74,6 +76,68 @@ public class UserService extends BaseService {
     
     public Future<User> getUserById(Long id) {
         return userRepository.getUserById(pool, id);
+    }
+    
+    /**
+     * 레퍼럴 코드 생성 (6자리 영문+숫자)
+     */
+    public Future<JsonObject> generateReferralCode(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new BadRequestException("사용자를 찾을 수 없습니다."));
+                }
+                
+                if (user.getReferralCode() != null && !user.getReferralCode().isEmpty()) {
+                    return Future.failedFuture(new BadRequestException("이미 레퍼럴 코드가 존재합니다."));
+                }
+                
+                // 레퍼럴 코드 생성 (최대 10번 시도)
+                return generateUniqueReferralCode(0);
+            })
+            .compose(referralCode -> {
+                // 레퍼럴 코드 업데이트
+                return userRepository.updateReferralCode(pool, userId, referralCode)
+                    .map(updatedUser -> new JsonObject()
+                        .put("referralCode", referralCode)
+                        .put("userId", userId));
+            });
+    }
+    
+    /**
+     * 중복되지 않는 레퍼럴 코드 생성
+     */
+    private Future<String> generateUniqueReferralCode(int attempt) {
+        if (attempt >= 10) {
+            return Future.failedFuture(new BadRequestException("레퍼럴 코드 생성에 실패했습니다."));
+        }
+        
+        String referralCode = generateRandomCode(6);
+        
+        return userRepository.existsByReferralCode(pool, referralCode)
+            .compose(exists -> {
+                if (exists) {
+                    // 중복이면 재시도
+                    return generateUniqueReferralCode(attempt + 1);
+                } else {
+                    return Future.succeededFuture(referralCode);
+                }
+            });
+    }
+    
+    /**
+     * 랜덤 코드 생성 (영문 대문자 + 숫자)
+     */
+    private String generateRandomCode(int length) {
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        SecureRandom random = new SecureRandom();
+        StringBuilder code = new StringBuilder(length);
+        
+        for (int i = 0; i < length; i++) {
+            code.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        
+        return code.toString();
     }
 }
 

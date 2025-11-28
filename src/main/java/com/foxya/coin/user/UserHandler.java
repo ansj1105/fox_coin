@@ -43,8 +43,20 @@ public class UserHandler extends BaseHandler {
         // 공개 API (인증 불필요)
         router.post("/register").handler(registerValidation(parser)).handler(this::register);
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
-        router.post("/generate/referal-code").handler(this::);
+        
         // 인증 필요 API
+        // 본인 레퍼럴 코드 생성 (USER)
+        router.post("/generate/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::generateReferralCode);
+        
+        // ADMIN이 특정 유저에게 레퍼럴 코드 생성
+        router.post("/:id/generate/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.ADMIN))
+            .handler(this::generateReferralCodeForUser);
+        
         router.get("/:id")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.USER))
@@ -103,6 +115,25 @@ public class UserHandler extends BaseHandler {
     private void getUser(RoutingContext ctx) {
         Long id = Long.valueOf(ctx.pathParam("id"));
         response(ctx, userService.getUserById(id));
+    }
+    
+    /**
+     * 레퍼럴 코드 생성 (본인)
+     */
+    private void generateReferralCode(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Generating referral code for user: {}", userId);
+        response(ctx, userService.generateReferralCode(userId));
+    }
+    
+    /**
+     * 레퍼럴 코드 생성 (ADMIN이 특정 유저에게)
+     */
+    private void generateReferralCodeForUser(RoutingContext ctx) {
+        Long adminId = AuthUtils.getUserIdOf(ctx.user());
+        Long targetUserId = Long.valueOf(ctx.pathParam("id"));
+        log.info("Admin {} generating referral code for user: {}", adminId, targetUserId);
+        response(ctx, userService.generateReferralCode(targetUserId));
     }
 }
 

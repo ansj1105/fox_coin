@@ -48,9 +48,50 @@ public class UserRepository extends BaseRepository {
             .select("users")
             .whereById()
             .build();
-        
+
         return query(client, sql, Collections.singletonMap("id", id))
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 조회 실패 - id: {}", id));
+    }
+    
+    /**
+     * 레퍼럴 코드로 사용자 존재 여부 확인
+     */
+    public Future<Boolean> existsByReferralCode(SqlClient client, String referralCode) {
+        String sql = QueryBuilder
+            .select("users", "COUNT(*) as count")
+            .where("referral_code", Op.Equal, "referral_code")
+            .build();
+        
+        return query(client, sql, Collections.singletonMap("referral_code", referralCode))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Long count = getLongColumnValue(rows.iterator().next(), "count");
+                    return count != null && count > 0;
+                }
+                return false;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 코드 존재 여부 확인 실패: {}", referralCode));
+    }
+    
+    /**
+     * 레퍼럴 코드 업데이트
+     */
+    public Future<User> updateReferralCode(SqlClient client, Long userId, String referralCode) {
+        String sql = QueryBuilder
+            .update("users")
+            .set("referral_code", "referral_code")
+            .set("updated_at", "NOW()")
+            .whereById()
+            .returning("*")
+            .build();
+        
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("referral_code", referralCode);
+        
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("레퍼럴 코드 업데이트 실패 - userId: {}, referralCode: {}", userId, referralCode));
     }
 }
