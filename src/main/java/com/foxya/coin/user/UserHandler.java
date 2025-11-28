@@ -43,7 +43,7 @@ public class UserHandler extends BaseHandler {
         // 공개 API (인증 불필요)
         router.post("/register").handler(registerValidation(parser)).handler(this::register);
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
-        
+        router.post("/generate/referal-code").handler(this::);
         // 인증 필요 API
         router.get("/:id")
             .handler(JWTAuthHandler.create(jwtAuth))
