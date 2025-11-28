@@ -80,7 +80,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
         @Test
         @Order(3)
         @DisplayName("실패 - 존재하지 않는 레퍼럴 코드")
-        void failInvalidCode(VertxTestContext tc) {
+        void failInvalidCode2(VertxTestContext tc) {
             // blocked_user가 존재하지 않는 추천인 코드를 입력
             String accessToken = getAccessTokenOfUser(4L); // blocked_user (피추천인)
             

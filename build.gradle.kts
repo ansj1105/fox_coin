@@ -47,6 +47,7 @@ dependencies {
     implementation("io.vertx:vertx-web-client")
     implementation("io.vertx:vertx-web-validation")
     implementation("io.vertx:vertx-json-schema")
+    implementation("io.vertx:vertx-web-openapi")
     
     // Vert.x Config
     implementation("io.vertx:vertx-config")

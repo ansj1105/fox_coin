@@ -1,0 +1,404 @@
+openapi: 3.0.0
+info:
+  title: Foxya Coin Service API
+  description: 멀티체인 암호화폐 지갑 관리 및 레퍼럴 시스템 API
+  version: 1.0.0
+  contact:
+    name: Foxya Team
+
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+  - url: http://localhost:8089
+    description: Test Server
+
+tags:
+  - name: Auth
+    description: 인증 관련 API
+  - name: User
+    description: 사용자 관련 API
+  - name: Referral
+    description: 레퍼럴 관련 API
+  - name: Wallet
+    description: 지갑 관련 API
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [OK, ERROR]
+        message:
+          type: string
+        data:
+          type: object
+        code:
+          type: integer
+          
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ERROR
+        message:
+          type: string
+        code:
+          type: integer
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      tags: [System]
+      responses:
+        '200':
+          description: 서버 상태 정상
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+                  timestamp:
+                    type: integer
+                    format: int64
+
+  /api/v1/auth/register:
+    post:
+      summary: 회원가입
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - loginId
+                - password
+              properties:
+                loginId:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                  example: testuser
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 20
+                  example: Test1234!@
+      responses:
+        '200':
+          description: 회원가입 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+                          userId:
+                            type: integer
+                          loginId:
+                            type: string
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/login:
+    post:
+      summary: 로그인
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - loginId
+                - password
+              properties:
+                loginId:
+                  type: string
+                  example: testuser
+                password:
+                  type: string
+                  example: Test1234!@
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+                          userId:
+                            type: integer
+                          loginId:
+                            type: string
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/access-token:
+    get:
+      summary: Access Token 재발급
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 토큰 재발급 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+                          userId:
+                            type: integer
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/{id}:
+    get:
+      summary: 사용자 정보 조회
+      tags: [User]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 사용자 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          loginId:
+                            type: string
+                          referralCode:
+                            type: string
+                          status:
+                            type: string
+                          createdAt:
+                            type: string
+                            format: date-time
+        '401':
+          description: 인증 실패
+        '403':
+          description: 권한 없음
+
+  /api/v1/users/generate/referral-code:
+    post:
+      summary: 레퍼럴 코드 생성 (본인)
+      tags: [User]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 생성 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          referralCode:
+                            type: string
+                            example: ABC123
+                          userId:
+                            type: integer
+        '400':
+          description: 이미 레퍼럴 코드 존재
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/{id}/generate/referral-code:
+    post:
+      summary: 레퍼럴 코드 생성 (ADMIN이 특정 유저에게)
+      tags: [User]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 대상 사용자 ID
+      responses:
+        '200':
+          description: 생성 성공
+        '400':
+          description: 이미 레퍼럴 코드 존재
+        '401':
+          description: 인증 실패
+        '403':
+          description: 권한 없음 (ADMIN만 가능)
+
+  /api/v1/referrals/register:
+    post:
+      summary: 레퍼럴 코드 등록
+      description: 로그인한 유저가 다른 유저의 추천인 코드를 입력하여 피추천인이 됨
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - referralCode
+              properties:
+                referralCode:
+                  type: string
+                  minLength: 6
+                  maxLength: 20
+                  example: REFER123
+      responses:
+        '200':
+          description: 등록 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 잘못된 요청 (이미 등록됨, 유효하지 않은 코드, 자신의 코드)
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/:
+    delete:
+      summary: 레퍼럴 관계 삭제 (Soft Delete)
+      description: deleted_at을 현재 시간으로 업데이트. 데이터는 보존됨
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 삭제 성공
+        '400':
+          description: 등록된 레퍼럴 관계가 없음
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/hard:
+    delete:
+      summary: 레퍼럴 관계 완전 삭제 (Hard Delete)
+      description: 데이터베이스에서 완전히 삭제. 복구 불가능
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 삭제 성공
+        '400':
+          description: 레퍼럴 관계가 존재하지 않음
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/{id}/stats:
+    get:
+      summary: 레퍼럴 통계 조회
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 사용자 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          userId:
+                            type: integer
+                          directCount:
+                            type: integer
+                            description: 직접 추천한 총 인원 (모든 상태 포함, 삭제되지 않은 것만)
+                          activeTeamCount:
+                            type: integer
+                            description: ACTIVE 상태인 팀원 수 (삭제되지 않은 것만)
+                          totalReward:
+                            type: number
+                            format: decimal
+                            description: 총 리워드
+                          todayReward:
+                            type: number
+                            format: decimal
+                            description: 오늘 리워드 (미구현)
+        '401':
+          description: 인증 실패
+
