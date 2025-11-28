@@ -8,6 +8,7 @@ import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.auth.dto.LoginResponseDto;
+import com.foxya.coin.auth.dto.TokenResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class AuthHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<LoginResponseDto>> refLoginResponse = new TypeReference<>() {};
-    private final TypeReference<ApiResponse<JsonObject>> refJsonResponse = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<TokenResponseDto>> refTokenResponse = new TypeReference<>() {};
     
     public AuthHandlerTest() {
         super("/api/v1/auth");
@@ -122,10 +123,10 @@ public class AuthHandlerTest extends HandlerTestBase {
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     log.info("Access token refresh response: {}", res.bodyAsJsonObject());
-                    JsonObject dto = expectSuccessAndGetResponse(res, refJsonResponse);
+                    TokenResponseDto dto = expectSuccessAndGetResponse(res, refTokenResponse);
                     
-                    assertThat(dto.getString("accessToken")).isNotNull();
-                    assertThat(dto.getLong("userId")).isEqualTo(1L);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getUserId()).isEqualTo(1L);
                     
                     tc.completeNow();
                 })));

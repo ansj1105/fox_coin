@@ -15,6 +15,7 @@ import com.foxya.coin.auth.dto.LoginDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
 import com.foxya.coin.auth.dto.LoginResponseDto;
 import com.foxya.coin.auth.dto.ApiKeyResponseDto;
+import com.foxya.coin.auth.dto.TokenResponseDto;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
@@ -110,7 +111,7 @@ public class AuthService extends BaseService {
     /**
      * Access Token 재발급
      */
-    public Future<JsonObject> refreshAccessToken(Long userId, String role) {
+    public Future<TokenResponseDto> refreshAccessToken(Long userId, String role) {
         String accessToken = AuthUtils.generateAccessToken(
             jwtAuth, 
             userId, 
@@ -118,16 +119,17 @@ public class AuthService extends BaseService {
         );
         
         return Future.succeededFuture(
-            new JsonObject()
-                .put("accessToken", accessToken)
-                .put("userId", userId)
+            TokenResponseDto.builder()
+                .accessToken(accessToken)
+                .userId(userId)
+                .build()
         );
     }
     
     /**
      * Refresh Token 재발급
      */
-    public Future<JsonObject> refreshRefreshToken(Long userId, String role) {
+    public Future<TokenResponseDto> refreshRefreshToken(Long userId, String role) {
         String refreshToken = AuthUtils.generateRefreshToken(
             jwtAuth, 
             userId, 
@@ -135,9 +137,10 @@ public class AuthService extends BaseService {
         );
         
         return Future.succeededFuture(
-            new JsonObject()
-                .put("refreshToken", refreshToken)
-                .put("userId", userId)
+            TokenResponseDto.builder()
+                .refreshToken(refreshToken)
+                .userId(userId)
+                .build()
         );
     }
     
@@ -160,13 +163,11 @@ public class AuthService extends BaseService {
     /**
      * 로그아웃
      */
-    public Future<JsonObject> logout(Long userId) {
+    public Future<Void> logout(Long userId) {
         // TODO: Redis에 토큰 블랙리스트 추가
         
         log.info("User logged out: {}", userId);
-        return Future.succeededFuture(
-            new JsonObject().put("message", "로그아웃 되었습니다.")
-        );
+        return Future.succeededFuture();
     }
 }
 
