@@ -163,9 +163,10 @@ CREATE TABLE referral_stats_logs (
     today_reward DECIMAL(36, 18) DEFAULT 0 NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    today_signup_count INT DEFAULT 0 NOT NULL,
+    total_signup_count INT DEFAULT 0 NOT NULL,
     CONSTRAINT PK_referral_stats_logs PRIMARY KEY (id),
-    CONSTRAINT FK_ref_stats_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT UK_referral_stats_logs_user UNIQUE (user_id)
+    CONSTRAINT FK_ref_stats_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE referral_stats_logs IS '레퍼럴 통계 테이블';
@@ -174,6 +175,8 @@ COMMENT ON COLUMN referral_stats_logs.direct_count IS '직접 추천 수';
 COMMENT ON COLUMN referral_stats_logs.team_count IS '전체 팀원 수';
 COMMENT ON COLUMN referral_stats_logs.total_reward IS '총 리워드';
 COMMENT ON COLUMN referral_stats_logs.today_reward IS '오늘 리워드';
+COMMENT ON COLUMN referral_stats_logs.today_signup_count IS '오늘 가입자 수';
+COMMENT ON COLUMN referral_stats_logs.total_signup_count IS '총 가입자 수';
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

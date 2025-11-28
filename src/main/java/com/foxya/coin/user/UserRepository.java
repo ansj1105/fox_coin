@@ -56,6 +56,20 @@ public class UserRepository extends BaseRepository {
     }
     
     /**
+     * 레퍼럴 코드로 사용자 조회
+     */
+    public Future<User> getUserByReferralCode(SqlClient client, String referralCode) {
+        String sql = QueryBuilder
+            .select("users")
+            .where("referral_code", Op.Equal, "referral_code")
+            .build();
+
+        return query(client, sql, Collections.singletonMap("referral_code", referralCode))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 조회 실패 - referralCode: {}", referralCode));
+    }
+    
+    /**
      * 레퍼럴 코드로 사용자 존재 여부 확인
      */
     public Future<Boolean> existsByReferralCode(SqlClient client, String referralCode) {

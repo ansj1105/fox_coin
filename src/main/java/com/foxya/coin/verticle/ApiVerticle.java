@@ -20,6 +20,9 @@ import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
 import com.foxya.coin.common.utils.ErrorHandler;
 import com.foxya.coin.currency.CurrencyRepository;
+import com.foxya.coin.referral.ReferralHandler;
+import com.foxya.coin.referral.ReferralRepository;
+import com.foxya.coin.referral.ReferralService;
 import com.foxya.coin.user.UserHandler;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
@@ -57,16 +60,19 @@ public class ApiVerticle extends AbstractVerticle {
         UserRepository userRepository = new UserRepository();
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
+        ReferralRepository referralRepository = new ReferralRepository();
         
         // Service 초기화
         com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(pool, userRepository, jwtAuth, jwtConfig);
         UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
+        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
+        ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -84,6 +90,9 @@ public class ApiVerticle extends AbstractVerticle {
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         
         mainRouter.mountSubRouter("/", protectedRouter);
+        
+        // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
+        mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
         
         // HTTP 서버 시작
         HttpServerOptions serverOptions = new HttpServerOptions().setCompressionSupported(true);

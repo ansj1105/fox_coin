@@ -74,7 +74,6 @@ public class UserHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", passwordSchema())
-                    .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)))
                     .allowAdditionalProperties(false)
             ))
             .build();
