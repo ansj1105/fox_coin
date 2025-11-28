@@ -2,8 +2,10 @@ package com.foxya.coin.user;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.handler.JWTAuthHandler;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.ext.web.validation.builder.Parameters;
 import io.vertx.json.schema.SchemaParser;
@@ -24,10 +26,12 @@ import static com.foxya.coin.common.jsonschema.Schemas.*;
 public class UserHandler extends BaseHandler {
     
     private final UserService userService;
+    private final JWTAuth jwtAuth;
     
-    public UserHandler(Vertx vertx, UserService userService) {
+    public UserHandler(Vertx vertx, UserService userService, JWTAuth jwtAuth) {
         super(vertx);
         this.userService = userService;
+        this.jwtAuth = jwtAuth;
     }
     
     @Override
@@ -42,6 +46,7 @@ public class UserHandler extends BaseHandler {
         
         // 인증 필요 API
         router.get("/:id")
+            .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.USER))
             .handler(this::getUser);
         

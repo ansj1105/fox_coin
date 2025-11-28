@@ -65,7 +65,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
-        UserHandler userHandler = new UserHandler(vertx, userService);
+        UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         
         // Router 생성
