@@ -78,6 +78,28 @@ public class ReferralService extends BaseService {
     }
     
     /**
+     * 레퍼럴 관계 삭제
+     */
+    public Future<Void> deleteReferralRelation(Long userId) {
+        // 1. 레퍼럴 관계 조회
+        return referralRepository.getReferralRelationByReferredId(pool, userId)
+            .compose(relation -> {
+                if (relation == null) {
+                    return Future.failedFuture(new BadRequestException("등록된 레퍼럴 관계가 없습니다."));
+                }
+                
+                Long referrerId = relation.getReferrerId();
+                
+                // 2. 레퍼럴 관계 삭제
+                return referralRepository.deleteReferralRelation(pool, userId)
+                    .compose(v -> {
+                        // 3. 추천인의 통계 업데이트
+                        return updateReferrerStats(referrerId);
+                    });
+            });
+    }
+    
+    /**
      * 추천인의 통계 업데이트
      */
     private Future<Void> updateReferrerStats(Long referrerId) {

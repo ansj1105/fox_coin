@@ -44,24 +44,35 @@ public class ReferralHandlerTest extends HandlerTestBase {
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     log.info("Register referral code response: {}", res.bodyAsJsonObject());
                     assertThat(res.statusCode()).isEqualTo(200);
-                    tc.completeNow();
+                    
+                    // Order(2)를 위해 즉시 다시 등록 시도
+                    JsonObject data2 = new JsonObject()
+                        .put("referralCode", "ADMIN001"); // 다른 추천인 코드 입력 시도
+                    
+                    reqPost(getUrl("/register"))
+                        .bearerTokenAuthentication(accessToken)
+                        .sendJson(data2, tc.succeeding(res2 -> tc.verify(() -> {
+                            log.info("Second register attempt response: {}", res2.bodyAsJsonObject());
+                            expectError(res2, 400); // BadRequestException: 이미 레퍼럴 코드가 등록되어 있습니다
+                            tc.completeNow();
+                        })));
                 })));
         }
         
         @Test
         @Order(2)
-        @DisplayName("실패 - 이미 추천인이 등록된 경우")
-        void failAlreadyRegistered(VertxTestContext tc) {
-            // testuser2는 이미 Order(1)에서 referrer_user의 피추천인으로 등록됨
-            String accessToken = getAccessTokenOfUser(2L); // testuser2 (이미 추천인 등록됨)
+        @DisplayName("실패 - 존재하지 않는 레퍼럴 코드")
+        void failInvalidCode(VertxTestContext tc) {
+            // blocked_user가 존재하지 않는 추천인 코드를 입력
+            String accessToken = getAccessTokenOfUser(4L); // blocked_user (피추천인)
             
             JsonObject data = new JsonObject()
-                .put("referralCode", "ADMIN001"); // 다른 추천인 코드 입력 시도
+                .put("referralCode", "INVALID999"); // 존재하지 않는 추천인 코드
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(accessToken)
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
-                    expectError(res, 400); // BadRequestException: 이미 레퍼럴 코드가 등록되어 있습니다
+                    expectError(res, 400); // BadRequestException: 유효하지 않은 레퍼럴 코드
                     tc.completeNow();
                 })));
         }
@@ -118,11 +129,89 @@ public class ReferralHandlerTest extends HandlerTestBase {
     }
     
     @Nested
+    @DisplayName("레퍼럴 관계 삭제 테스트")
+    class DeleteReferralRelationTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - USER가 자신의 레퍼럴 관계 삭제")
+        void successDeleteByUser(VertxTestContext tc) {
+            // 먼저 testuser2가 referrer_user의 코드로 등록
+            String user2Token = getAccessTokenOfUser(2L);
+            JsonObject registerData = new JsonObject().put("referralCode", "REFER123");
+            
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(user2Token)
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 삭제
+                    reqDelete(getUrl("/"))
+                        .bearerTokenAuthentication(user2Token)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Delete referral relation response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("성공 - ADMIN이 자신의 레퍼럴 관계 삭제")
+        void successDeleteByAdmin(VertxTestContext tc) {
+            // 먼저 admin_user가 referrer_user의 코드로 등록
+            String adminToken = getAccessTokenOfAdmin(3L);
+            JsonObject registerData = new JsonObject().put("referralCode", "REFER123");
+            
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(adminToken)
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 삭제
+                    reqDelete(getUrl("/"))
+                        .bearerTokenAuthentication(adminToken)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Delete referral relation by admin response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(3)
+        @DisplayName("실패 - 등록된 레퍼럴 관계가 없는 경우")
+        void failNoRelation(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser (레퍼럴 관계 없음)
+            
+            reqDelete(getUrl("/"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400); // BadRequestException: 등록된 레퍼럴 관계가 없습니다
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(4)
+        @DisplayName("실패 - 인증 없이 삭제 시도")
+        void failNoAuth(VertxTestContext tc) {
+            reqDelete(getUrl("/"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401); // Unauthorized
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
     @DisplayName("레퍼럴 통계 조회 테스트")
     class GetReferralStatsTest {
         
         @Test
-        @Order(6)
+        @Order(5)
         @DisplayName("성공 - 추천인의 레퍼럴 통계 조회")
         void successGetStats(VertxTestContext tc) {
             // referrer_user의 통계 조회 (testuser2가 피추천인으로 등록되어 있음)
@@ -144,7 +233,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(7)
+        @Order(6)
         @DisplayName("성공 - 피추천인이 없는 사용자의 통계 조회")
         void successGetStatsNoReferrals(VertxTestContext tc) {
             // testuser는 아무도 추천하지 않음 (피추천인이 0명)
@@ -165,7 +254,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(8)
+        @Order(7)
         @DisplayName("실패 - 인증 없이 조회 시도")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/1/stats"))

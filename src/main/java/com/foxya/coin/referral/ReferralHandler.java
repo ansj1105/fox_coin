@@ -50,6 +50,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getReferralStats);
         
+        // 레퍼럴 관계 삭제
+        router.delete("/")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::deleteReferralRelation);
+        
         return router;
     }
     
@@ -88,6 +94,15 @@ public class ReferralHandler extends BaseHandler {
         Long userId = Long.valueOf(ctx.pathParam("id"));
         log.info("Getting referral stats for user: {}", userId);
         response(ctx, referralService.getReferralStats(userId));
+    }
+    
+    /**
+     * 레퍼럴 관계 삭제
+     */
+    private void deleteReferralRelation(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("User {} deleting referral relation", userId);
+        response(ctx, referralService.deleteReferralRelation(userId));
     }
 }
 

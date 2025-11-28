@@ -84,7 +84,7 @@ public class ReferralRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("referral_relations", "COUNT(*) as count")
             .where("referrer_id", Op.Equal, "referrer_id")
-            .where("level", Op.Equal, "level")
+            .andWhere("level", Op.Equal, "level")
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -109,7 +109,7 @@ public class ReferralRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("referral_relations", "COUNT(*) as count")
             .where("referrer_id", Op.Equal, "referrer_id")
-            .where("status", Op.Equal, "status")
+            .andWhere("status", Op.Equal, "status")
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -177,6 +177,34 @@ public class ReferralRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(statsMapper, rows))
             .onFailure(throwable -> log.error("레퍼럴 통계 업데이트 실패 - userId: {}", userId));
+    }
+    
+    /**
+     * 레퍼럴 관계 조회 (referred_id로)
+     */
+    public Future<ReferralRelation> getReferralRelationByReferredId(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .select("referral_relations")
+            .where("referred_id", Op.Equal, "referred_id")
+            .build();
+        
+        return query(client, sql, Collections.singletonMap("referred_id", referredId))
+            .map(rows -> fetchOne(relationMapper, rows))
+            .onFailure(throwable -> log.error("레퍼럴 관계 조회 실패 - referredId: {}", referredId));
+    }
+    
+    /**
+     * 레퍼럴 관계 삭제
+     */
+    public Future<Void> deleteReferralRelation(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .delete("referral_relations")
+            .where("referred_id", Op.Equal, "referred_id")
+            .build();
+        
+        return query(client, sql, Collections.singletonMap("referred_id", referredId))
+            .mapEmpty()
+            .onFailure(throwable -> log.error("레퍼럴 관계 삭제 실패 - referredId: {}", referredId));
     }
 }
 
