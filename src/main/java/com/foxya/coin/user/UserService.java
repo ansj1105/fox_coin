@@ -10,6 +10,7 @@ import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.LoginResponseDto;
+import com.foxya.coin.user.dto.ReferralCodeResponseDto;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
@@ -81,7 +82,7 @@ public class UserService extends BaseService {
     /**
      * 레퍼럴 코드 생성 (6자리 영문+숫자)
      */
-    public Future<JsonObject> generateReferralCode(Long userId) {
+    public Future<ReferralCodeResponseDto> generateReferralCode(Long userId) {
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null) {
@@ -98,9 +99,10 @@ public class UserService extends BaseService {
             .compose(referralCode -> {
                 // 레퍼럴 코드 업데이트
                 return userRepository.updateReferralCode(pool, userId, referralCode)
-                    .map(updatedUser -> new JsonObject()
-                        .put("referralCode", referralCode)
-                        .put("userId", userId));
+                    .map(updatedUser -> ReferralCodeResponseDto.builder()
+                        .referralCode(referralCode)
+                        .userId(userId)
+                        .build());
             });
     }
     

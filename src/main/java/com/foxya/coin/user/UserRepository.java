@@ -4,6 +4,7 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
+import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.utils.QueryBuilder;
@@ -79,16 +80,14 @@ public class UserRepository extends BaseRepository {
      */
     public Future<User> updateReferralCode(SqlClient client, Long userId, String referralCode) {
         String sql = QueryBuilder
-            .update("users")
-            .set("referral_code", "referral_code")
-            .set("updated_at", "NOW()")
+            .update("users", "referral_code", "updated_at")
             .whereById()
-            .returning("*")
-            .build();
+            .returning("*");
         
         java.util.Map<String, Object> params = new java.util.HashMap<>();
         params.put("id", userId);
         params.put("referral_code", referralCode);
+        params.put("updated_at", DateUtils.now());
         
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))

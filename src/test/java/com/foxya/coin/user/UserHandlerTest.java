@@ -6,6 +6,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
+import com.foxya.coin.user.dto.ReferralCodeResponseDto;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
@@ -19,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class UserHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<User>> refUser = new TypeReference<>() {};
-    private final TypeReference<ApiResponse<JsonObject>> refJsonResponse = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<ReferralCodeResponseDto>> refReferralCodeResponse = new TypeReference<>() {};
     
     public UserHandlerTest() {
         super("/api/v1/users");
@@ -92,11 +93,11 @@ public class UserHandlerTest extends HandlerTestBase {
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     log.info("Generate referral code response: {}", res.bodyAsJsonObject());
-                    JsonObject data = expectSuccessAndGetResponse(res, refJsonResponse);
+                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
                     
-                    assertThat(data.getString("referralCode")).isNotNull();
-                    assertThat(data.getString("referralCode")).hasSize(6);
-                    assertThat(data.getLong("userId")).isEqualTo(2L);
+                    assertThat(data.getReferralCode()).isNotNull();
+                    assertThat(data.getReferralCode()).hasSize(6);
+                    assertThat(data.getUserId()).isEqualTo(2L);
                     
                     tc.completeNow();
                 })));
@@ -126,11 +127,11 @@ public class UserHandlerTest extends HandlerTestBase {
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     log.info("Admin generate referral code response: {}", res.bodyAsJsonObject());
-                    JsonObject data = expectSuccessAndGetResponse(res, refJsonResponse);
+                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
                     
-                    assertThat(data.getString("referralCode")).isNotNull();
-                    assertThat(data.getString("referralCode")).hasSize(6);
-                    assertThat(data.getLong("userId")).isEqualTo(4L);
+                    assertThat(data.getReferralCode()).isNotNull();
+                    assertThat(data.getReferralCode()).hasSize(6);
+                    assertThat(data.getUserId()).isEqualTo(4L);
                     
                     tc.completeNow();
                 })));

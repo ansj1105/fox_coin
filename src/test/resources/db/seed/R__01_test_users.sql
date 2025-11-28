@@ -12,9 +12,9 @@ DELETE FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blo
 INSERT INTO users (login_id, password_hash, referral_code, status, created_at, updated_at)
 VALUES 
     -- testuser: 일반 사용자
-    ('testuser', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', 'REF001', 'ACTIVE', NOW(), NOW()),
+    ('testuser', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', NULL , 'ACTIVE', NOW(), NOW()),
     -- testuser2: 추가 테스트 사용자  
-    ('testuser2', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', 'REF002', 'ACTIVE', NOW(), NOW()),
+    ('testuser2', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', NULL , 'ACTIVE', NOW(), NOW()),
     -- admin_user: 관리자
     ('admin_user', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', 'ADMIN001', 'ACTIVE', NOW(), NOW()),
     -- blocked_user: 차단된 사용자
