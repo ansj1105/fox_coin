@@ -50,11 +50,17 @@ public class ReferralHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getReferralStats);
         
-        // 레퍼럴 관계 삭제
+        // 레퍼럴 관계 삭제 (Soft Delete)
         router.delete("/")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::deleteReferralRelation);
+        
+        // 레퍼럴 관계 완전 삭제 (Hard Delete)
+        router.delete("/hard")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::hardDeleteReferralRelation);
         
         return router;
     }
@@ -97,12 +103,21 @@ public class ReferralHandler extends BaseHandler {
     }
     
     /**
-     * 레퍼럴 관계 삭제
+     * 레퍼럴 관계 삭제 (Soft Delete)
      */
     private void deleteReferralRelation(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
-        log.info("User {} deleting referral relation", userId);
+        log.info("User {} soft deleting referral relation", userId);
         response(ctx, referralService.deleteReferralRelation(userId));
+    }
+    
+    /**
+     * 레퍼럴 관계 완전 삭제 (Hard Delete)
+     */
+    private void hardDeleteReferralRelation(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("User {} hard deleting referral relation", userId);
+        response(ctx, referralService.hardDeleteReferralRelation(userId));
     }
 }
 

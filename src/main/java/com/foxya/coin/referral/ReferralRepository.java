@@ -58,12 +58,13 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 레퍼럴 관계 존재 여부 확인
+     * 레퍼럴 관계 존재 여부 확인 (삭제되지 않은 것만)
      */
     public Future<Boolean> existsReferralRelation(SqlClient client, Long referredId) {
         String sql = QueryBuilder
             .select("referral_relations", "COUNT(*) as count")
             .where("referred_id", Op.Equal, "referred_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
@@ -78,13 +79,14 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 직접 추천 수 조회 (모든 상태 포함)
+     * 직접 추천 수 조회 (삭제되지 않은 것만, 모든 상태 포함)
      */
     public Future<Integer> getDirectReferralCount(SqlClient client, Long userId) {
         String sql = QueryBuilder
             .select("referral_relations", "COUNT(*) as count")
             .where("referrer_id", Op.Equal, "referrer_id")
             .andWhere("level", Op.Equal, "level")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -103,13 +105,14 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 전체 팀원 수 조회 (ACTIVE 상태만)
+     * 전체 팀원 수 조회 (삭제되지 않고 ACTIVE 상태만)
      */
     public Future<Integer> getActiveTeamCount(SqlClient client, Long userId) {
         String sql = QueryBuilder
             .select("referral_relations", "COUNT(*) as count")
             .where("referrer_id", Op.Equal, "referrer_id")
             .andWhere("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -180,12 +183,13 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 레퍼럴 관계 조회 (referred_id로)
+     * 레퍼럴 관계 조회 (referred_id로, 삭제되지 않은 것만)
      */
     public Future<ReferralRelation> getReferralRelationByReferredId(SqlClient client, Long referredId) {
         String sql = QueryBuilder
             .select("referral_relations")
             .where("referred_id", Op.Equal, "referred_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
@@ -194,17 +198,50 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 레퍼럴 관계 삭제
+     * 레퍼럴 관계 조회 (referred_id로, 삭제된 것도 포함)
+     */
+    public Future<ReferralRelation> getReferralRelationByReferredIdIncludingDeleted(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .select("referral_relations")
+            .where("referred_id", Op.Equal, "referred_id")
+            .build();
+        
+        return query(client, sql, Collections.singletonMap("referred_id", referredId))
+            .map(rows -> fetchOne(relationMapper, rows))
+            .onFailure(throwable -> log.error("레퍼럴 관계 조회 실패 (삭제 포함) - referredId: {}", referredId));
+    }
+    
+    /**
+     * 레퍼럴 관계 삭제 (Soft Delete)
      */
     public Future<Void> deleteReferralRelation(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .update("referral_relations", "deleted_at")
+            .where("referred_id", Op.Equal, "referred_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("referred_id", referredId);
+        params.put("deleted_at", DateUtils.now());
+        
+        return query(client, sql, params)
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("레퍼럴 관계 삭제 실패 - referredId: {}", referredId));
+    }
+    
+    /**
+     * 레퍼럴 관계 완전 삭제 (Hard Delete)
+     */
+    public Future<Void> hardDeleteReferralRelation(SqlClient client, Long referredId) {
         String sql = QueryBuilder
             .delete("referral_relations")
             .where("referred_id", Op.Equal, "referred_id")
             .build();
         
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
-            .mapEmpty()
-            .onFailure(throwable -> log.error("레퍼럴 관계 삭제 실패 - referredId: {}", referredId));
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("레퍼럴 관계 완전 삭제 실패 - referredId: {}", referredId));
     }
 }
 

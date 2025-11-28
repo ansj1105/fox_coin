@@ -78,7 +78,7 @@ public class ReferralService extends BaseService {
     }
     
     /**
-     * 레퍼럴 관계 삭제
+     * 레퍼럴 관계 삭제 (Soft Delete)
      */
     public Future<Void> deleteReferralRelation(Long userId) {
         // 1. 레퍼럴 관계 조회
@@ -90,8 +90,30 @@ public class ReferralService extends BaseService {
                 
                 Long referrerId = relation.getReferrerId();
                 
-                // 2. 레퍼럴 관계 삭제
+                // 2. 레퍼럴 관계 삭제 (Soft Delete)
                 return referralRepository.deleteReferralRelation(pool, userId)
+                    .compose(v -> {
+                        // 3. 추천인의 통계 업데이트
+                        return updateReferrerStats(referrerId);
+                    });
+            });
+    }
+    
+    /**
+     * 레퍼럴 관계 완전 삭제 (Hard Delete)
+     */
+    public Future<Void> hardDeleteReferralRelation(Long userId) {
+        // 1. 레퍼럴 관계 조회 (삭제된 것도 포함하기 위해 직접 조회)
+        return referralRepository.getReferralRelationByReferredIdIncludingDeleted(pool, userId)
+            .compose(relation -> {
+                if (relation == null) {
+                    return Future.failedFuture(new BadRequestException("레퍼럴 관계가 존재하지 않습니다."));
+                }
+                
+                Long referrerId = relation.getReferrerId();
+                
+                // 2. 레퍼럴 관계 완전 삭제 (Hard Delete)
+                return referralRepository.hardDeleteReferralRelation(pool, userId)
                     .compose(v -> {
                         // 3. 추천인의 통계 업데이트
                         return updateReferrerStats(referrerId);

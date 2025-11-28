@@ -129,8 +129,8 @@ public class ReferralHandlerTest extends HandlerTestBase {
     }
     
     @Nested
-    @DisplayName("레퍼럴 관계 삭제 테스트")
-    class DeleteReferralRelationTest {
+    @DisplayName("레퍼럴 관계 Soft Delete 테스트")
+    class SoftDeleteReferralRelationTest {
         
         @Test
         @Order(1)
@@ -207,11 +207,120 @@ public class ReferralHandlerTest extends HandlerTestBase {
     }
     
     @Nested
+    @DisplayName("레퍼럴 관계 Hard Delete 테스트")
+    class HardDeleteReferralRelationTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - USER가 자신의 레퍼럴 관계 완전 삭제")
+        void successHardDeleteByUser(VertxTestContext tc) {
+            // 먼저 testuser2가 referrer_user의 코드로 등록
+            String user2Token = getAccessTokenOfUser(2L);
+            JsonObject registerData = new JsonObject().put("referralCode", "REFER123");
+            
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(user2Token)
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 완전 삭제
+                    reqDelete(getUrl("/hard"))
+                        .bearerTokenAuthentication(user2Token)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Hard delete referral relation response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("성공 - ADMIN이 자신의 레퍼럴 관계 완전 삭제")
+        void successHardDeleteByAdmin(VertxTestContext tc) {
+            // 먼저 admin_user가 referrer_user의 코드로 등록
+            String adminToken = getAccessTokenOfAdmin(3L);
+            JsonObject registerData = new JsonObject().put("referralCode", "REFER123");
+            
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(adminToken)
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 완전 삭제
+                    reqDelete(getUrl("/hard"))
+                        .bearerTokenAuthentication(adminToken)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Hard delete referral relation by admin response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(3)
+        @DisplayName("성공 - Soft Delete된 관계도 Hard Delete 가능")
+        void successHardDeleteAfterSoftDelete(VertxTestContext tc) {
+            // 먼저 blocked_user가 referrer_user의 코드로 등록
+            String blockedToken = getAccessTokenOfUser(4L);
+            JsonObject registerData = new JsonObject().put("referralCode", "REFER123");
+            
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(blockedToken)
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // Soft Delete
+                    reqDelete(getUrl("/"))
+                        .bearerTokenAuthentication(blockedToken)
+                        .send(tc.succeeding(softDeleteRes -> tc.verify(() -> {
+                            assertThat(softDeleteRes.statusCode()).isEqualTo(200);
+                            
+                            // Hard Delete
+                            reqDelete(getUrl("/hard"))
+                                .bearerTokenAuthentication(blockedToken)
+                                .send(tc.succeeding(hardDeleteRes -> tc.verify(() -> {
+                                    log.info("Hard delete after soft delete response: {}", hardDeleteRes.bodyAsJsonObject());
+                                    assertThat(hardDeleteRes.statusCode()).isEqualTo(200);
+                                    tc.completeNow();
+                                })));
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(4)
+        @DisplayName("실패 - 레퍼럴 관계가 없는 경우")
+        void failNoRelation(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser (레퍼럴 관계 없음)
+            
+            reqDelete(getUrl("/hard"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400); // BadRequestException: 레퍼럴 관계가 존재하지 않습니다
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(5)
+        @DisplayName("실패 - 인증 없이 삭제 시도")
+        void failNoAuth(VertxTestContext tc) {
+            reqDelete(getUrl("/hard"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401); // Unauthorized
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
     @DisplayName("레퍼럴 통계 조회 테스트")
     class GetReferralStatsTest {
         
         @Test
-        @Order(5)
+        @Order(6)
         @DisplayName("성공 - 추천인의 레퍼럴 통계 조회")
         void successGetStats(VertxTestContext tc) {
             // referrer_user의 통계 조회 (testuser2가 피추천인으로 등록되어 있음)
@@ -233,7 +342,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(6)
+        @Order(7)
         @DisplayName("성공 - 피추천인이 없는 사용자의 통계 조회")
         void successGetStatsNoReferrals(VertxTestContext tc) {
             // testuser는 아무도 추천하지 않음 (피추천인이 0명)
@@ -254,7 +363,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(7)
+        @Order(8)
         @DisplayName("실패 - 인증 없이 조회 시도")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/1/stats"))
