@@ -84,15 +84,15 @@ public class ApiVerticle extends AbstractVerticle {
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/users", userHandler.getRouter());
         
+        // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
+        mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
+        
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);
         protectedRouter.route().handler(io.vertx.ext.web.handler.JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         
         mainRouter.mountSubRouter("/", protectedRouter);
-        
-        // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
-        mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
         
         // HTTP 서버 시작
         HttpServerOptions serverOptions = new HttpServerOptions().setCompressionSupported(true);
@@ -169,6 +169,68 @@ public class ApiVerticle extends AbstractVerticle {
                     .put("status", "UP")
                     .put("timestamp", System.currentTimeMillis())));
         });
+        
+        // Swagger UI
+        router.get("/api-docs").handler(ctx -> {
+            ctx.response()
+                .putHeader("Content-Type", "text/html; charset=utf-8")
+                .end(getSwaggerHtml());
+        });
+        
+        // OpenAPI Spec
+        router.get("/openapi.yaml").handler(ctx -> {
+            vertx.fileSystem().readFile("src/main/resources/openapi.yaml", result -> {
+                if (result.succeeded()) {
+                    ctx.response()
+                        .putHeader("Content-Type", "application/x-yaml; charset=utf-8")
+                        .end(result.result());
+                } else {
+                    ctx.response()
+                        .setStatusCode(404)
+                        .end("OpenAPI spec not found");
+                }
+            });
+        });
+    }
+    
+    private String getSwaggerHtml() {
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>Foxya Coin Service API Documentation</title>
+                <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.10.0/swagger-ui.css">
+                <style>
+                    html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+                    *, *:before, *:after { box-sizing: inherit; }
+                    body { margin:0; padding:0; }
+                </style>
+            </head>
+            <body>
+                <div id="swagger-ui"></div>
+                <script src="https://unpkg.com/swagger-ui-dist@5.10.0/swagger-ui-bundle.js"></script>
+                <script src="https://unpkg.com/swagger-ui-dist@5.10.0/swagger-ui-standalone-preset.js"></script>
+                <script>
+                window.onload = function() {
+                    window.ui = SwaggerUIBundle({
+                        url: "/openapi.yaml",
+                        dom_id: '#swagger-ui',
+                        deepLinking: true,
+                        presets: [
+                            SwaggerUIBundle.presets.apis,
+                            SwaggerUIStandalonePreset
+                        ],
+                        plugins: [
+                            SwaggerUIBundle.plugins.DownloadUrl
+                        ],
+                        layout: "StandaloneLayout"
+                    });
+                };
+                </script>
+            </body>
+            </html>
+            """;
     }
 }
 
