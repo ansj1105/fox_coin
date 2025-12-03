@@ -23,6 +23,7 @@ val jbcryptVersion = "0.4"
 val postgresqlVersion = "42.7.1"
 val assertjVersion = "3.25.1"
 val lombokVersion = "1.18.30"
+val mockitoVersion = "5.8.0"
 
 val mainVerticleName = "com.foxya.coin.MainVerticle"
 val launcherClassName = "io.vertx.core.Launcher"
@@ -91,6 +92,8 @@ dependencies {
     testImplementation("io.vertx:vertx-junit5")
     testImplementation("org.junit.jupiter:junit-jupiter:$junitVersion")
     testImplementation("org.assertj:assertj-core:$assertjVersion")
+    testImplementation("org.mockito:mockito-core:$mockitoVersion")
+    testImplementation("org.mockito:mockito-junit-jupiter:$mockitoVersion")
 }
 
 tasks.withType<ShadowJar> {
