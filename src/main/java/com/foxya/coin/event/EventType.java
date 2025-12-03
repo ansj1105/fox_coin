@@ -1,4 +1,8 @@
 package com.foxya.coin.event;
+import lombok.Getter;
+
+
+@Getter
 
 /**
  * 이벤트 타입 정의
