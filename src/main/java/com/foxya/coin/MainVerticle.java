@@ -6,6 +6,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import com.foxya.coin.config.ConfigLoader;
 import com.foxya.coin.verticle.ApiVerticle;
+import com.foxya.coin.verticle.EventVerticle;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -40,11 +41,19 @@ public class MainVerticle extends AbstractVerticle {
         
         configFuture
             .compose(config -> {
-                // ApiVerticle 배포
+                // EventVerticle 배포
                 return vertx.deployVerticle(
-                    new ApiVerticle(),
+                    new EventVerticle(),
                     new io.vertx.core.DeploymentOptions().setConfig(config)
-                );
+                ).compose(eventVerticleId -> {
+                    log.info("EventVerticle deployed successfully with ID: {}", eventVerticleId);
+                    
+                    // ApiVerticle 배포
+                    return vertx.deployVerticle(
+                        new ApiVerticle(),
+                        new io.vertx.core.DeploymentOptions().setConfig(config)
+                    );
+                });
             })
             .onSuccess(id -> {
                 log.info("ApiVerticle deployed successfully with ID: {}", id);

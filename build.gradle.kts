@@ -59,6 +59,9 @@ dependencies {
     // Vert.x Auth JWT
     implementation("io.vertx:vertx-auth-jwt")
     
+    // Vert.x Redis Client
+    implementation("io.vertx:vertx-redis-client")
+    
     // PostgreSQL JDBC (Flyway용)
     implementation("org.postgresql:postgresql:$postgresqlVersion")
     
