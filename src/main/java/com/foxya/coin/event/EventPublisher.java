@@ -45,7 +45,7 @@ public class EventPublisher {
             
             // Redis Pub/Sub으로 발행
             return redis.publish(eventType.getChannel(), eventJson)
-                .map(response -> {
+                .<Void>map(response -> {
                     log.info("Event published: {} to channel: {}", event.getId(), eventType.getChannel());
                     return null;
                 })
@@ -116,7 +116,7 @@ public class EventPublisher {
                 delayedKey,
                 String.valueOf(executeAt),
                 eventJson
-            )).map(response -> {
+            )).<Void>map(response -> {
                 log.info("Delayed event added: {} to execute at: {}", event.getId(), executeAt);
                 return null;
             }).onFailure(throwable -> log.error("Failed to add delayed event: {}", event.getId(), throwable));

@@ -3,7 +3,10 @@ package com.foxya.coin.event;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.redis.client.Redis;
 import io.vertx.redis.client.RedisAPI;
+import io.vertx.redis.client.RedisConnection;
 import io.vertx.redis.client.Response;
 import lombok.extern.slf4j.Slf4j;
 
@@ -26,15 +29,13 @@ public class EventSubscriber {
     }
     
     /**
-     * 이벤트 구독 (Pub/Sub)
+     * 이벤트 구독 (Pub/Sub) - 별도의 연결 필요
      */
-    public Future<Void> subscribe(EventType eventType, Consumer<Event> handler) {
-        return redis.subscribe(List.of(eventType.getChannel()))
-            .onSuccess(response -> {
-                log.info("Subscribed to channel: {}", eventType.getChannel());
-                
-                // 메시지 수신 핸들러 등록
-                redis.handler(message -> {
+    public Future<Void> subscribe(Vertx vertx, Redis redisClient, EventType eventType, Consumer<Event> handler) {
+        return redisClient.connect()
+            .compose(conn -> {
+                // 메시지 핸들러 등록
+                conn.handler(message -> {
                     if (message != null && message.size() >= 3) {
                         String messageType = message.get(0).toString();
                         if ("message".equals(messageType)) {
@@ -49,9 +50,15 @@ public class EventSubscriber {
                         }
                     }
                 });
+                
+                // 구독
+                return conn.send(io.vertx.redis.client.Request.cmd(io.vertx.redis.client.Command.SUBSCRIBE).arg(eventType.getChannel()));
             })
-            .onFailure(throwable -> log.error("Failed to subscribe to channel: {}", eventType.getChannel(), throwable))
-            .mapEmpty();
+            .<Void>map(response -> {
+                log.info("Subscribed to channel: {}", eventType.getChannel());
+                return null;
+            })
+            .onFailure(throwable -> log.error("Failed to subscribe to channel: {}", eventType.getChannel(), throwable));
     }
     
     /**
@@ -61,7 +68,7 @@ public class EventSubscriber {
         String streamKey = "events:" + eventType.getChannel();
         
         // Consumer Group 생성 (이미 존재하면 무시)
-        return redis.xgroupCreate(List.of(streamKey, consumerGroup, "0", "MKSTREAM"))
+        return redis.xgroup(List.of("CREATE", streamKey, consumerGroup, "0", "MKSTREAM"))
             .recover(throwable -> {
                 // 이미 존재하는 경우 무시
                 log.debug("Consumer group already exists or error: {}", throwable.getMessage());
@@ -151,8 +158,7 @@ public class EventSubscriber {
                     }
                 }
             }
-            return Future.succeededFuture();
+            return Future.<Void>succeededFuture();
         }).onFailure(throwable -> log.error("Failed to process delayed events", throwable));
     }
 }
-

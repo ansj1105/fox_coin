@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 public class EventVerticle extends AbstractVerticle {
     
     private Redis redisClient;
+    private Redis subscriberClient;
     private RedisAPI redisApi;
     private EventPublisher eventPublisher;
     private EventSubscriber eventSubscriber;
@@ -39,6 +40,7 @@ public class EventVerticle extends AbstractVerticle {
         }
         
         redisClient = Redis.createClient(vertx, options);
+        subscriberClient = Redis.createClient(vertx, options); // Pub/Sub 전용
         
         redisClient.connect()
             .onSuccess(conn -> {
@@ -67,19 +69,22 @@ public class EventVerticle extends AbstractVerticle {
      * 이벤트 구독
      */
     private void subscribeToEvents() {
-        // 트랜잭션 이벤트 구독
-        eventSubscriber.subscribe(EventType.TRANSACTION_PENDING, this::handleTransactionPending);
-        eventSubscriber.subscribe(EventType.TRANSACTION_CONFIRMED, this::handleTransactionConfirmed);
-        eventSubscriber.subscribe(EventType.TRANSACTION_FAILED, this::handleTransactionFailed);
+        // 트랜잭션 이벤트 구독 (Pub/Sub)
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.TRANSACTION_PENDING, this::handleTransactionPending);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.TRANSACTION_CONFIRMED, this::handleTransactionConfirmed);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.TRANSACTION_FAILED, this::handleTransactionFailed);
         
         // 출금 이벤트 구독
-        eventSubscriber.subscribe(EventType.WITHDRAWAL_REQUESTED, this::handleWithdrawalRequested);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.WITHDRAWAL_REQUESTED, this::handleWithdrawalRequested);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.WITHDRAWAL_COMPLETED, this::handleWithdrawalCompleted);
         
         // 입금 이벤트 구독
-        eventSubscriber.subscribe(EventType.DEPOSIT_DETECTED, this::handleDepositDetected);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.DEPOSIT_DETECTED, this::handleDepositDetected);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.DEPOSIT_CONFIRMED, this::handleDepositConfirmed);
         
         // 레퍼럴 이벤트 구독
-        eventSubscriber.subscribe(EventType.REFERRAL_REGISTERED, this::handleReferralRegistered);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.REFERRAL_REGISTERED, this::handleReferralRegistered);
+        eventSubscriber.subscribe(vertx, subscriberClient, EventType.REFERRAL_REWARD, this::handleReferralReward);
         
         log.info("Event subscriptions initialized");
     }
@@ -122,10 +127,20 @@ public class EventVerticle extends AbstractVerticle {
         // TODO: 블록체인 트랜잭션 생성
     }
     
+    private void handleWithdrawalCompleted(Event event) {
+        log.info("Handling WITHDRAWAL_COMPLETED: {}", event.getPayload());
+        // TODO: 출금 완료 처리
+    }
+    
     private void handleDepositDetected(Event event) {
         log.info("Handling DEPOSIT_DETECTED: {}", event.getPayload());
         // TODO: 입금 확인 대기
         // TODO: 확인 후 지갑 잔액 업데이트
+    }
+    
+    private void handleDepositConfirmed(Event event) {
+        log.info("Handling DEPOSIT_CONFIRMED: {}", event.getPayload());
+        // TODO: 입금 확인 완료 처리
     }
     
     private void handleReferralRegistered(Event event) {
@@ -134,9 +149,21 @@ public class EventVerticle extends AbstractVerticle {
         // TODO: 리워드 지급
     }
     
+    private void handleReferralReward(Event event) {
+        log.info("Handling REFERRAL_REWARD: {}", event.getPayload());
+        // TODO: 리워드 지급 처리
+    }
+    
     private void handleDelayedEvent(Event event) {
         log.info("Handling DELAYED_EVENT: {} - {}", event.getType(), event.getPayload());
-        // TODO: 지연 이벤트 처리
+        // 이벤트 타입에 따라 처리
+        if (event.getType() != null) {
+            switch (event.getType()) {
+                case TRANSACTION_PENDING -> handleTransactionPending(event);
+                case WITHDRAWAL_REQUESTED -> handleWithdrawalRequested(event);
+                default -> log.warn("Unknown delayed event type: {}", event.getType());
+            }
+        }
     }
     
     @Override
@@ -145,6 +172,9 @@ public class EventVerticle extends AbstractVerticle {
         
         if (redisClient != null) {
             redisClient.close();
+        }
+        if (subscriberClient != null) {
+            subscriberClient.close();
         }
         
         stopPromise.complete();
@@ -158,4 +188,3 @@ public class EventVerticle extends AbstractVerticle {
         return eventSubscriber;
     }
 }
-
