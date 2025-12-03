@@ -123,7 +123,8 @@ public class UserHandlerTest extends HandlerTestBase {
         void successAdminGenerateForUser(VertxTestContext tc) {
             String accessToken = getAccessTokenOfAdmin(3L); // admin_user
             
-            reqPost(getUrl("/4/generate/referral-code")) // blocked_user에게 생성
+            // no_code_user(ID:6)에게 레퍼럴 코드 생성 (시드 데이터에서 레퍼럴 코드 없음)
+            reqPost(getUrl("/6/generate/referral-code"))
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     log.info("Admin generate referral code response: {}", res.bodyAsJsonObject());
@@ -131,7 +132,7 @@ public class UserHandlerTest extends HandlerTestBase {
                     
                     assertThat(data.getReferralCode()).isNotNull();
                     assertThat(data.getReferralCode()).hasSize(6);
-                    assertThat(data.getUserId()).isEqualTo(4L);
+                    assertThat(data.getUserId()).isEqualTo(6L);
                     
                     tc.completeNow();
                 })));
