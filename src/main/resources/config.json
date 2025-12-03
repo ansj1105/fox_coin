@@ -26,9 +26,52 @@
       }
     },
     "redis": {
+      "mode": "standalone",
       "host": "localhost",
       "port": 6379,
-      "password": ""
+      "password": "",
+      "maxPoolSize": 8,
+      "maxPoolWaiting": 32
+    }
+  },
+  "local-cluster": {
+    "http": {
+      "port": 8080
+    },
+    "database": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "coin_system_cloud",
+      "user": "an",
+      "password": "1234",
+      "pool_size": 10
+    },
+    "jwt": {
+      "secret": "your-jwt-secret-key-for-foxya-coin-service",
+      "access_token_expire_minutes": 30,
+      "refresh_token_expire_minutes": 14400
+    },
+    "blockchain": {
+      "tron": {
+        "fullNode": "https://api.trongrid.io",
+        "solidityNode": "https://api.trongrid.io",
+        "eventServer": "https://api.trongrid.io",
+        "apiKey": ""
+      }
+    },
+    "redis": {
+      "mode": "cluster",
+      "nodes": [
+        "redis://localhost:7001",
+        "redis://localhost:7002",
+        "redis://localhost:7003",
+        "redis://localhost:7004",
+        "redis://localhost:7005",
+        "redis://localhost:7006"
+      ],
+      "password": "",
+      "maxPoolSize": 8,
+      "maxPoolWaiting": 32
     }
   },
   "prod": {
@@ -57,9 +100,56 @@
       }
     },
     "redis": {
+      "mode": "cluster",
+      "nodes": [
+        "redis://redis-node-1:7001",
+        "redis://redis-node-2:7002",
+        "redis://redis-node-3:7003",
+        "redis://redis-node-4:7004",
+        "redis://redis-node-5:7005",
+        "redis://redis-node-6:7006"
+      ],
+      "password": "",
+      "maxPoolSize": 16,
+      "maxPoolWaiting": 64
+    }
+  },
+  "prod-sentinel": {
+    "http": {
+      "port": 8080
+    },
+    "database": {
       "host": "localhost",
-      "port": 6379,
-      "password": ""
+      "port": 5432,
+      "database": "foxya_coin",
+      "user": "postgres",
+      "password": "password",
+      "pool_size": 20
+    },
+    "jwt": {
+      "secret": "your-production-jwt-secret-key-change-this",
+      "access_token_expire_minutes": 30,
+      "refresh_token_expire_minutes": 14400
+    },
+    "blockchain": {
+      "tron": {
+        "fullNode": "https://api.trongrid.io",
+        "solidityNode": "https://api.trongrid.io",
+        "eventServer": "https://api.trongrid.io",
+        "apiKey": ""
+      }
+    },
+    "redis": {
+      "mode": "sentinel",
+      "masterName": "mymaster",
+      "sentinels": [
+        "redis://sentinel-1:26379",
+        "redis://sentinel-2:26379",
+        "redis://sentinel-3:26379"
+      ],
+      "password": "",
+      "maxPoolSize": 16,
+      "maxPoolWaiting": 64
     }
   }
 }
