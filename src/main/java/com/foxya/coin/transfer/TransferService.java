@@ -301,13 +301,13 @@ public class TransferService extends BaseService {
             
             // 3. 이벤트 발행 (Node.js 서비스에서 처리)
             if (eventPublisher != null) {
-                JsonObject payload = new JsonObject()
-                    .put("transferId", transferId)
-                    .put("userId", userId)
-                    .put("toAddress", request.getToAddress())
-                    .put("amount", request.getAmount().toPlainString())
-                    .put("currencyCode", currency.getCode())
-                    .put("chain", request.getChain());
+                Map<String, Object> payload = new java.util.HashMap<>();
+                payload.put("transferId", transferId);
+                payload.put("userId", userId);
+                payload.put("toAddress", request.getToAddress());
+                payload.put("amount", request.getAmount().toPlainString());
+                payload.put("currencyCode", currency.getCode());
+                payload.put("chain", request.getChain());
                 
                 eventPublisher.publishToStream(EventType.WITHDRAWAL_REQUESTED, payload)
                     .onFailure(e -> log.error("외부 전송 이벤트 발행 실패: {}", e.getMessage()));

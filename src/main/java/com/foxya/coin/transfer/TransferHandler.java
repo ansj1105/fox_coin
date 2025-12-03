@@ -17,8 +17,6 @@ import io.vertx.json.schema.SchemaParser;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
-import static io.vertx.ext.web.validation.builder.Parameters.optionalParam;
-import static io.vertx.ext.web.validation.builder.Parameters.param;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
 import static io.vertx.json.schema.common.dsl.Schemas.*;
 
@@ -58,7 +56,6 @@ public class TransferHandler extends BaseHandler {
         // 전송 내역 조회
         router.get("/history")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
-            .handler(historyValidation(parser))
             .handler(this::getTransferHistory);
         
         // 전송 상세 조회
@@ -76,11 +73,10 @@ public class TransferHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("receiverType", stringSchema()
-                        .with(enumKeyword("ADDRESS", "REFERRAL_CODE", "USER_ID")))
+                    .requiredProperty("receiverType", stringSchema().with(minLength(1), maxLength(20)))
                     .requiredProperty("receiverValue", stringSchema().with(minLength(1), maxLength(255)))
                     .requiredProperty("currencyCode", stringSchema().with(minLength(1), maxLength(10)))
-                    .requiredProperty("amount", numberSchema().with(exclusiveMinimum(0)))
+                    .requiredProperty("amount", numberSchema())
                     .optionalProperty("memo", stringSchema().with(maxLength(255)))
                     .allowAdditionalProperties(false)
             ))
@@ -96,21 +92,11 @@ public class TransferHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("toAddress", stringSchema().with(minLength(10), maxLength(255)))
                     .requiredProperty("currencyCode", stringSchema().with(minLength(1), maxLength(10)))
-                    .requiredProperty("amount", numberSchema().with(exclusiveMinimum(0)))
-                    .requiredProperty("chain", stringSchema().with(enumKeyword("TRON", "ETH")))
+                    .requiredProperty("amount", numberSchema())
+                    .requiredProperty("chain", stringSchema().with(minLength(1), maxLength(20)))
                     .optionalProperty("memo", stringSchema().with(maxLength(255)))
                     .allowAdditionalProperties(false)
             ))
-            .build();
-    }
-    
-    /**
-     * 전송 내역 조회 Validation
-     */
-    private Handler<RoutingContext> historyValidation(SchemaParser parser) {
-        return ValidationHandler.builder(parser)
-            .queryParameter(optionalParam("limit", intSchema().with(minimum(1), maximum(100))))
-            .queryParameter(optionalParam("offset", intSchema().with(minimum(0))))
             .build();
     }
     

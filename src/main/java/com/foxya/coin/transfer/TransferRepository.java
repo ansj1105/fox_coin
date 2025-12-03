@@ -6,6 +6,7 @@ import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
+import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
@@ -298,7 +299,7 @@ public class TransferRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("external_transfers")
             .where("status", Op.Equal, "status")
-            .orderBy("created_at", true)
+            .orderBy("created_at", Sort.ASC)
             .limit(limit)
             .build();
         

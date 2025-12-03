@@ -72,6 +72,10 @@ public abstract class BaseRepository {
         return checkColumn(row, column) ? null : row.getDouble(column);
     }
     
+    public Boolean getBooleanColumnValue(Row row, String column) {
+        return checkColumn(row, column) ? null : row.getBoolean(column);
+    }
+    
     public <T> T getColumnValue(Row row, Class<T> type, String column) {
         return checkColumn(row, column) ? null : row.getString(column) != null ? row.get(type, column) : null;
     }
