@@ -23,6 +23,9 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
 import com.foxya.coin.referral.ReferralRepository;
 import com.foxya.coin.referral.ReferralService;
+import com.foxya.coin.transfer.TransferHandler;
+import com.foxya.coin.transfer.TransferRepository;
+import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserHandler;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
@@ -61,18 +64,21 @@ public class ApiVerticle extends AbstractVerticle {
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
+        TransferRepository transferRepository = new TransferRepository();
         
         // Service 초기화
         com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(pool, userRepository, jwtAuth, jwtConfig);
         UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
+        TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -86,6 +92,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
         mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
+        
+        // 전송 API (인증 필요, 핸들러 내부에서 JWT 처리)
+        mainRouter.mountSubRouter("/api/v1/transfers", transferHandler.getRouter());
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);
