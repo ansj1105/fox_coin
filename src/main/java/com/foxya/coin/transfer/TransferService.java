@@ -21,7 +21,9 @@ import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -301,7 +303,7 @@ public class TransferService extends BaseService {
             
             // 3. 이벤트 발행 (Node.js 서비스에서 처리)
             if (eventPublisher != null) {
-                Map<String, Object> payload = new java.util.HashMap<>();
+                Map<String, Object> payload = new HashMap<>();
                 payload.put("transferId", transferId);
                 payload.put("userId", userId);
                 payload.put("toAddress", request.getToAddress());
