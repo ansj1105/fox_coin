@@ -6,14 +6,22 @@ import com.foxya.coin.event.EventSubscriber;
 import com.foxya.coin.event.EventType;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.redis.client.Redis;
 import io.vertx.redis.client.RedisAPI;
+import io.vertx.redis.client.RedisClientType;
 import io.vertx.redis.client.RedisOptions;
+import io.vertx.redis.client.RedisReplicas;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * 이벤트 처리 Verticle
+ * 
+ * Redis 구성 모드:
+ * - standalone: 단일 Redis 인스턴스 (기본값)
+ * - cluster: Redis Cluster (3+ Master 노드)
+ * - sentinel: Redis Sentinel (Master-Slave + Failover)
  */
 @Slf4j
 public class EventVerticle extends AbstractVerticle {
@@ -29,22 +37,20 @@ public class EventVerticle extends AbstractVerticle {
         log.info("Starting EventVerticle...");
         
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
+        String mode = redisConfig.getString("mode", "standalone");
         
-        // Redis 클라이언트 생성
-        RedisOptions options = new RedisOptions()
-            .setConnectionString("redis://" + redisConfig.getString("host", "localhost") + ":" + redisConfig.getInteger("port", 6379));
-        
-        String password = redisConfig.getString("password");
-        if (password != null && !password.isEmpty()) {
-            options.setPassword(password);
-        }
+        // Redis 클라이언트 옵션 생성
+        RedisOptions options = createRedisOptions(redisConfig, mode);
         
         redisClient = Redis.createClient(vertx, options);
-        subscriberClient = Redis.createClient(vertx, options); // Pub/Sub 전용
+        
+        // Pub/Sub 전용 클라이언트 (Cluster 모드에서는 별도 연결 필요)
+        RedisOptions subscriberOptions = createRedisOptions(redisConfig, mode);
+        subscriberClient = Redis.createClient(vertx, subscriberOptions);
         
         redisClient.connect()
             .onSuccess(conn -> {
-                log.info("Redis connected successfully");
+                log.info("Redis connected successfully (mode: {})", mode);
                 redisApi = RedisAPI.api(conn);
                 
                 // EventPublisher, EventSubscriber 초기화
@@ -63,6 +69,81 @@ public class EventVerticle extends AbstractVerticle {
                 log.error("Failed to connect to Redis", throwable);
                 startPromise.fail(throwable);
             });
+    }
+    
+    /**
+     * Redis 모드에 따른 옵션 생성
+     */
+    private RedisOptions createRedisOptions(JsonObject redisConfig, String mode) {
+        RedisOptions options = new RedisOptions();
+        
+        String password = redisConfig.getString("password");
+        if (password != null && !password.isEmpty()) {
+            options.setPassword(password);
+        }
+        
+        switch (mode) {
+            case "cluster" -> {
+                // Redis Cluster 모드
+                options.setType(RedisClientType.CLUSTER);
+                options.setUseReplicas(RedisReplicas.SHARE); // Replica 노드도 읽기에 사용
+                
+                // Cluster 노드들 추가
+                JsonArray nodes = redisConfig.getJsonArray("nodes", new JsonArray());
+                if (nodes.isEmpty()) {
+                    // 기본 노드 설정 (로컬 개발용)
+                    options.addConnectionString("redis://localhost:7001");
+                    options.addConnectionString("redis://localhost:7002");
+                    options.addConnectionString("redis://localhost:7003");
+                    options.addConnectionString("redis://localhost:7004");
+                    options.addConnectionString("redis://localhost:7005");
+                    options.addConnectionString("redis://localhost:7006");
+                } else {
+                    for (int i = 0; i < nodes.size(); i++) {
+                        String node = nodes.getString(i);
+                        options.addConnectionString(node);
+                    }
+                }
+                log.info("Redis Cluster mode configured with {} nodes", 
+                    nodes.isEmpty() ? 6 : nodes.size());
+            }
+            
+            case "sentinel" -> {
+                // Redis Sentinel 모드
+                options.setType(RedisClientType.SENTINEL);
+                options.setMasterName(redisConfig.getString("masterName", "mymaster"));
+                options.setRole(io.vertx.redis.client.RedisRole.MASTER);
+                
+                // Sentinel 노드들 추가
+                JsonArray sentinels = redisConfig.getJsonArray("sentinels", new JsonArray());
+                if (sentinels.isEmpty()) {
+                    options.addConnectionString("redis://localhost:26379");
+                } else {
+                    for (int i = 0; i < sentinels.size(); i++) {
+                        String sentinel = sentinels.getString(i);
+                        options.addConnectionString(sentinel);
+                    }
+                }
+                log.info("Redis Sentinel mode configured with master: {}", 
+                    redisConfig.getString("masterName", "mymaster"));
+            }
+            
+            default -> {
+                // Standalone 모드 (기본)
+                options.setType(RedisClientType.STANDALONE);
+                String host = redisConfig.getString("host", "localhost");
+                int port = redisConfig.getInteger("port", 6379);
+                options.setConnectionString("redis://" + host + ":" + port);
+                log.info("Redis Standalone mode configured: {}:{}", host, port);
+            }
+        }
+        
+        // 공통 옵션
+        options.setMaxPoolSize(redisConfig.getInteger("maxPoolSize", 8));
+        options.setMaxPoolWaiting(redisConfig.getInteger("maxPoolWaiting", 32));
+        options.setPoolRecycleTimeout(redisConfig.getInteger("poolRecycleTimeout", 15000));
+        
+        return options;
     }
     
     /**

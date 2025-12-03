@@ -1,0 +1,162 @@
+version: '3.8'
+
+# Redis Cluster 구성 (3 Master + 3 Slave)
+# 실행: docker-compose -f docker-compose.cluster.yml up -d
+
+services:
+  # Redis Cluster 노드들
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-node-1
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    volumes:
+      - ./redis-cluster/node-1:/data
+      - ./redis-cluster/redis-node-1.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-node-2
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    volumes:
+      - ./redis-cluster/node-2:/data
+      - ./redis-cluster/redis-node-2.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-node-3
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7003:7003"
+      - "17003:17003"
+    volumes:
+      - ./redis-cluster/node-3:/data
+      - ./redis-cluster/redis-node-3.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: redis-node-4
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7004:7004"
+      - "17004:17004"
+    volumes:
+      - ./redis-cluster/node-4:/data
+      - ./redis-cluster/redis-node-4.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: redis-node-5
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7005:7005"
+      - "17005:17005"
+    volumes:
+      - ./redis-cluster/node-5:/data
+      - ./redis-cluster/redis-node-5.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: redis-node-6
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "7006:7006"
+      - "17006:17006"
+    volumes:
+      - ./redis-cluster/node-6:/data
+      - ./redis-cluster/redis-node-6.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-cluster-network
+
+  # Redis Cluster 초기화 컨테이너
+  redis-cluster-init:
+    image: redis:7-alpine
+    container_name: redis-cluster-init
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-node-4
+      - redis-node-5
+      - redis-node-6
+    command: >
+      sh -c "
+        sleep 5 &&
+        echo 'Creating Redis Cluster...' &&
+        redis-cli --cluster create \
+          redis-node-1:7001 \
+          redis-node-2:7002 \
+          redis-node-3:7003 \
+          redis-node-4:7004 \
+          redis-node-5:7005 \
+          redis-node-6:7006 \
+          --cluster-replicas 1 \
+          --cluster-yes &&
+        echo 'Redis Cluster created successfully!'
+      "
+    networks:
+      - redis-cluster-network
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: foxya-coin-postgres
+    environment:
+      POSTGRES_DB: foxya_coin
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - redis-cluster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: foxya-coin-api
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - ./src/main/resources/config.json:/app/config.json
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis-cluster-init
+    networks:
+      - redis-cluster-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+networks:
+  redis-cluster-network:
+    driver: bridge
+
