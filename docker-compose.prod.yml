@@ -30,8 +30,7 @@ services:
         - APP_ENV=${APP_ENV:-prod}
     image: foxya-coin-api:${APP_VERSION:-latest}
     container_name: foxya-api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     environment:
       TZ: Asia/Seoul
       APP_ENV: ${APP_ENV:-prod}
