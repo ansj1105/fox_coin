@@ -147,15 +147,20 @@ public class ApiVerticle extends AbstractVerticle {
     private void setupGlobalHandlers(Router router) {
         // CORS
         router.route().handler(CorsHandler.create()
-            .addOrigin("*")
+            .addRelativeOrigin(".*")
             .allowedMethod(HttpMethod.GET)
             .allowedMethod(HttpMethod.POST)
             .allowedMethod(HttpMethod.PUT)
             .allowedMethod(HttpMethod.DELETE)
+            .allowedMethod(HttpMethod.PATCH)
             .allowedMethod(HttpMethod.OPTIONS)
-            .allowCredentials(true)
             .allowedHeader("Content-Type")
-            .allowedHeader("Authorization"));
+            .allowedHeader("Authorization")
+            .allowedHeader("Accept")
+            .allowedHeader("Origin")
+            .allowedHeader("X-Requested-With")
+            .exposedHeader("Content-Length")
+            .exposedHeader("Content-Type"));
         
         // Body Handler
         router.route().handler(BodyHandler.create());
