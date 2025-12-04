@@ -30,14 +30,22 @@ services:
         - APP_ENV=${APP_ENV:-prod}
     image: foxya-coin-api:${APP_VERSION:-latest}
     container_name: foxya-api
-    network_mode: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       TZ: Asia/Seoul
       APP_ENV: ${APP_ENV:-prod}
       # JVM
       JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
+    ports:
+      - "8080:8080"
     volumes:
       - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - foxya-network
     restart: unless-stopped
     deploy:
       resources:
