@@ -8,19 +8,40 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ConfigLoader {
     
+    // 설정 파일 경로 (환경변수로 오버라이드 가능)
+    private static final String DEFAULT_CONFIG_PATH = "config.json";
+    private static final String DEV_CONFIG_PATH = "src/main/resources/config.json";
+    
     /**
      * 환경별 설정 로드
      * 환경 변수 ENV 또는 config.json의 env 필드로 환경 결정
      * 기본값: local
      */
     public static Future<JsonObject> load(Vertx vertx) {
+        // 설정 파일 경로 결정: 환경변수 > 기본 경로 > 개발 경로
+        String configPath = System.getenv("CONFIG_PATH");
+        if (configPath == null || configPath.isEmpty()) {
+            configPath = DEFAULT_CONFIG_PATH;
+        }
+        
+        final String finalConfigPath = configPath;
+        log.info("Loading config from: {}", finalConfigPath);
+        
         return vertx.fileSystem()
-            .readFile("src/main/resources/config.json")
+            .readFile(finalConfigPath)
+            .recover(err -> {
+                // 기본 경로에서 실패하면 개발 경로 시도
+                log.warn("Config not found at {}, trying dev path: {}", finalConfigPath, DEV_CONFIG_PATH);
+                return vertx.fileSystem().readFile(DEV_CONFIG_PATH);
+            })
             .map(buffer -> {
                 JsonObject fullConfig = new JsonObject(buffer.toString());
                 
                 // 환경 결정: 환경변수 > config.env > 기본값(local)
-                String env = System.getenv("ENV");
+                String env = System.getenv("APP_ENV");
+                if (env == null || env.isEmpty()) {
+                    env = System.getenv("ENV");
+                }
                 if (env == null || env.isEmpty()) {
                     env = fullConfig.getString("env", "local");
                 }

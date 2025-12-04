@@ -47,6 +47,7 @@ RUN addgroup -g 1001 -S appgroup && \
 COPY --from=builder /build/build/libs/*-fat.jar app.jar
 
 # 설정 파일 복사
+COPY src/main/resources/config.json /app/config.json
 COPY src/main/resources/log4j2.xml /app/log4j2.xml
 
 # 로그 디렉토리 생성 및 권한 설정
