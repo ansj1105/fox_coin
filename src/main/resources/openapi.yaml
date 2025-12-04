@@ -7,10 +7,8 @@ info:
     name: Foxya Team
 
 servers:
-  - url: http://localhost:8080
-    description: Local Development Server
-  - url: http://localhost:8089
-    description: Test Server
+  - url: /
+    description: Current Server (Auto-detect)
 
 tags:
   - name: System
