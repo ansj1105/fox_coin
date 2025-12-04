@@ -79,7 +79,7 @@
       "port": 8080
     },
     "database": {
-      "host": "172.31.71.66",
+      "host": "postgres",
       "port": 5432,
       "database": "coin_system_cloud",
       "user": "foxya",
