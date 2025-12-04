@@ -79,7 +79,7 @@
       "port": 8080
     },
     "database": {
-      "host": "postgres",
+      "host": "host.docker.internal",
       "port": 5432,
       "database": "coin_system_cloud",
       "user": "foxya",
