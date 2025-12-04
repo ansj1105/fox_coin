@@ -66,6 +66,9 @@ dependencies {
     // PostgreSQL JDBC (Flyway용)
     implementation("org.postgresql:postgresql:$postgresqlVersion")
     
+    // PostgreSQL SCRAM 인증
+    implementation("com.ongres.scram:client:2.1")
+    
     // Flyway
     implementation("org.flywaydb:flyway-core:10.4.1")
     implementation("org.flywaydb:flyway-database-postgresql:10.4.1")
