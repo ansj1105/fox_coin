@@ -188,17 +188,20 @@ public class ApiVerticle extends AbstractVerticle {
         
         // OpenAPI Spec
         router.get("/openapi.yaml").handler(ctx -> {
-            vertx.fileSystem().readFile("src/main/resources/openapi.yaml", result -> {
-                if (result.succeeded()) {
+            // Docker 환경: openapi.yaml, 개발 환경: src/main/resources/openapi.yaml
+            vertx.fileSystem().readFile("openapi.yaml")
+                .recover(err -> vertx.fileSystem().readFile("src/main/resources/openapi.yaml"))
+                .onSuccess(buffer -> {
                     ctx.response()
                         .putHeader("Content-Type", "application/x-yaml; charset=utf-8")
-                        .end(result.result());
-                } else {
+                        .end(buffer);
+                })
+                .onFailure(err -> {
+                    log.error("Failed to load openapi.yaml", err);
                     ctx.response()
                         .setStatusCode(404)
                         .end("OpenAPI spec not found");
-                }
-            });
+                });
         });
     }
     
