@@ -31,8 +31,8 @@ log_error() {
 }
 
 # 변수 설정
-PROJECT_NAME="foxya-coin-service"
-DEPLOY_DIR="/home/ec2-user/${PROJECT_NAME}"
+PROJECT_NAME="fox_coin"
+DEPLOY_DIR="/var/www/${PROJECT_NAME}"
 REPO_URL="${REPO_URL:-git@github.com:your-org/foxya-coin-service.git}"
 BRANCH="${BRANCH:-main}"
 COMPOSE_FILE="docker-compose.prod.yml"
