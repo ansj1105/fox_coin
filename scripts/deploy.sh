@@ -34,7 +34,7 @@ log_error() {
 PROJECT_NAME="fox_coin"
 DEPLOY_DIR="/var/www/${PROJECT_NAME}"
 REPO_URL="${REPO_URL:-git@github.com:your-org/foxya-coin-service.git}"
-BRANCH="${BRANCH:-main}"
+BRANCH="${BRANCH:-develop}"
 COMPOSE_FILE="docker-compose.prod.yml"
 
 # 사용법 출력
