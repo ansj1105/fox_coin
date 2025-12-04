@@ -79,11 +79,11 @@
       "port": 8080
     },
     "database": {
-      "host": "localhost",
+      "host": "postgres",
       "port": 5432,
-      "database": "foxya_coin",
-      "user": "postgres",
-      "password": "password",
+      "database": "coin_system_cloud",
+      "user": "foxya",
+      "password": "foxya1124!@",
       "pool_size": 20
     },
     "jwt": {
@@ -100,15 +100,9 @@
       }
     },
     "redis": {
-      "mode": "cluster",
-      "nodes": [
-        "redis://redis-node-1:7001",
-        "redis://redis-node-2:7002",
-        "redis://redis-node-3:7003",
-        "redis://redis-node-4:7004",
-        "redis://redis-node-5:7005",
-        "redis://redis-node-6:7006"
-      ],
+      "mode": "standalone",
+      "host": "redis",
+      "port": 6379,
       "password": "",
       "maxPoolSize": 16,
       "maxPoolWaiting": 64
