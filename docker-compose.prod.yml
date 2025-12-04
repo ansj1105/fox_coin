@@ -81,7 +81,7 @@ services:
       # JVM
       JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
     ports:
-      - "127.0.0.1:8080:8080"  # Nginx를 통해서만 외부 접근
+      - "8080:8080"  # 외부 접근 허용
     volumes:
       - ./logs:/app/logs
     depends_on:
