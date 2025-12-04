@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # ==================== PostgreSQL ====================
+  postgres:
+    image: postgres:15-alpine
+    container_name: foxya-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-foxya_coin}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Database password required}
+      TZ: Asia/Seoul
+    ports:
+      - "127.0.0.1:5432:5432"  # 로컬에서만 접근 가능
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - foxya-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-foxya_coin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: foxya-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "127.0.0.1:6379:6379"  # 로컬에서만 접근 가능
+    volumes:
+      - redis-data:/data
+    networks:
+      - foxya-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ==================== Application ====================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        - APP_ENV=${APP_ENV:-prod}
+    image: foxya-coin-api:${APP_VERSION:-latest}
+    container_name: foxya-api
+    environment:
+      TZ: Asia/Seoul
+      APP_ENV: ${APP_ENV:-prod}
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-foxya_coin}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Database password required}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:?JWT secret required}
+      JWT_ACCESS_EXPIRE: ${JWT_ACCESS_EXPIRE:-30}
+      JWT_REFRESH_EXPIRE: ${JWT_REFRESH_EXPIRE:-14400}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Blockchain
+      TRON_API_KEY: ${TRON_API_KEY:-}
+      # JVM
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
+    ports:
+      - "127.0.0.1:8080:8080"  # Nginx를 통해서만 외부 접근
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - foxya-internal
+      - foxya-external
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ==================== Nginx (Reverse Proxy) ====================
+  nginx:
+    image: nginx:alpine
+    container_name: foxya-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - foxya-external
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  foxya-internal:
+    driver: bridge
+    internal: true  # 외부 접근 차단
+  foxya-external:
+    driver: bridge
+

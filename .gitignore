@@ -5,6 +5,9 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
+# Maven (if any)
+target/
+
 # IntelliJ IDEA
 .idea/
 *.iws
@@ -28,15 +31,45 @@ bin/
 # Mac
 .DS_Store
 
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Linux
+*~
+
 # Logs
 logs/
 *.log
+*.log.gz
 
 # Vert.x
 .vertx/
 file-uploads/
 
-# Environment
+# Environment & Secrets
 .env
+.env.local
+.env.*.local
 config-local.json
+config-prod.json
+*.pem
+*.key
+*.crt
 
+# Docker volumes data (local development)
+postgres-data/
+redis-data/
+
+# Test reports (optional, can be regenerated)
+test-output/
+surefire-reports/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# OS generated files
+._*
