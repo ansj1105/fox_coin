@@ -36,15 +36,8 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       # JVM
       JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
-    ports:
-      - "8080:8080"
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - foxya-network
     restart: unless-stopped
     deploy:
       resources:
