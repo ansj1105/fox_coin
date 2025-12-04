@@ -14,7 +14,7 @@ import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.entities.User;
-import com.foxyda.coin.wallet.entities.Wallet;
+import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
