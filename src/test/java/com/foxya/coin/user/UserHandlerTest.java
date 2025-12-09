@@ -163,5 +163,56 @@ public class UserHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+    
+    @Nested
+    @DisplayName("추천인 코드 조회 테스트")
+    class GetReferralCodeTest {
+        
+        @Test
+        @Order(9)
+        @DisplayName("성공 - 사용자의 추천인 코드 조회")
+        void successGetReferralCode(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser (REF001 보유)
+            
+            reqGet(getUrl("/referral-code"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get referral code response: {}", res.bodyAsJsonObject());
+                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
+                    
+                    assertThat(data.getReferralCode()).isNotNull();
+                    assertThat(data.getReferralLink()).isNotNull();
+                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
+                    assertThat(data.getReferralLink()).startsWith("https://foxya.app/ref/");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(10)
+        @DisplayName("실패 - 레퍼럴 코드가 없는 경우")
+        void failNoReferralCode(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L); // testuser2 (레퍼럴 코드 없음)
+            
+            reqGet(getUrl("/referral-code"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400); // BadRequestException: 레퍼럴 코드가 없습니다
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(11)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/referral-code"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
 }
 

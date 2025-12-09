@@ -143,5 +143,102 @@ public class AuthHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+    
+    @Nested
+    @DisplayName("소셜 계정 연동 테스트")
+    class LinkSocialTest {
+        
+        @Test
+        @Order(7)
+        @DisplayName("성공 - 카카오 계정 연동")
+        void successLinkKakao(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            JsonObject data = new JsonObject()
+                .put("provider", "KAKAO")
+                .put("token", "kakao_token_123");
+            
+            reqPost(getUrl("/link-social"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Link social response: {}", res.bodyAsJsonObject());
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(8)
+        @DisplayName("성공 - 구글 계정 연동")
+        void successLinkGoogle(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            JsonObject data = new JsonObject()
+                .put("provider", "GOOGLE")
+                .put("token", "google_token_123");
+            
+            reqPost(getUrl("/link-social"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Link social response: {}", res.bodyAsJsonObject());
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(9)
+        @DisplayName("실패 - 인증 없이 연동")
+        void failNoAuth(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("provider", "KAKAO")
+                .put("token", "kakao_token_123");
+            
+            reqPost(getUrl("/link-social"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("본인인증(휴대폰) 등록 테스트")
+    class VerifyPhoneTest {
+        
+        @Test
+        @Order(10)
+        @DisplayName("성공 - 본인인증 등록")
+        void successVerifyPhone(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            JsonObject data = new JsonObject()
+                .put("phoneNumber", "01012345678")
+                .put("verificationCode", "123456");
+            
+            reqPost(getUrl("/verify-phone"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Verify phone response: {}", res.bodyAsJsonObject());
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(11)
+        @DisplayName("실패 - 인증 없이 등록")
+        void failNoAuth(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("phoneNumber", "01012345678")
+                .put("verificationCode", "123456");
+            
+            reqPost(getUrl("/verify-phone"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
 }
 
