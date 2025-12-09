@@ -23,6 +23,20 @@ tags:
     description: 지갑 관련 API
   - name: Transfer
     description: 전송 관련 API
+  - name: Bonus
+    description: 보너스 채굴 효율 관련 API
+  - name: Mining
+    description: 채굴 관련 API
+  - name: Level
+    description: 레벨 관련 API
+  - name: Notice
+    description: 공지사항 관련 API
+  - name: Subscription
+    description: 프리미엄 구독 관련 API
+  - name: Review
+    description: 리뷰 관련 API
+  - name: Agency
+    description: 에이전시 관련 API
 
 components:
   securitySchemes:
@@ -209,6 +223,270 @@ components:
           type: integer
         offset:
           type: integer
+
+    # Bonus 관련 스키마
+    BonusEfficiencyResponse:
+      type: object
+      properties:
+        totalEfficiency:
+          type: integer
+          description: 총 보너스 효율
+        bonuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/BonusInfo'
+
+    BonusInfo:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [SOCIAL_LINK, PHONE_VERIFICATION, AD_WATCH, REFERRAL, PREMIUM_SUBSCRIPTION, REVIEW, AGENCY, REFERRAL_CODE_INPUT]
+        name:
+          type: string
+        efficiency:
+          type: integer
+        isActive:
+          type: boolean
+        isPermanent:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        currentCount:
+          type: integer
+          nullable: true
+        maxCount:
+          type: integer
+          nullable: true
+
+    # Mining 관련 스키마
+    DailyLimitResponse:
+      type: object
+      properties:
+        currentLevel:
+          type: integer
+        dailyMaxMining:
+          type: number
+          format: decimal
+        todayMiningAmount:
+          type: number
+          format: decimal
+        resetAt:
+          type: string
+          format: date-time
+        isLimitReached:
+          type: boolean
+
+    LevelInfoResponse:
+      type: object
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/MiningLevelInfo'
+
+    MiningLevelInfo:
+      type: object
+      properties:
+        level:
+          type: integer
+        dailyMaxMining:
+          type: number
+          format: decimal
+
+    # Level 관련 스키마
+    UserLevelResponse:
+      type: object
+      properties:
+        currentLevel:
+          type: integer
+        currentExp:
+          type: number
+          format: decimal
+        nextLevelExp:
+          type: number
+          format: decimal
+        progress:
+          type: number
+          format: double
+          description: 진행률 (0.0 ~ 1.0)
+
+    LevelGuideResponse:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/LevelGuideInfo'
+
+    LevelGuideInfo:
+      type: object
+      properties:
+        level:
+          type: integer
+        requiredExp:
+          type: number
+          format: decimal
+        benefits:
+          type: array
+          items:
+            type: string
+
+    # Notice 관련 스키마
+    NoticeListResponse:
+      type: object
+      properties:
+        notices:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoticeInfo'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    NoticeInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        isImportant:
+          type: boolean
+
+    Notice:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        isImportant:
+          type: boolean
+
+    # Subscription 관련 스키마
+    SubscriptionStatusResponse:
+      type: object
+      properties:
+        isSubscribed:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        packageType:
+          type: string
+          nullable: true
+
+    SubscriptionRequest:
+      type: object
+      required:
+        - packageType
+      properties:
+        packageType:
+          type: string
+        months:
+          type: integer
+          description: 구독 기간 (개월), null이면 무제한
+
+    # Review 관련 스키마
+    ReviewStatusResponse:
+      type: object
+      properties:
+        hasWrittenReview:
+          type: boolean
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ReviewWriteRequest:
+      type: object
+      required:
+        - platform
+      properties:
+        platform:
+          type: string
+          enum: [GOOGLE_PLAY, APP_STORE]
+        reviewId:
+          type: string
+          description: 리뷰 ID (플랫폼별)
+
+    # Agency 관련 스키마
+    AgencyStatusResponse:
+      type: object
+      properties:
+        isJoined:
+          type: boolean
+        joinedAt:
+          type: string
+          format: date-time
+          nullable: true
+        agencyId:
+          type: string
+          nullable: true
+
+    # Auth 확장 스키마
+    LinkSocialRequest:
+      type: object
+      required:
+        - provider
+        - token
+      properties:
+        provider:
+          type: string
+          enum: [KAKAO, GOOGLE, EMAIL]
+        token:
+          type: string
+          description: 소셜 토큰 또는 이메일 주소
+
+    VerifyPhoneRequest:
+      type: object
+      required:
+        - phoneNumber
+        - verificationCode
+      properties:
+        phoneNumber:
+          type: string
+          pattern: '^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$'
+        verificationCode:
+          type: string
+          minLength: 4
+          maxLength: 10
+
+    # User 확장 스키마
+    ReferralCodeResponse:
+      type: object
+      properties:
+        referralCode:
+          type: string
+        referralLink:
+          type: string
+          format: uri
 
 paths:
   # ==================== System ====================
@@ -489,6 +767,66 @@ paths:
         '401':
           description: 인증 실패
 
+  /api/v1/auth/link-social:
+    post:
+      summary: 소셜 계정 연동
+      description: 카카오, 구글, 이메일 계정을 연동합니다.
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkSocialRequest'
+      responses:
+        '200':
+          description: 연동 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: boolean
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
+  /api/v1/auth/verify-phone:
+    post:
+      summary: 본인인증(휴대폰) 등록
+      description: 휴대폰 번호를 인증하여 등록합니다.
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPhoneRequest'
+      responses:
+        '200':
+          description: 인증 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: boolean
+        '400':
+          description: 잘못된 요청 (인증 코드 불일치 등)
+        '401':
+          description: 인증 실패
+
   # ==================== User ====================
   /api/v1/users/{id}:
     get:
@@ -582,8 +920,9 @@ paths:
                         properties:
                           referralCode:
                             type: string
-                          userId:
-                            type: integer
+                          referralLink:
+                            type: string
+                            format: uri
         '400':
           description: 이미 레퍼럴 코드가 존재함
         '401':
@@ -592,6 +931,30 @@ paths:
           description: 권한 없음 (ADMIN만 가능)
         '404':
           description: 사용자를 찾을 수 없음
+
+  /api/v1/users/referral-code:
+    get:
+      summary: 추천인 코드 조회
+      description: 로그인한 사용자의 추천인 코드와 추천 링크를 조회합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReferralCodeResponse'
+        '400':
+          description: 레퍼럴 코드가 없음
+        '401':
+          description: 인증 실패
 
   # ==================== Referral ====================
   /api/v1/referrals/register:
@@ -918,3 +1281,337 @@ paths:
           description: 인증 실패
         '404':
           description: 전송 내역을 찾을 수 없음
+
+  # ==================== Bonus ====================
+  /api/v1/bonus/efficiency:
+    get:
+      summary: 보너스 채굴 효율 조회
+      description: 사용자의 현재 보너스 채굴 효율 정보를 조회합니다.
+      tags: [Bonus]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BonusEfficiencyResponse'
+        '401':
+          description: 인증 실패
+
+  # ==================== Mining ====================
+  /api/v1/mining/daily-limit:
+    get:
+      summary: 일일 최대 채굴량 조회
+      description: 일일 최대 채굴량 및 현재 채굴량을 조회합니다.
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DailyLimitResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/mining/level-info:
+    get:
+      summary: 레벨별 일일 최대 채굴량 정보
+      description: 레벨별 일일 최대 채굴량 정보를 조회합니다.
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LevelInfoResponse'
+        '401':
+          description: 인증 실패
+
+  # ==================== Level ====================
+  /api/v1/user/level:
+    get:
+      summary: 사용자 레벨 및 경험치 정보
+      description: 사용자의 현재 레벨 및 경험치 정보를 조회합니다.
+      tags: [Level]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserLevelResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/user/level-guide:
+    get:
+      summary: 레벨 가이드 정보
+      description: 레벨 가이드 정보를 조회합니다.
+      tags: [Level]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LevelGuideResponse'
+        '401':
+          description: 인증 실패
+
+  # ==================== Notice ====================
+  /api/v1/notices:
+    get:
+      summary: 공지사항 목록 조회
+      description: 공지사항 목록을 조회합니다.
+      tags: [Notice]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          description: 조회할 개수
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: 시작 위치
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NoticeListResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/notices/{id}:
+    get:
+      summary: 공지사항 상세 조회
+      description: 특정 공지사항의 상세 정보를 조회합니다.
+      tags: [Notice]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 공지사항 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Notice'
+        '401':
+          description: 인증 실패
+        '404':
+          description: 공지사항을 찾을 수 없음
+
+  # ==================== Subscription ====================
+  /api/v1/subscription/status:
+    get:
+      summary: 프리미엄 구독 상태 조회
+      description: 프리미엄 구독 상태를 조회합니다.
+      tags: [Subscription]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionStatusResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/subscription/subscribe:
+    post:
+      summary: 프리미엄 패키지 구독
+      description: 프리미엄 패키지를 구독합니다.
+      tags: [Subscription]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionRequest'
+      responses:
+        '200':
+          description: 구독 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            format: int64
+                          packageType:
+                            type: string
+                          isActive:
+                            type: boolean
+                          expiresAt:
+                            type: string
+                            format: date-time
+                            nullable: true
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
+  # ==================== Review ====================
+  /api/v1/review/status:
+    get:
+      summary: 리뷰 작성 여부 조회
+      description: 리뷰 작성 여부를 조회합니다.
+      tags: [Review]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReviewStatusResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/review/write:
+    post:
+      summary: 리뷰 작성
+      description: 리뷰를 작성합니다.
+      tags: [Review]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewWriteRequest'
+      responses:
+        '200':
+          description: 작성 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            format: int64
+                          platform:
+                            type: string
+                          reviewedAt:
+                            type: string
+                            format: date-time
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
+  # ==================== Agency ====================
+  /api/v1/agency/status:
+    get:
+      summary: 에이전시 가입 상태 조회
+      description: 에이전시 가입 상태를 조회합니다.
+      tags: [Agency]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgencyStatusResponse'
+        '401':
+          description: 인증 실패
