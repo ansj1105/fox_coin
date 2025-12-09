@@ -97,7 +97,8 @@ public class UserHandlerTest extends HandlerTestBase {
                     
                     assertThat(data.getReferralCode()).isNotNull();
                     assertThat(data.getReferralCode()).hasSize(6);
-                    assertThat(data.getUserId()).isEqualTo(2L);
+                    assertThat(data.getReferralLink()).isNotNull();
+                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
                     
                     tc.completeNow();
                 })));
@@ -132,7 +133,8 @@ public class UserHandlerTest extends HandlerTestBase {
                     
                     assertThat(data.getReferralCode()).isNotNull();
                     assertThat(data.getReferralCode()).hasSize(6);
-                    assertThat(data.getUserId()).isEqualTo(6L);
+                    assertThat(data.getReferralLink()).isNotNull();
+                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
                     
                     tc.completeNow();
                 })));

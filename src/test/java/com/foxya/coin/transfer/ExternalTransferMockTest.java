@@ -24,10 +24,12 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -88,9 +90,9 @@ public class ExternalTransferMockTest {
         
         // Mock EventPublisher 생성
         mockEventPublisher = mock(EventPublisher.class);
-        when(mockEventPublisher.publishToStream(any(EventType.class), any(JsonObject.class)))
-            .thenReturn(Future.succeededFuture());
-        when(mockEventPublisher.publish(any(EventType.class), any(JsonObject.class)))
+        when(mockEventPublisher.publishToStream(any(EventType.class), any()))
+            .thenReturn(Future.succeededFuture("stream-id"));
+        when(mockEventPublisher.publish(any(EventType.class), any()))
             .thenReturn(Future.succeededFuture());
         
         // TransferService 초기화 (Mock EventPublisher 주입)
@@ -104,8 +106,8 @@ public class ExternalTransferMockTest {
         flyway.clean();
         flyway.migrate();
         reset(mockEventPublisher);
-        when(mockEventPublisher.publishToStream(any(EventType.class), any(JsonObject.class)))
-            .thenReturn(Future.succeededFuture());
+        when(mockEventPublisher.publishToStream(any(EventType.class), any()))
+            .thenReturn(Future.succeededFuture("stream-id"));
     }
     
     @AfterAll
@@ -148,12 +150,17 @@ public class ExternalTransferMockTest {
                         eq(EventType.WITHDRAWAL_REQUESTED),
                         argThat(payload -> {
                             log.info("Published event payload: {}", payload);
-                            return payload.getString("transferId").equals(response.getTransferId())
-                                && payload.getLong("userId").equals(TEST_USER_ID)
-                                && payload.getString("toAddress").equals(EXTERNAL_ADDRESS)
-                                && payload.getString("amount").equals("100")
-                                && payload.getString("currencyCode").equals("FOXYA")
-                                && payload.getString("chain").equals("TRON");
+                            if (!(payload instanceof Map)) {
+                                return false;
+                            }
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> map = (Map<String, Object>) payload;
+                            return response.getTransferId().equals(map.get("transferId"))
+                                && TEST_USER_ID.equals(map.get("userId"))
+                                && EXTERNAL_ADDRESS.equals(map.get("toAddress"))
+                                && "100".equals(String.valueOf(map.get("amount")))
+                                && "FOXYA".equals(map.get("currencyCode"))
+                                && "TRON".equals(map.get("chain"));
                         })
                     );
                     

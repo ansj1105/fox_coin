@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Slf4j
@@ -56,7 +57,7 @@ public class BonusService extends BaseService {
     }
     
     public Future<BonusEfficiencyResponseDto> getBonusEfficiency(Long userId) {
-        return Future.all(
+        List<Future<BonusEfficiencyResponseDto.BonusInfo>> futures = Arrays.asList(
             getSocialLinkBonus(userId),
             getPhoneVerificationBonus(userId),
             getAdWatchBonus(userId),
@@ -65,7 +66,9 @@ public class BonusService extends BaseService {
             getReviewBonus(userId),
             getAgencyBonus(userId),
             getReferralCodeInputBonus(userId)
-        ).map(results -> {
+        );
+        
+        return Future.all(futures).map(results -> {
             List<BonusEfficiencyResponseDto.BonusInfo> bonuses = new ArrayList<>();
             int totalEfficiency = 0;
             

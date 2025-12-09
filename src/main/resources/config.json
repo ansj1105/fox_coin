@@ -4,6 +4,9 @@
     "http": {
       "port": 8080
     },
+    "frontend": {
+      "baseUrl": "http://localhost:3000"
+    },
     "database": {
       "host": "localhost",
       "port": 5432,
@@ -37,6 +40,9 @@
   "local-cluster": {
     "http": {
       "port": 8080
+    },
+    "frontend": {
+      "baseUrl": "http://localhost:3000"
     },
     "database": {
       "host": "localhost",
@@ -78,6 +84,9 @@
     "http": {
       "port": 8080
     },
+    "frontend": {
+      "baseUrl": "http://localhost"
+    },
     "database": {
       "host": "postgres",
       "port": 5432,
@@ -111,6 +120,9 @@
   "prod-sentinel": {
     "http": {
       "port": 8080
+    },
+    "frontend": {
+      "baseUrl": "http://localhost"
     },
     "database": {
       "host": "localhost",

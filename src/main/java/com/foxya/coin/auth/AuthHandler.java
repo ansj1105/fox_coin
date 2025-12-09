@@ -122,7 +122,7 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("provider", stringSchema().with(enumKeyword("KAKAO", "GOOGLE", "EMAIL")))
+                    .requiredProperty("provider", com.foxya.coin.common.jsonschema.Schemas.enumStringSchema(new String[]{"KAKAO", "GOOGLE", "EMAIL"}))
                     .requiredProperty("token", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))

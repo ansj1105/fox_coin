@@ -23,12 +23,14 @@ public class UserService extends BaseService {
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
     private final JsonObject jwtConfig;
+    private final String frontendBaseUrl;
     
-    public UserService(PgPool pool, UserRepository userRepository, JWTAuth jwtAuth, JsonObject jwtConfig) {
+    public UserService(PgPool pool, UserRepository userRepository, JWTAuth jwtAuth, JsonObject jwtConfig, JsonObject frontendConfig) {
         super(pool);
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
         this.jwtConfig = jwtConfig;
+        this.frontendBaseUrl = frontendConfig != null ? frontendConfig.getString("baseUrl", "http://localhost") : "http://localhost";
     }
     
     public Future<User> createUser(CreateUserDto dto) {
@@ -101,7 +103,7 @@ public class UserService extends BaseService {
                 return userRepository.updateReferralCode(pool, userId, referralCode)
                     .map(updatedUser -> ReferralCodeResponseDto.builder()
                         .referralCode(referralCode)
-                        .userId(userId)
+                        .referralLink(frontendBaseUrl + "/ref/" + referralCode)
                         .build());
             });
     }
@@ -157,7 +159,7 @@ public class UserService extends BaseService {
                     throw new com.foxya.coin.common.exceptions.BadRequestException("레퍼럴 코드가 없습니다.");
                 }
                 
-                String referralLink = "https://foxya.app/ref/" + referralCode;
+                String referralLink = frontendBaseUrl + "/ref/" + referralCode;
                 
                 return ReferralCodeResponseDto.builder()
                     .referralCode(referralCode)

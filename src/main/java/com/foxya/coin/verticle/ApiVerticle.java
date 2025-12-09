@@ -50,6 +50,7 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject httpConfig = config().getJsonObject("http", new JsonObject());
         JsonObject databaseConfig = config().getJsonObject("database", new JsonObject());
         JsonObject jwtConfig = config().getJsonObject("jwt", new JsonObject());
+        JsonObject frontendConfig = config().getJsonObject("frontend", new JsonObject());
         
         int port = httpConfig.getInteger("port", 8080);
         
@@ -77,7 +78,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Service 초기화
         com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(
             pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
-        UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig);
+        UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig, frontendConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
