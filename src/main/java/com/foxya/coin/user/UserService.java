@@ -141,5 +141,29 @@ public class UserService extends BaseService {
         
         return code.toString();
     }
+    
+    /**
+     * 사용자의 추천인 코드 조회
+     */
+    public Future<ReferralCodeResponseDto> getReferralCode(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .map(user -> {
+                if (user == null) {
+                    throw new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다.");
+                }
+                
+                String referralCode = user.getReferralCode();
+                if (referralCode == null || referralCode.isEmpty()) {
+                    throw new com.foxya.coin.common.exceptions.BadRequestException("레퍼럴 코드가 없습니다.");
+                }
+                
+                String referralLink = "https://foxya.app/ref/" + referralCode;
+                
+                return ReferralCodeResponseDto.builder()
+                    .referralCode(referralCode)
+                    .referralLink(referralLink)
+                    .build();
+            });
+    }
 }
 

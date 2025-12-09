@@ -8,6 +8,6 @@ import lombok.*;
 @Builder
 public class ReferralCodeResponseDto {
     private String referralCode;
-    private Long userId;
+    private String referralLink;
 }
 

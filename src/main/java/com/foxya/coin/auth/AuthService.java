@@ -28,12 +28,17 @@ public class AuthService extends BaseService {
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
     private final JsonObject jwtConfig;
+    private final SocialLinkRepository socialLinkRepository;
+    private final PhoneVerificationRepository phoneVerificationRepository;
     
-    public AuthService(PgPool pool, UserRepository userRepository, JWTAuth jwtAuth, JsonObject jwtConfig) {
+    public AuthService(PgPool pool, UserRepository userRepository, JWTAuth jwtAuth, JsonObject jwtConfig,
+                      SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository) {
         super(pool);
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
         this.jwtConfig = jwtConfig;
+        this.socialLinkRepository = socialLinkRepository;
+        this.phoneVerificationRepository = phoneVerificationRepository;
     }
     
     /**
@@ -168,6 +173,25 @@ public class AuthService extends BaseService {
         
         log.info("User logged out: {}", userId);
         return Future.succeededFuture();
+    }
+    
+    /**
+     * 소셜 계정 연동
+     */
+    public Future<Boolean> linkSocial(Long userId, String provider, String token) {
+        // TODO: 토큰 검증 및 사용자 정보 조회 (KAKAO, GOOGLE, EMAIL)
+        String providerUserId = "provider_user_id_from_token"; // 실제로는 토큰에서 추출
+        String email = provider.equals("EMAIL") ? token : null; // EMAIL의 경우 token이 이메일 주소
+        
+        return socialLinkRepository.createSocialLink(pool, userId, provider, providerUserId, email);
+    }
+    
+    /**
+     * 본인인증(휴대폰) 등록
+     */
+    public Future<Boolean> verifyPhone(Long userId, String phoneNumber, String verificationCode) {
+        // TODO: 인증 코드 검증 로직 추가
+        return phoneVerificationRepository.verifyPhone(pool, userId, phoneNumber, verificationCode);
     }
 }
 

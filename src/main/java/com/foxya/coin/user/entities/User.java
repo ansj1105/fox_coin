@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
@@ -19,6 +20,8 @@ public class User {
     private String passwordHash;
     private String referralCode;
     private String status;
+    private Integer level;
+    private BigDecimal exp;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

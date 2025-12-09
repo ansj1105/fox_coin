@@ -57,6 +57,18 @@ public class AuthHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(this::logout);
         
+        // 소셜 연동
+        router.post("/link-social")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(this.linkSocialValidation(parser))
+            .handler(this::linkSocial);
+        
+        // 본인인증
+        router.post("/verify-phone")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(this.verifyPhoneValidation(parser))
+            .handler(this::verifyPhone);
+        
         return router;
     }
     
@@ -98,6 +110,34 @@ public class AuthHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("name", stringSchema().with(minLength(1), maxLength(100)))
                     .optionalProperty("description", stringSchema().with(maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+    
+    /**
+     * 소셜 연동 Validation
+     */
+    private Handler<RoutingContext> linkSocialValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("provider", stringSchema().with(enumKeyword("KAKAO", "GOOGLE", "EMAIL")))
+                    .requiredProperty("token", stringSchema().with(minLength(1)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+    
+    /**
+     * 본인인증 Validation
+     */
+    private Handler<RoutingContext> verifyPhoneValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("phoneNumber", stringSchema().with(minLength(10), maxLength(20)))
+                    .requiredProperty("verificationCode", stringSchema().with(minLength(4), maxLength(10)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -183,6 +223,34 @@ public class AuthHandler extends BaseHandler {
         
         log.info("Logout request from user: {}", userId);
         response(ctx, authService.logout(userId));
+    }
+    
+    /**
+     * 소셜 계정 연동
+     */
+    private void linkSocial(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        com.foxya.coin.auth.dto.LinkSocialRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.LinkSocialRequestDto.class
+        );
+        
+        log.info("Social link request from user: {}, provider: {}", userId, dto.getProvider());
+        response(ctx, authService.linkSocial(userId, dto.getProvider(), dto.getToken()));
+    }
+    
+    /**
+     * 본인인증(휴대폰) 등록
+     */
+    private void verifyPhone(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        com.foxya.coin.auth.dto.VerifyPhoneRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.VerifyPhoneRequestDto.class
+        );
+        
+        log.info("Phone verification request from user: {}", userId);
+        response(ctx, authService.verifyPhone(userId, dto.getPhoneNumber(), dto.getVerificationCode()));
     }
 }
 

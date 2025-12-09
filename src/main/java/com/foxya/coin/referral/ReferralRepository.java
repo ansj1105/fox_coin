@@ -243,5 +243,13 @@ public class ReferralRepository extends BaseRepository {
             .map(rows -> (Void) null)
             .onFailure(throwable -> log.error("레퍼럴 관계 완전 삭제 실패 - referredId: {}", referredId));
     }
+    
+    /**
+     * 레퍼럴 관계 존재 여부 확인 (referred_id로)
+     */
+    public Future<Boolean> hasReferralRelation(SqlClient client, Long referredId) {
+        return getReferralRelationByReferredId(client, referredId)
+            .map(relation -> relation != null);
+    }
 }
 

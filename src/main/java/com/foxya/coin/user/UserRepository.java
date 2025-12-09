@@ -22,6 +22,8 @@ public class UserRepository extends BaseRepository {
         .passwordHash(getStringColumnValue(row, "password_hash"))
         .referralCode(getStringColumnValue(row, "referral_code"))
         .status(getStringColumnValue(row, "status"))
+        .level(getIntegerColumnValue(row, "level"))
+        .exp(getBigDecimalColumnValue(row, "exp"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();

@@ -65,13 +65,37 @@ public class ApiVerticle extends AbstractVerticle {
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
         TransferRepository transferRepository = new TransferRepository();
+        com.foxya.coin.bonus.BonusRepository bonusRepository = new com.foxya.coin.bonus.BonusRepository();
+        com.foxya.coin.mining.MiningRepository miningRepository = new com.foxya.coin.mining.MiningRepository();
+        com.foxya.coin.notice.NoticeRepository noticeRepository = new com.foxya.coin.notice.NoticeRepository();
+        com.foxya.coin.auth.SocialLinkRepository socialLinkRepository = new com.foxya.coin.auth.SocialLinkRepository();
+        com.foxya.coin.auth.PhoneVerificationRepository phoneVerificationRepository = new com.foxya.coin.auth.PhoneVerificationRepository();
+        com.foxya.coin.subscription.SubscriptionRepository subscriptionRepository = new com.foxya.coin.subscription.SubscriptionRepository();
+        com.foxya.coin.review.ReviewRepository reviewRepository = new com.foxya.coin.review.ReviewRepository();
+        com.foxya.coin.agency.AgencyRepository agencyRepository = new com.foxya.coin.agency.AgencyRepository();
         
         // Service 초기화
-        com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(pool, userRepository, jwtAuth, jwtConfig);
+        com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(
+            pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
         UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
+        com.foxya.coin.bonus.BonusService bonusService = new com.foxya.coin.bonus.BonusService(
+            pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository, 
+            agencyRepository, socialLinkRepository, phoneVerificationRepository);
+        com.foxya.coin.mining.MiningService miningService = new com.foxya.coin.mining.MiningService(
+            pool, miningRepository, userRepository);
+        com.foxya.coin.level.LevelService levelService = new com.foxya.coin.level.LevelService(
+            pool, userRepository, miningRepository);
+        com.foxya.coin.notice.NoticeService noticeService = new com.foxya.coin.notice.NoticeService(
+            pool, noticeRepository);
+        com.foxya.coin.subscription.SubscriptionService subscriptionService = new com.foxya.coin.subscription.SubscriptionService(
+            pool, subscriptionRepository);
+        com.foxya.coin.review.ReviewService reviewService = new com.foxya.coin.review.ReviewService(
+            pool, reviewRepository);
+        com.foxya.coin.agency.AgencyService agencyService = new com.foxya.coin.agency.AgencyService(
+            pool, agencyRepository);
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
@@ -79,6 +103,13 @@ public class ApiVerticle extends AbstractVerticle {
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
+        com.foxya.coin.bonus.BonusHandler bonusHandler = new com.foxya.coin.bonus.BonusHandler(vertx, bonusService, jwtAuth);
+        com.foxya.coin.mining.MiningHandler miningHandler = new com.foxya.coin.mining.MiningHandler(vertx, miningService, jwtAuth);
+        com.foxya.coin.level.LevelHandler levelHandler = new com.foxya.coin.level.LevelHandler(vertx, levelService, jwtAuth);
+        com.foxya.coin.notice.NoticeHandler noticeHandler = new com.foxya.coin.notice.NoticeHandler(vertx, noticeService, jwtAuth);
+        com.foxya.coin.subscription.SubscriptionHandler subscriptionHandler = new com.foxya.coin.subscription.SubscriptionHandler(vertx, subscriptionService, jwtAuth);
+        com.foxya.coin.review.ReviewHandler reviewHandler = new com.foxya.coin.review.ReviewHandler(vertx, reviewService, jwtAuth);
+        com.foxya.coin.agency.AgencyHandler agencyHandler = new com.foxya.coin.agency.AgencyHandler(vertx, agencyService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -95,6 +126,27 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 전송 API (인증 필요, 핸들러 내부에서 JWT 처리)
         mainRouter.mountSubRouter("/api/v1/transfers", transferHandler.getRouter());
+        
+        // 보너스 API
+        mainRouter.mountSubRouter("/api/v1/bonus", bonusHandler.getRouter());
+        
+        // 채굴 API
+        mainRouter.mountSubRouter("/api/v1/mining", miningHandler.getRouter());
+        
+        // 레벨 API (UserHandler와 경로가 겹치므로 별도 경로 사용)
+        mainRouter.mountSubRouter("/api/v1/user", levelHandler.getRouter());
+        
+        // 공지사항 API
+        mainRouter.mountSubRouter("/api/v1/notices", noticeHandler.getRouter());
+        
+        // 구독 API
+        mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());
+        
+        // 리뷰 API
+        mainRouter.mountSubRouter("/api/v1/review", reviewHandler.getRouter());
+        
+        // 에이전시 API
+        mainRouter.mountSubRouter("/api/v1/agency", agencyHandler.getRouter());
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);

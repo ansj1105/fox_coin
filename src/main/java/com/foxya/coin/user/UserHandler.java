@@ -62,6 +62,12 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.USER))
             .handler(this::getUser);
         
+        // 사용자의 추천인 코드 조회
+        router.get("/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getReferralCode);
+        
         return router;
     }
     
@@ -133,6 +139,15 @@ public class UserHandler extends BaseHandler {
         Long targetUserId = Long.valueOf(ctx.pathParam("id"));
         log.info("Admin {} generating referral code for user: {}", adminId, targetUserId);
         response(ctx, userService.generateReferralCode(targetUserId));
+    }
+    
+    /**
+     * 사용자의 추천인 코드 조회
+     */
+    private void getReferralCode(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting referral code for user: {}", userId);
+        response(ctx, userService.getReferralCode(userId));
     }
 }
 
