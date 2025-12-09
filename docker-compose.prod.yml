@@ -97,7 +97,7 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./nginx/logs:/var/log/nginx
       # 프론트엔드 빌드 파일 마운트 (프로덕션)
-      # - ./frontend/dist:/usr/share/nginx/html/frontend:ro
+      - ./frontend/dist:/usr/share/nginx/html/frontend:ro
     depends_on:
       - app
     networks:
