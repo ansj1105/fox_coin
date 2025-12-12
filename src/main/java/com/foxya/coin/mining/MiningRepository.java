@@ -151,8 +151,10 @@ public class MiningRepository extends BaseRepository {
             .where("mh.user_id", Op.Equal, "userId")
             .andWhere("mh.status", Op.Equal, "status");
         
-        // 날짜 조건 추가 (복잡한 조건이므로 andWhere(String) 사용)
-        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            queryBuilder = queryBuilder.andWhere("mh.created_at", Op.GreaterThanOrEqual, "start_date");
+        }
         
         String sql = queryBuilder
             .orderBy("mh.created_at", Sort.DESC)
@@ -163,7 +165,9 @@ public class MiningRepository extends BaseRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("status", "COMPLETED");
-        params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         
         return query(client, sql, params)
             .map(rows -> {
@@ -187,14 +191,18 @@ public class MiningRepository extends BaseRepository {
             .where("mh.user_id", Op.Equal, "userId")
             .andWhere("mh.status", Op.Equal, "status");
         
-        // 날짜 조건 추가
-        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            queryBuilder = queryBuilder.andWhere("mh.created_at", Op.GreaterThanOrEqual, "start_date");
+        }
         
         String query = queryBuilder.build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("status", "COMPLETED");
-        params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         
         return query(client, query, params)
             .map(rows -> {
@@ -217,14 +225,18 @@ public class MiningRepository extends BaseRepository {
             .where("mh.user_id", Op.Equal, "userId")
             .andWhere("mh.status", Op.Equal, "status");
         
-        // 날짜 조건 추가
-        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            queryBuilder = queryBuilder.andWhere("mh.created_at", Op.GreaterThanOrEqual, "start_date");
+        }
         
         String query = queryBuilder.build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("status", "COMPLETED");
-        params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         
         return query(client, query, params)
             .map(rows -> {
