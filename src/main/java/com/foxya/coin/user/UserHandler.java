@@ -51,22 +51,23 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::generateReferralCode);
         
+        // 사용자의 추천인 코드 조회 (구체적인 라우트를 먼저 등록)
+        router.get("/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getReferralCode);
+        
         // ADMIN이 특정 유저에게 레퍼럴 코드 생성
         router.post("/:id/generate/referral-code")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN))
             .handler(this::generateReferralCodeForUser);
         
+        // 사용자 조회 (파라미터 라우트는 구체적인 라우트보다 나중에 등록)
         router.get("/:id")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.USER))
             .handler(this::getUser);
-        
-        // 사용자의 추천인 코드 조회
-        router.get("/referral-code")
-            .handler(JWTAuthHandler.create(jwtAuth))
-            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
-            .handler(this::getReferralCode);
         
         return router;
     }
