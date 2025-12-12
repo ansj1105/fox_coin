@@ -51,14 +51,14 @@ public class ExchangeService extends BaseService {
             return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + MIN_EXCHANGE_AMOUNT + " 입니다."));
         }
         
-        // 2. 통화 조회 (KRWT, BLUEDIA)
-        return currencyRepository.getCurrencyByCode(pool, "KRWT")
+        // 2. 통화 조회 (KRWT, BLUEDIA) - 환전은 항상 INTERNAL 체인 사용
+        return currencyRepository.getCurrencyByCodeAndChain(pool, "KRWT", "INTERNAL")
             .compose(krwtCurrency -> {
                 if (krwtCurrency == null) {
                     return Future.failedFuture(new NotFoundException("KRWT 통화를 찾을 수 없습니다."));
                 }
                 
-                return currencyRepository.getCurrencyByCode(pool, "BLUEDIA")
+                return currencyRepository.getCurrencyByCodeAndChain(pool, "BLUEDIA", "INTERNAL")
                     .compose(blueDiamondCurrency -> {
                         if (blueDiamondCurrency == null) {
                             return Future.failedFuture(new NotFoundException("BLUEDIA 통화를 찾을 수 없습니다."));

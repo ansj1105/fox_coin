@@ -145,6 +145,41 @@ WHERE NOT EXISTS (
     AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'TRON')
 );
 
+-- 환전 테스트용 지갑
+-- testuser (ID:1) KRWT 지갑 - 잔액 10000 KRWT
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'KRWT' AND chain = 'INTERNAL'),
+    'TADDR_TESTUSER_KRWT_001',
+    10000.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'KRWT' AND chain = 'INTERNAL')
+);
+
+-- testuser (ID:1) BLUEDIA 지갑 - 잔액 0 BLUEDIA (환전 후 받을 지갑)
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'BLUEDIA' AND chain = 'INTERNAL'),
+    'TADDR_TESTUSER_BLUEDIA_001',
+    0.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'BLUEDIA' AND chain = 'INTERNAL')
+);
+
 -- 시퀀스 리셋
 SELECT setval('user_wallets_id_seq', (SELECT COALESCE(MAX(id), 1) FROM user_wallets));
 
