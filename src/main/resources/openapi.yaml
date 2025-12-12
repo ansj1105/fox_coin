@@ -37,6 +37,10 @@ tags:
     description: 리뷰 관련 API
   - name: Agency
     description: 에이전시 관련 API
+  - name: Ranking
+    description: 랭킹 관련 API
+  - name: Banner
+    description: 배너 광고 관련 API
 
 components:
   securitySchemes:
@@ -487,6 +491,81 @@ components:
         referralLink:
           type: string
           format: uri
+
+    # Ranking 관련 스키마
+    CountryRankingResponse:
+      type: object
+      properties:
+        top3:
+          type: array
+          items:
+            $ref: '#/components/schemas/CountryRankingInfo'
+        rankings:
+          type: array
+          items:
+            $ref: '#/components/schemas/CountryRankingInfo'
+        myCountry:
+          $ref: '#/components/schemas/CountryRankingInfo'
+          nullable: true
+        totalCount:
+          type: integer
+
+    CountryRankingInfo:
+      type: object
+      properties:
+        rank:
+          type: integer
+        country:
+          type: string
+        countryName:
+          type: string
+        flag:
+          type: string
+        totalMinedCoins:
+          type: number
+          format: decimal
+        totalMembers:
+          type: integer
+          format: int64
+        aggregation:
+          type: number
+          format: decimal
+
+    # Banner 관련 스키마
+    BannerListResponse:
+      type: object
+      properties:
+        banners:
+          type: array
+          items:
+            $ref: '#/components/schemas/BannerInfo'
+
+    BannerInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+        linkUrl:
+          type: string
+          format: uri
+          nullable: true
+        position:
+          type: string
+          enum: [RANKING_TOP, DASHBOARD_TOP]
+        isActive:
+          type: boolean
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
 
 paths:
   # ==================== System ====================
@@ -1615,3 +1694,4 @@ paths:
                         $ref: '#/components/schemas/AgencyStatusResponse'
         '401':
           description: 인증 실패
+  /api/v1/banners/{id}/click:

@@ -97,6 +97,12 @@ public class ApiVerticle extends AbstractVerticle {
             pool, reviewRepository);
         com.foxya.coin.agency.AgencyService agencyService = new com.foxya.coin.agency.AgencyService(
             pool, agencyRepository);
+        com.foxya.coin.ranking.RankingRepository rankingRepository = new com.foxya.coin.ranking.RankingRepository();
+        com.foxya.coin.ranking.RankingService rankingService = new com.foxya.coin.ranking.RankingService(
+            pool, rankingRepository);
+        com.foxya.coin.banner.BannerRepository bannerRepository = new com.foxya.coin.banner.BannerRepository();
+        com.foxya.coin.banner.BannerService bannerService = new com.foxya.coin.banner.BannerService(
+            pool, bannerRepository);
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
@@ -111,6 +117,8 @@ public class ApiVerticle extends AbstractVerticle {
         com.foxya.coin.subscription.SubscriptionHandler subscriptionHandler = new com.foxya.coin.subscription.SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         com.foxya.coin.review.ReviewHandler reviewHandler = new com.foxya.coin.review.ReviewHandler(vertx, reviewService, jwtAuth);
         com.foxya.coin.agency.AgencyHandler agencyHandler = new com.foxya.coin.agency.AgencyHandler(vertx, agencyService, jwtAuth);
+        com.foxya.coin.ranking.RankingHandler rankingHandler = new com.foxya.coin.ranking.RankingHandler(vertx, rankingService, jwtAuth);
+        com.foxya.coin.banner.BannerHandler bannerHandler = new com.foxya.coin.banner.BannerHandler(vertx, bannerService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -148,6 +156,12 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 에이전시 API
         mainRouter.mountSubRouter("/api/v1/agency", agencyHandler.getRouter());
+        
+        // 랭킹 API
+        mainRouter.mountSubRouter("/api/v1/ranking", rankingHandler.getRouter());
+        
+        // 배너 API
+        mainRouter.mountSubRouter("/api/v1/banners", bannerHandler.getRouter());
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);

@@ -24,6 +24,7 @@ public class UserRepository extends BaseRepository {
         .status(getStringColumnValue(row, "status"))
         .level(getIntegerColumnValue(row, "level"))
         .exp(getBigDecimalColumnValue(row, "exp"))
+        .countryCode(getStringColumnValue(row, "country_code"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
