@@ -1,6 +1,7 @@
 package com.foxya.coin.transfer;
 
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.enums.ChainType;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.currency.CurrencyRepository;
@@ -64,11 +65,11 @@ public class TransferService extends BaseService {
             return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
         }
         
-        // 2. 통화 조회
-        return currencyRepository.getCurrencyByCode(pool, request.getCurrencyCode())
+        // 2. 통화 조회 (내부 전송은 항상 INTERNAL 체인 사용)
+        return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), "INTERNAL")
             .compose(currency -> {
                 if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + request.getCurrencyCode()));
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + request.getCurrencyCode() + " on INTERNAL"));
                 }
                 
                 // 3. 수신자 조회
@@ -235,7 +236,13 @@ public class TransferService extends BaseService {
             return Future.failedFuture(new BadRequestException("수신 주소를 입력해주세요."));
         }
         
-        // 2. 통화 조회
+        // 2. 체인 유효성 검사
+        ChainType chainType = ChainType.fromValue(request.getChain());
+        if (chainType == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 체인입니다: " + request.getChain()));
+        }
+        
+        // 3. 통화 조회
         return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), request.getChain())
             .compose(currency -> {
                 if (currency == null) {

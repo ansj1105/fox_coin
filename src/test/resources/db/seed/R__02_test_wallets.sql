@@ -128,6 +128,23 @@ WHERE NOT EXISTS (
     AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'TRON')
 );
 
+-- no_code_user (ID:6) TRON 지갑 - 잔액 50 FOXYA (잔액 부족 테스트용)
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'no_code_user'),
+    (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'TRON'),
+    'TNoCodeUserAddress123456789012345678',
+    50.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'no_code_user')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'TRON')
+);
+
 -- 시퀀스 리셋
 SELECT setval('user_wallets_id_seq', (SELECT COALESCE(MAX(id), 1) FROM user_wallets));
 
