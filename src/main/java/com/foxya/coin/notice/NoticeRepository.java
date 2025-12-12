@@ -33,7 +33,7 @@ public class NoticeRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("notices", "id", "title", "content", "is_important", "created_by", "created_at", "updated_at")
             .orderBy("is_important", Sort.DESC)
-            .orderBy("created_at", Sort.DESC)
+            .appendQueryString(", created_at DESC")
             .limitRefactoring()
             .offsetRefactoring()
             .build();
