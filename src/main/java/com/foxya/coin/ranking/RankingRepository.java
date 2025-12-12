@@ -4,7 +4,6 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.utils.QueryBuilder;
 import io.vertx.core.Future;
-import io.vertx.sqlclient.PgPool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +23,7 @@ public class RankingRepository extends BaseRepository {
      * 국가별 팀 랭킹 조회
      * @param period 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
      */
-    public Future<List<CountryRanking>> getCountryRankings(PgPool pool, String period) {
+    public Future<List<CountryRanking>> getCountryRankings(SqlClient client, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
         String sql = """
@@ -55,7 +54,7 @@ public class RankingRepository extends BaseRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("start_date", startDate);
         
-        return query(pool, query, params)
+        return query(client, query, params)
             .map(rows -> {
                 List<CountryRanking> rankings = new ArrayList<>();
                 for (Row row : rows) {
@@ -75,7 +74,7 @@ public class RankingRepository extends BaseRepository {
     /**
      * 특정 국가의 랭킹 정보 조회
      */
-    public Future<CountryRanking> getCountryRankingByCode(PgPool pool, String countryCode, String period) {
+    public Future<CountryRanking> getCountryRankingByCode(SqlClient client, String countryCode, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
         String sql = """
@@ -106,7 +105,7 @@ public class RankingRepository extends BaseRepository {
         params.put("country_code", countryCode);
         params.put("start_date", startDate);
         
-        return query(pool, query, params)
+        return query(client, query, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     Row row = rows.iterator().next();
@@ -125,13 +124,13 @@ public class RankingRepository extends BaseRepository {
     /**
      * 사용자의 국가 코드 조회
      */
-    public Future<String> getUserCountryCode(PgPool pool, Long userId) {
+    public Future<String> getUserCountryCode(SqlClient client, Long userId) {
         String sql = QueryBuilder
             .select("users", "country_code")
             .whereById()
             .build();
         
-        return query(pool, sql, Collections.singletonMap("id", userId))
+        return query(client, sql, Collections.singletonMap("id", userId))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return getStringColumnValue(rows.iterator().next(), "country_code");

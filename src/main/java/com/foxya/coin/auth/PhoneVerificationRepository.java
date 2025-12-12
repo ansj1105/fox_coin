@@ -1,12 +1,15 @@
 package com.foxya.coin.auth;
 
 import com.foxya.coin.common.BaseRepository;
+import com.foxya.coin.utils.QueryBuilder;
+import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,16 +17,12 @@ import java.util.Map;
 public class PhoneVerificationRepository extends BaseRepository {
     
     public Future<Boolean> isVerified(SqlClient client, Long userId) {
-        String sql = """
-            SELECT is_verified
-            FROM phone_verifications
-            WHERE user_id = #{userId}
-            """;
+        String sql = QueryBuilder
+            .select("phone_verifications", "is_verified")
+            .where("user_id", Op.Equal, "userId")
+            .build();
         
-        Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
-        
-        return query(client, sql, params)
+        return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return rows.iterator().next().getBoolean("is_verified");
@@ -46,13 +45,14 @@ public class PhoneVerificationRepository extends BaseRepository {
                 updated_at = CURRENT_TIMESTAMP
             """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("phoneNumber", phoneNumber);
         params.put("verificationCode", verificationCode);
         params.put("expiresAt", LocalDateTime.now().plusMinutes(10));
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> rows.rowCount() > 0);
     }
 }

@@ -5,7 +5,6 @@ import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import io.vertx.core.Future;
-import io.vertx.sqlclient.PgPool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +35,7 @@ public class BannerRepository extends BaseRepository {
     /**
      * 배너 목록 조회
      */
-    public Future<List<Banner>> getBanners(PgPool pool, String position) {
+    public Future<List<Banner>> getBanners(SqlClient client, String position) {
         String sql = """
             SELECT * FROM banners
             WHERE is_active = true
@@ -51,7 +50,7 @@ public class BannerRepository extends BaseRepository {
         params.put("now", LocalDateTime.now());
         params.put("position", position);
         
-        return query(pool, query, params)
+        return query(client, query, params)
             .map(rows -> fetchAll(bannerMapper, rows))
             .onFailure(throwable -> log.error("배너 목록 조회 실패: {}", throwable.getMessage()));
     }
@@ -86,13 +85,13 @@ public class BannerRepository extends BaseRepository {
     /**
      * 배너 존재 여부 확인
      */
-    public Future<Boolean> existsBanner(PgPool pool, Long bannerId) {
+    public Future<Boolean> existsBanner(SqlClient client, Long bannerId) {
         String sql = QueryBuilder
             .count("banners")
             .whereById()
             .build();
         
-        return query(pool, sql, Collections.singletonMap("id", bannerId))
+        return query(client, sql, Collections.singletonMap("id", bannerId))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     Long count = getLongColumnValue(rows.iterator().next(), "count");

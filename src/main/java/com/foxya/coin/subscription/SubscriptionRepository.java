@@ -3,13 +3,15 @@ package com.foxya.coin.subscription;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.subscription.entities.Subscription;
+import com.foxya.coin.utils.QueryBuilder;
+import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -28,14 +30,15 @@ public class SubscriptionRepository extends BaseRepository {
         .build();
     
     public Future<Subscription> getActiveSubscription(SqlClient client, Long userId) {
-        String sql = """
-            SELECT id, user_id, package_type, is_active, started_at, expires_at, created_at, updated_at
-            FROM subscriptions
-            WHERE user_id = #{userId} AND is_active = true
-            """;
+        String sql = QueryBuilder
+            .select("subscriptions", "id", "user_id", "package_type", "is_active", "started_at", "expires_at", "created_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("is_active", Op.Equal, "is_active")
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
+        params.put("is_active", true);
         
         return query(client, sql, params)
             .map(rows -> {
@@ -61,12 +64,13 @@ public class SubscriptionRepository extends BaseRepository {
             RETURNING id, user_id, package_type, is_active, started_at, expires_at, created_at, updated_at
             """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("packageType", packageType);
         params.put("expiresAt", expiresAt);
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return SUBSCRIPTION_MAPPER.map(rows.iterator().next());

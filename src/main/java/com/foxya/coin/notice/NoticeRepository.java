@@ -3,13 +3,15 @@ package com.foxya.coin.notice;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.notice.entities.Notice;
+import com.foxya.coin.utils.QueryBuilder;
+import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,12 +30,13 @@ public class NoticeRepository extends BaseRepository {
         .build();
     
     public Future<List<Notice>> getNotices(SqlClient client, Integer limit, Integer offset) {
-        String sql = """
-            SELECT id, title, content, is_important, created_by, created_at, updated_at
-            FROM notices
-            ORDER BY is_important DESC, created_at DESC
-            LIMIT #{limit} OFFSET #{offset}
-            """;
+        String sql = QueryBuilder
+            .select("notices", "id", "title", "content", "is_important", "created_by", "created_at", "updated_at")
+            .orderBy("is_important", Sort.DESC)
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("limit", limit);
@@ -50,7 +53,9 @@ public class NoticeRepository extends BaseRepository {
     }
     
     public Future<Long> getNoticeCount(SqlClient client) {
-        String sql = "SELECT COUNT(*) as count FROM notices";
+        String sql = QueryBuilder
+            .count("notices")
+            .build();
         
         return query(client, sql)
             .map(rows -> {
@@ -62,16 +67,12 @@ public class NoticeRepository extends BaseRepository {
     }
     
     public Future<Notice> getNoticeById(SqlClient client, Long id) {
-        String sql = """
-            SELECT id, title, content, is_important, created_by, created_at, updated_at
-            FROM notices
-            WHERE id = #{id}
-            """;
+        String sql = QueryBuilder
+            .select("notices", "id", "title", "content", "is_important", "created_by", "created_at", "updated_at")
+            .whereById()
+            .build();
         
-        Map<String, Object> params = new HashMap<>();
-        params.put("id", id);
-        
-        return query(client, sql, params)
+        return query(client, sql, Collections.singletonMap("id", id))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return NOTICE_MAPPER.map(rows.iterator().next());

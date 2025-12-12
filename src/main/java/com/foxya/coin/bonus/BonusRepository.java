@@ -3,9 +3,10 @@ package com.foxya.coin.bonus;
 import com.foxya.coin.bonus.entities.UserBonus;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
+import com.foxya.coin.utils.QueryBuilder;
+import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
@@ -30,11 +31,11 @@ public class BonusRepository extends BaseRepository {
         .build();
     
     public Future<UserBonus> getUserBonus(SqlClient client, Long userId, String bonusType) {
-        String sql = """
-            SELECT id, user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata, created_at, updated_at
-            FROM user_bonuses
-            WHERE user_id = #{userId} AND bonus_type = #{bonusType}
-            """;
+        String sql = QueryBuilder
+            .select("user_bonuses", "id", "user_id", "bonus_type", "is_active", "expires_at", "current_count", "max_count", "metadata", "created_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("bonus_type", Op.Equal, "bonusType")
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
@@ -66,6 +67,7 @@ public class BonusRepository extends BaseRepository {
             RETURNING id, user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata, created_at, updated_at
             """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("bonusType", bonusType);
@@ -75,7 +77,7 @@ public class BonusRepository extends BaseRepository {
         params.put("maxCount", maxCount);
         params.put("metadata", metadata);
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return BONUS_MAPPER.map(rows.iterator().next());

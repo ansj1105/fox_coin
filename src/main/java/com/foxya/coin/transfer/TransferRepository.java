@@ -165,8 +165,14 @@ public class TransferRepository extends BaseRepository {
      * 사용자의 내부 전송 내역 조회
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
-        String sql = "SELECT * FROM internal_transfers WHERE sender_id = #{user_id} OR receiver_id = #{user_id} " +
-            "ORDER BY created_at DESC LIMIT #{limit} OFFSET #{offset}";
+        String sql = QueryBuilder
+            .select("internal_transfers")
+            .where("sender_id", Op.Equal, "user_id")
+            .orWhere("receiver_id", Op.Equal, "user_id")
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
@@ -349,15 +355,19 @@ public class TransferRepository extends BaseRepository {
      * 지갑 잔액 차감 (송신자)
      */
     public Future<Wallet> deductBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = "UPDATE user_wallets SET balance = balance - #{amount}, updated_at = #{updated_at} " +
-            "WHERE id = #{id} AND balance >= #{amount} RETURNING *";
+        String sql = """
+            UPDATE user_wallets SET balance = balance - #{amount}, updated_at = #{updated_at}
+            WHERE id = #{id} AND balance >= #{amount}
+            RETURNING *
+            """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(e -> log.error("잔액 차감 실패 - walletId: {}, amount: {}", walletId, amount));
     }
@@ -366,15 +376,19 @@ public class TransferRepository extends BaseRepository {
      * 지갑 잔액 추가 (수신자)
      */
     public Future<Wallet> addBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = "UPDATE user_wallets SET balance = balance + #{amount}, updated_at = #{updated_at} " +
-            "WHERE id = #{id} RETURNING *";
+        String sql = """
+            UPDATE user_wallets SET balance = balance + #{amount}, updated_at = #{updated_at}
+            WHERE id = #{id}
+            RETURNING *
+            """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(e -> log.error("잔액 추가 실패 - walletId: {}, amount: {}", walletId, amount));
     }
@@ -383,15 +397,19 @@ public class TransferRepository extends BaseRepository {
      * 지갑 잔액 잠금 (외부 전송 시)
      */
     public Future<Wallet> lockBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = "UPDATE user_wallets SET balance = balance - #{amount}, locked_balance = locked_balance + #{amount}, " +
-            "updated_at = #{updated_at} WHERE id = #{id} AND balance >= #{amount} RETURNING *";
+        String sql = """
+            UPDATE user_wallets SET balance = balance - #{amount}, locked_balance = locked_balance + #{amount}, updated_at = #{updated_at}
+            WHERE id = #{id} AND balance >= #{amount}
+            RETURNING *
+            """;
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(e -> log.error("잔액 잠금 실패 - walletId: {}, amount: {}", walletId, amount));
     }
@@ -403,20 +421,27 @@ public class TransferRepository extends BaseRepository {
         String sql;
         if (refund) {
             // 실패 시 잔액 복구
-            sql = "UPDATE user_wallets SET balance = balance + #{amount}, locked_balance = locked_balance - #{amount}, " +
-                "updated_at = #{updated_at} WHERE id = #{id} RETURNING *";
+            sql = """
+                UPDATE user_wallets SET balance = balance + #{amount}, locked_balance = locked_balance - #{amount}, updated_at = #{updated_at}
+                WHERE id = #{id}
+                RETURNING *
+                """;
         } else {
             // 성공 시 잠금 잔액만 차감
-            sql = "UPDATE user_wallets SET locked_balance = locked_balance - #{amount}, " +
-                "updated_at = #{updated_at} WHERE id = #{id} RETURNING *";
+            sql = """
+                UPDATE user_wallets SET locked_balance = locked_balance - #{amount}, updated_at = #{updated_at}
+                WHERE id = #{id}
+                RETURNING *
+                """;
         }
         
+        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
         
-        return query(client, sql, params)
+        return query(client, query, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(e -> log.error("잔액 잠금 해제 실패 - walletId: {}, amount: {}, refund: {}", walletId, amount, refund));
     }
