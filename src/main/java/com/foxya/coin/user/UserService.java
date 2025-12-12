@@ -149,22 +149,22 @@ public class UserService extends BaseService {
      */
     public Future<ReferralCodeResponseDto> getReferralCode(Long userId) {
         return userRepository.getUserById(pool, userId)
-            .map(user -> {
+            .compose(user -> {
                 if (user == null) {
-                    throw new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다.");
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
                 }
                 
                 String referralCode = user.getReferralCode();
                 if (referralCode == null || referralCode.isEmpty()) {
-                    throw new com.foxya.coin.common.exceptions.BadRequestException("레퍼럴 코드가 없습니다.");
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("레퍼럴 코드가 없습니다."));
                 }
                 
                 String referralLink = frontendBaseUrl + "/ref/" + referralCode;
                 
-                return ReferralCodeResponseDto.builder()
+                return Future.succeededFuture(ReferralCodeResponseDto.builder()
                     .referralCode(referralCode)
                     .referralLink(referralLink)
-                    .build();
+                    .build());
             });
     }
 }

@@ -17,14 +17,14 @@ import java.util.Map;
 @Slf4j
 public class AgencyRepository extends BaseRepository {
     
-    private static final RowMapper<AgencyMembership> AGENCY_MAPPER = row -> AgencyMembership.builder()
-        .id(row.getLong("id"))
-        .userId(row.getLong("user_id"))
-        .agencyId(row.getString("agency_id"))
-        .agencyName(row.getString("agency_name"))
-        .joinedAt(row.getLocalDateTime("joined_at"))
-        .createdAt(row.getLocalDateTime("created_at"))
-        .updatedAt(row.getLocalDateTime("updated_at"))
+    private final RowMapper<AgencyMembership> agencyMapper = row -> AgencyMembership.builder()
+        .id(getLongColumnValue(row, "id"))
+        .userId(getLongColumnValue(row, "user_id"))
+        .agencyId(getStringColumnValue(row, "agency_id"))
+        .agencyName(getStringColumnValue(row, "agency_name"))
+        .joinedAt(getLocalDateTimeColumnValue(row, "joined_at"))
+        .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+        .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
     
     public Future<Boolean> hasAgencyMembership(SqlClient client, Long userId) {
@@ -35,11 +35,8 @@ public class AgencyRepository extends BaseRepository {
         
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> {
-                if (rows.iterator().hasNext()) {
-                    Long count = rows.iterator().next().getLong("count");
-                    return count != null && count > 0;
-                }
-                return false;
+                Integer count = fetchOne(COUNT_MAPPER, rows);
+                return count != null && count > 0;
             });
     }
     
@@ -50,12 +47,8 @@ public class AgencyRepository extends BaseRepository {
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
-            .map(rows -> {
-                if (rows.iterator().hasNext()) {
-                    return AGENCY_MAPPER.map(rows.iterator().next());
-                }
-                return null;
-            });
+            .map(rows -> fetchOne(agencyMapper, rows))
+            .onFailure(e -> log.error("에이전시 멤버십 조회 실패 - userId: {}", userId));
     }
 }
 
