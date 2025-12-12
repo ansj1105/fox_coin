@@ -180,6 +180,41 @@ WHERE NOT EXISTS (
     AND currency_id = (SELECT id FROM currency WHERE code = 'BLUEDIA' AND chain = 'INTERNAL')
 );
 
+-- 스왑 테스트용 지갑
+-- testuser (ID:1) ETH 지갑 (Ether 체인) - 잔액 10 ETH
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'ETH' AND chain = 'Ether'),
+    '0xTestUserEthAddress1234567890123456789012345678',
+    10.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'ETH' AND chain = 'Ether')
+);
+
+-- testuser (ID:1) USDT 지갑 (Ether 체인) - 잔액 0 USDT (스왑 후 받을 지갑)
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'USDT' AND chain = 'Ether'),
+    '0xTestUserUsdtAddress123456789012345678901234567',
+    0.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'USDT' AND chain = 'Ether')
+);
+
 -- 시퀀스 리셋
 SELECT setval('user_wallets_id_seq', (SELECT COALESCE(MAX(id), 1) FROM user_wallets));
 
