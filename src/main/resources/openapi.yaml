@@ -534,6 +534,57 @@ components:
           type: number
           format: decimal
 
+    MiningHistoryResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MiningHistoryItem'
+        total:
+          type: integer
+          format: int64
+          description: 전체 개수
+        totalAmount:
+          type: number
+          format: decimal
+          description: 해당 기간의 총 체굴량 합계
+        limit:
+          type: integer
+          description: 조회 개수
+        offset:
+          type: integer
+          description: 시작 위치
+
+    MiningHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        level:
+          type: integer
+          description: 채굴 당시 레벨
+        nickname:
+          type: string
+          description: 사용자 닉네임
+        amount:
+          type: number
+          format: decimal
+          description: 채굴량
+        type:
+          type: string
+          enum: [BROADCAST_PROGRESS, BROADCAST_WATCH]
+          description: 채굴 유형 (BROADCAST_PROGRESS: 방송진행, BROADCAST_WATCH: 방송시청)
+        status:
+          type: string
+          enum: [COMPLETED, FAILED, CANCELLED]
+          description: 상태
+        createdAt:
+          type: string
+          format: date-time
+          description: 생성 시간
+
     # Level 관련 스키마
     UserLevelResponse:
       type: object
@@ -1912,6 +1963,93 @@ paths:
                         $ref: '#/components/schemas/LevelInfoResponse'
         '401':
           description: 인증 실패
+
+  /api/v1/mining/history:
+    get:
+      summary: 체굴 내역 조회
+      description: |
+        체굴 내역을 조회합니다. 래퍼럴 수익은 제외하고 체굴 내역만 조회됩니다.
+        
+        **period 파라미터:**
+        - ALL: 전체
+        - TODAY: 오늘
+        - WEEK: 최근 7일
+        - MONTH: 최근 30일
+        - YEAR: 최근 1년
+        
+        **type:**
+        - BROADCAST_PROGRESS: 방송진행
+        - BROADCAST_WATCH: 방송시청
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          description: 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
+          schema:
+            type: string
+            enum: [ALL, TODAY, WEEK, MONTH, YEAR]
+            default: TODAY
+        - name: limit
+          in: query
+          description: 조회 개수
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          description: 시작 위치
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MiningHistoryResponse'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  items:
+                    - id: 1
+                      level: 1
+                      nickname: testuser
+                      amount: 0.00012345
+                      type: BROADCAST_PROGRESS
+                      status: COMPLETED
+                      createdAt: "2025-10-26T18:46:00Z"
+                    - id: 2
+                      level: 1
+                      nickname: testuser
+                      amount: 0.00012345
+                      type: BROADCAST_WATCH
+                      status: COMPLETED
+                      createdAt: "2025-10-26T18:30:00Z"
+                  total: 100
+                  totalAmount: 1.23456789
+                  limit: 20
+                  offset: 0
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 사용자를 찾을 수 없습니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ==================== Level ====================
   /api/v1/user/level:

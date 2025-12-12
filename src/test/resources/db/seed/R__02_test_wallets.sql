@@ -2,6 +2,7 @@
 -- R__로 시작하는 파일은 Repeatable migration으로, 내용이 변경되면 다시 실행됩니다
 
 -- 기존 테스트 데이터 삭제
+DELETE FROM mining_history WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
 DELETE FROM internal_transfers;
 DELETE FROM external_transfers;
 DELETE FROM user_wallets WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
@@ -217,4 +218,87 @@ WHERE NOT EXISTS (
 
 -- 시퀀스 리셋
 SELECT setval('user_wallets_id_seq', (SELECT COALESCE(MAX(id), 1) FROM user_wallets));
+
+-- 테스트용 채굴 내역 데이터
+-- testuser (ID:1)의 채굴 내역
+INSERT INTO mining_history (user_id, level, amount, type, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    0.00012345,
+    'BROADCAST_PROGRESS',
+    'COMPLETED',
+    NOW() - INTERVAL '1 hour'
+WHERE NOT EXISTS (
+    SELECT 1 FROM mining_history 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND type = 'BROADCAST_PROGRESS'
+    AND created_at = NOW() - INTERVAL '1 hour'
+);
+
+INSERT INTO mining_history (user_id, level, amount, type, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    0.00012345,
+    'BROADCAST_WATCH',
+    'COMPLETED',
+    NOW() - INTERVAL '2 hours'
+WHERE NOT EXISTS (
+    SELECT 1 FROM mining_history 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND type = 'BROADCAST_WATCH'
+    AND created_at = NOW() - INTERVAL '2 hours'
+);
+
+-- 오늘 채굴 내역 추가
+INSERT INTO mining_history (user_id, level, amount, type, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    0.00023456,
+    'BROADCAST_PROGRESS',
+    'COMPLETED',
+    NOW() - INTERVAL '30 minutes'
+WHERE NOT EXISTS (
+    SELECT 1 FROM mining_history 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND type = 'BROADCAST_PROGRESS'
+    AND created_at = NOW() - INTERVAL '30 minutes'
+);
+
+-- 일주일 전 채굴 내역
+INSERT INTO mining_history (user_id, level, amount, type, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    0.00034567,
+    'BROADCAST_WATCH',
+    'COMPLETED',
+    NOW() - INTERVAL '7 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM mining_history 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND type = 'BROADCAST_WATCH'
+    AND created_at = NOW() - INTERVAL '7 days'
+);
+
+-- 한 달 전 채굴 내역
+INSERT INTO mining_history (user_id, level, amount, type, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    0.00045678,
+    'BROADCAST_PROGRESS',
+    'COMPLETED',
+    NOW() - INTERVAL '30 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM mining_history 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND type = 'BROADCAST_PROGRESS'
+    AND created_at = NOW() - INTERVAL '30 days'
+);
+
+-- 시퀀스 리셋
+SELECT setval('mining_history_id_seq', (SELECT COALESCE(MAX(id), 1) FROM mining_history));
 

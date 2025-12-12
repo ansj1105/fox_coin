@@ -5,11 +5,14 @@ import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.mining.dto.DailyLimitResponseDto;
 import com.foxya.coin.mining.dto.LevelInfoResponseDto;
+import com.foxya.coin.mining.dto.MiningHistoryResponseDto;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +23,7 @@ public class MiningHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<DailyLimitResponseDto>> refDailyLimit = new TypeReference<>() {};
     private final TypeReference<ApiResponse<LevelInfoResponseDto>> refLevelInfo = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<MiningHistoryResponseDto>> refMiningHistory = new TypeReference<>() {};
     
     public MiningHandlerTest() {
         super("/api/v1/mining");
@@ -97,6 +101,125 @@ public class MiningHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/level-info"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("채굴 내역 조회 테스트")
+    class GetMiningHistoryTest {
+        
+        @Test
+        @Order(5)
+        @DisplayName("성공 - 채굴 내역 조회 (ALL)")
+        void successGetMiningHistoryAll(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqGet(getUrl("/history?period=ALL&limit=20&offset=0"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get mining history response: {}", res.bodyAsJsonObject());
+                    MiningHistoryResponseDto response = expectSuccessAndGetResponse(res, refMiningHistory);
+                    
+                    assertThat(response).isNotNull();
+                    assertThat(response.getItems()).isNotNull();
+                    assertThat(response.getTotal()).isNotNull();
+                    assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getLimit()).isEqualTo(20);
+                    assertThat(response.getOffset()).isEqualTo(0);
+                    
+                    if (response.getItems().size() > 0) {
+                        MiningHistoryResponseDto.MiningHistoryItem item = response.getItems().get(0);
+                        assertThat(item.getId()).isNotNull();
+                        assertThat(item.getLevel()).isNotNull();
+                        assertThat(item.getNickname()).isNotNull();
+                        assertThat(item.getAmount()).isNotNull();
+                        assertThat(item.getType()).isIn("BROADCAST_PROGRESS", "BROADCAST_WATCH");
+                        assertThat(item.getStatus()).isEqualTo("COMPLETED");
+                        assertThat(item.getCreatedAt()).isNotNull();
+                    }
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(6)
+        @DisplayName("성공 - 채굴 내역 조회 (TODAY)")
+        void successGetMiningHistoryToday(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqGet(getUrl("/history?period=TODAY"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get mining history (TODAY) response: {}", res.bodyAsJsonObject());
+                    MiningHistoryResponseDto response = expectSuccessAndGetResponse(res, refMiningHistory);
+                    
+                    assertThat(response).isNotNull();
+                    assertThat(response.getItems()).isNotNull();
+                    assertThat(response.getTotal()).isNotNull();
+                    assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getLimit()).isEqualTo(20); // 기본값
+                    assertThat(response.getOffset()).isEqualTo(0); // 기본값
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(7)
+        @DisplayName("성공 - 채굴 내역 조회 (WEEK)")
+        void successGetMiningHistoryWeek(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqGet(getUrl("/history?period=WEEK&limit=10&offset=0"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get mining history (WEEK) response: {}", res.bodyAsJsonObject());
+                    MiningHistoryResponseDto response = expectSuccessAndGetResponse(res, refMiningHistory);
+                    
+                    assertThat(response).isNotNull();
+                    assertThat(response.getItems()).isNotNull();
+                    assertThat(response.getTotal()).isNotNull();
+                    assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getLimit()).isEqualTo(10);
+                    assertThat(response.getOffset()).isEqualTo(0);
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(8)
+        @DisplayName("성공 - 채굴 내역 조회 (기본값)")
+        void successGetMiningHistoryDefault(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqGet(getUrl("/history"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get mining history (default) response: {}", res.bodyAsJsonObject());
+                    MiningHistoryResponseDto response = expectSuccessAndGetResponse(res, refMiningHistory);
+                    
+                    assertThat(response).isNotNull();
+                    assertThat(response.getItems()).isNotNull();
+                    assertThat(response.getTotal()).isNotNull();
+                    assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getLimit()).isEqualTo(20); // 기본값
+                    assertThat(response.getOffset()).isEqualTo(0); // 기본값
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(9)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/history"))
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
