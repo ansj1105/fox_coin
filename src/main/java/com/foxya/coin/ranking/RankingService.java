@@ -174,7 +174,7 @@ public class RankingService extends BaseService {
                                         .nickname(ranking.getNickname())
                                         .profileImage(null) // TODO: 프로필 이미지 추가 시 수정
                                         .level(ranking.getLevel())
-                                        .levelName("여우야") // TODO: 레벨 이름 매핑 추가
+                                        .levelName("여우야") // TODO: 레벨 이름 매핑 추가 (사용자가 수정함)
                                         .totalAmount(ranking.getTotalAmount() != null ? ranking.getTotalAmount() : BigDecimal.ZERO)
                                         .teamCount(ranking.getTeamCount() != null ? ranking.getTeamCount() : 0L)
                                         .country(ranking.getCountryCode())
@@ -203,7 +203,7 @@ public class RankingService extends BaseService {
                                         .nickname(myRanking.getNickname())
                                         .profileImage(null) // TODO: 프로필 이미지 추가 시 수정
                                         .level(myRanking.getLevel())
-                                        .levelName("영우야") // TODO: 레벨 이름 매핑 추가
+                                        .levelName("여우야") // TODO: 레벨 이름 매핑 추가
                                         .totalAmount(myRanking.getTotalAmount() != null ? myRanking.getTotalAmount() : BigDecimal.ZERO)
                                         .teamCount(myRanking.getTeamCount() != null ? myRanking.getTeamCount() : 0L)
                                         .country(myRanking.getCountryCode())

@@ -350,11 +350,12 @@ WHERE NOT EXISTS (
 
 -- 테스트용 레퍼럴 수익 데이터 (internal_transfers)
 -- testuser (ID:1)이 받은 레퍼럴 수익
+-- 참고: sender_id는 NOT NULL이므로 receiver_id를 sender_id로도 사용 (시스템 자동 지급)
 INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
 SELECT 
     gen_random_uuid()::text,
-    NULL,
-    NULL,
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM users WHERE login_id = 'testuser'),
     (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
@@ -375,8 +376,8 @@ WHERE NOT EXISTS (
 INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
 SELECT 
     gen_random_uuid()::text,
-    NULL,
-    NULL,
+    (SELECT id FROM users WHERE login_id = 'testuser2'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser2') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM users WHERE login_id = 'testuser2'),
     (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser2') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
@@ -397,8 +398,8 @@ WHERE NOT EXISTS (
 INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
 SELECT 
     gen_random_uuid()::text,
-    NULL,
-    NULL,
+    (SELECT id FROM users WHERE login_id = 'referrer_user'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM users WHERE login_id = 'referrer_user'),
     (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
     (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
