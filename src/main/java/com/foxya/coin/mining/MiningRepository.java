@@ -48,8 +48,8 @@ public class MiningRepository extends BaseRepository {
         .userId(row.getLong("user_id"))
         .level(row.getInteger("level"))
         .amount(row.getBigDecimal("amount"))
-        .type(getStringColumnValue(row, "type"))
-        .status(getStringColumnValue(row, "status"))
+        .type(row.getString("type"))
+        .status(row.getString("status"))
         .createdAt(row.getLocalDateTime("created_at"))
         .build();
     
