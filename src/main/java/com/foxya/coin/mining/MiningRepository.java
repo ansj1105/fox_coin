@@ -145,31 +145,27 @@ public class MiningRepository extends BaseRepository {
     public Future<List<MiningHistory>> getMiningHistory(SqlClient client, Long userId, String period, Integer limit, Integer offset) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        String sql = """
-            SELECT 
-                mh.id,
-                mh.user_id,
-                mh.level,
-                mh.amount,
-                mh.type,
-                mh.status,
-                mh.created_at
-            FROM mining_history mh
-            WHERE mh.user_id = #{userId}
-                AND mh.status = 'COMPLETED'
-                AND (#{start_date} IS NULL OR mh.created_at >= #{start_date})
-            ORDER BY mh.created_at DESC
-            LIMIT #{limit} OFFSET #{offset}
-            """;
+        QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
+            .selectAlias("mining_history", "mh", 
+                "mh.id", "mh.user_id", "mh.level", "mh.amount", "mh.type", "mh.status", "mh.created_at")
+            .where("mh.user_id", Op.Equal, "userId")
+            .andWhere("mh.status", Op.Equal, "status");
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        // 날짜 조건 추가 (복잡한 조건이므로 andWhere(String) 사용)
+        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        
+        String sql = queryBuilder
+            .orderBy("mh.created_at", Sort.DESC)
+            .limit(limit)
+            .offset(offset)
+            .build();
+        
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
+        params.put("status", "COMPLETED");
         params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
-        params.put("limit", limit);
-        params.put("offset", offset);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> {
                 List<MiningHistory> history = new ArrayList<>();
                 for (Row row : rows) {
@@ -186,17 +182,18 @@ public class MiningRepository extends BaseRepository {
     public Future<Long> getMiningHistoryCount(SqlClient client, Long userId, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        String sql = """
-            SELECT COUNT(*) as total
-            FROM mining_history mh
-            WHERE mh.user_id = #{userId}
-                AND mh.status = 'COMPLETED'
-                AND (#{start_date} IS NULL OR mh.created_at >= #{start_date})
-            """;
+        QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
+            .count("mining_history", "mh", "total")
+            .where("mh.user_id", Op.Equal, "userId")
+            .andWhere("mh.status", Op.Equal, "status");
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        // 날짜 조건 추가
+        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        
+        String query = queryBuilder.build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
+        params.put("status", "COMPLETED");
         params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
         
         return query(client, query, params)
@@ -215,17 +212,18 @@ public class MiningRepository extends BaseRepository {
     public Future<BigDecimal> getMiningHistoryTotalAmount(SqlClient client, Long userId, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        String sql = """
-            SELECT COALESCE(SUM(mh.amount), 0) as total_amount
-            FROM mining_history mh
-            WHERE mh.user_id = #{userId}
-                AND mh.status = 'COMPLETED'
-                AND (#{start_date} IS NULL OR mh.created_at >= #{start_date})
-            """;
+        QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
+            .selectAlias("mining_history", "mh", "COALESCE(SUM(mh.amount), 0) as total_amount")
+            .where("mh.user_id", Op.Equal, "userId")
+            .andWhere("mh.status", Op.Equal, "status");
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        // 날짜 조건 추가
+        queryBuilder = queryBuilder.andWhere("(#{start_date} IS NULL OR mh.created_at >= #{start_date})");
+        
+        String query = queryBuilder.build();
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
+        params.put("status", "COMPLETED");
         params.put("start_date", startDate != null ? startDate.atStartOfDay() : null);
         
         return query(client, query, params)
