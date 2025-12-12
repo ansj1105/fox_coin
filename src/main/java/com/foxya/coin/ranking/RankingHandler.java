@@ -26,6 +26,12 @@ public class RankingHandler extends BaseHandler {
     public Router getRouter() {
         Router router = Router.router(getVertx());
         
+        // 개인 랭킹 조회
+        router.get("/")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getRankings);
+        
         // 국가별 팀 랭킹 조회
         router.get("/country")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -33,6 +39,22 @@ public class RankingHandler extends BaseHandler {
             .handler(this::getCountryRankings);
         
         return router;
+    }
+    
+    private void getRankings(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String scope = ctx.request().getParam("scope");
+        String period = ctx.request().getParam("period");
+        
+        if (scope == null || scope.isEmpty()) {
+            scope = "REGIONAL";
+        }
+        if (period == null || period.isEmpty()) {
+            period = "TODAY";
+        }
+        
+        log.info("Getting rankings for user: {}, scope: {}, period: {}", userId, scope, period);
+        response(ctx, rankingService.getRankings(userId, scope, period));
     }
     
     private void getCountryRankings(RoutingContext ctx) {

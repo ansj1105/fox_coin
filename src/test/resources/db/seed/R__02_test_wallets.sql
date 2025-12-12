@@ -302,3 +302,145 @@ WHERE NOT EXISTS (
 -- 시퀀스 리셋
 SELECT setval('mining_history_id_seq', (SELECT COALESCE(MAX(id), 1) FROM mining_history));
 
+-- 테스트용 일일 채굴량 데이터 (개인 랭킹 테스트용)
+-- testuser (ID:1)의 오늘 채굴량
+INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    CURRENT_DATE,
+    1000.12345,
+    (CURRENT_DATE + INTERVAL '1 day')::timestamp,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM daily_mining 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND mining_date = CURRENT_DATE
+);
+
+-- testuser2 (ID:2)의 오늘 채굴량
+INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser2'),
+    CURRENT_DATE,
+    500.54321,
+    (CURRENT_DATE + INTERVAL '1 day')::timestamp,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM daily_mining 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser2')
+    AND mining_date = CURRENT_DATE
+);
+
+-- referrer_user (ID:5)의 오늘 채굴량
+INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'referrer_user'),
+    CURRENT_DATE,
+    2000.98765,
+    (CURRENT_DATE + INTERVAL '1 day')::timestamp,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM daily_mining 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
+    AND mining_date = CURRENT_DATE
+);
+
+-- 테스트용 레퍼럴 수익 데이터 (internal_transfers)
+-- testuser (ID:1)이 받은 레퍼럴 수익
+INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
+SELECT 
+    gen_random_uuid()::text,
+    NULL,
+    NULL,
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
+    (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
+    500.12345,
+    0,
+    'COMPLETED',
+    'REFERRAL_REWARD',
+    NOW() - INTERVAL '1 day',
+    NOW() - INTERVAL '1 day'
+WHERE NOT EXISTS (
+    SELECT 1 FROM internal_transfers 
+    WHERE receiver_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND transfer_type = 'REFERRAL_REWARD'
+    AND created_at::date = (NOW() - INTERVAL '1 day')::date
+);
+
+-- testuser2 (ID:2)이 받은 레퍼럴 수익
+INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
+SELECT 
+    gen_random_uuid()::text,
+    NULL,
+    NULL,
+    (SELECT id FROM users WHERE login_id = 'testuser2'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser2') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
+    (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
+    300.54321,
+    0,
+    'COMPLETED',
+    'REFERRAL_REWARD',
+    NOW() - INTERVAL '2 days',
+    NOW() - INTERVAL '2 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM internal_transfers 
+    WHERE receiver_id = (SELECT id FROM users WHERE login_id = 'testuser2')
+    AND transfer_type = 'REFERRAL_REWARD'
+    AND created_at::date = (NOW() - INTERVAL '2 days')::date
+);
+
+-- referrer_user (ID:5)이 받은 레퍼럴 수익
+INSERT INTO internal_transfers (transfer_id, sender_id, sender_wallet_id, receiver_id, receiver_wallet_id, currency_id, amount, fee, status, transfer_type, created_at, completed_at)
+SELECT 
+    gen_random_uuid()::text,
+    NULL,
+    NULL,
+    (SELECT id FROM users WHERE login_id = 'referrer_user'),
+    (SELECT id FROM user_wallets WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user') AND currency_id = (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL') LIMIT 1),
+    (SELECT id FROM currency WHERE code = 'FOXYA' AND chain = 'INTERNAL'),
+    1000.98765,
+    0,
+    'COMPLETED',
+    'REFERRAL_REWARD',
+    NOW() - INTERVAL '3 days',
+    NOW() - INTERVAL '3 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM internal_transfers 
+    WHERE receiver_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
+    AND transfer_type = 'REFERRAL_REWARD'
+    AND created_at::date = (NOW() - INTERVAL '3 days')::date
+);
+
+-- 테스트용 레퍼럴 관계 데이터 (팀원 수 테스트용)
+-- testuser (ID:1)이 referrer_user (ID:5)를 추천한 경우 (역방향, 테스트용)
+INSERT INTO referral_relations (referrer_id, referred_id, level, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM users WHERE login_id = 'referrer_user'),
+    1,
+    'ACTIVE',
+    NOW() - INTERVAL '10 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM referral_relations 
+    WHERE referrer_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND referred_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
+);
+
+-- testuser2 (ID:2)이 testuser (ID:1)를 추천한 경우
+INSERT INTO referral_relations (referrer_id, referred_id, level, status, created_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser2'),
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    1,
+    'ACTIVE',
+    NOW() - INTERVAL '5 days'
+WHERE NOT EXISTS (
+    SELECT 1 FROM referral_relations 
+    WHERE referrer_id = (SELECT id FROM users WHERE login_id = 'testuser2')
+    AND referred_id = (SELECT id FROM users WHERE login_id = 'testuser')
+);
+

@@ -816,6 +816,84 @@ components:
           type: number
           format: decimal
 
+    RankingResponse:
+      type: object
+      properties:
+        top3:
+          type: array
+          items:
+            $ref: '#/components/schemas/RankingInfo'
+        rankings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RankingInfo'
+        myRank:
+          $ref: '#/components/schemas/RankingInfo'
+          nullable: true
+        totalCount:
+          type: integer
+        aggregation:
+          $ref: '#/components/schemas/AggregationInfo'
+
+    RankingInfo:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+        rank:
+          type: integer
+        nickname:
+          type: string
+        profileImage:
+          type: string
+          nullable: true
+        level:
+          type: integer
+        levelName:
+          type: string
+        totalAmount:
+          type: number
+          format: decimal
+          description: 체굴된 전체 코인 + 레퍼럴 수익
+        teamCount:
+          type: integer
+          format: int64
+          description: 팀원 수
+        country:
+          type: string
+        flag:
+          type: string
+
+    AggregationInfo:
+      type: object
+      properties:
+        formula:
+          type: string
+          description: 집계 공식
+        calculation:
+          type: number
+          format: decimal
+          description: 집계 계산 결과
+      properties:
+        rank:
+          type: integer
+        country:
+          type: string
+        countryName:
+          type: string
+        flag:
+          type: string
+        totalMinedCoins:
+          type: number
+          format: decimal
+        totalMembers:
+          type: integer
+          format: int64
+        aggregation:
+          type: number
+          format: decimal
+
     # Banner 관련 스키마
     BannerListResponse:
       type: object
@@ -2095,6 +2173,167 @@ paths:
                         $ref: '#/components/schemas/LevelGuideResponse'
         '401':
           description: 인증 실패
+
+  # ==================== Ranking ====================
+  /api/v1/ranking:
+    get:
+      summary: 개인 랭킹 조회
+      description: |
+        개인 랭킹을 조회합니다. 지역별 또는 세계별로 조회할 수 있습니다.
+        
+        **scope 파라미터:**
+        - REGIONAL: 지역별 (같은 국가)
+        - GLOBAL: 세계별 (전체)
+        
+        **period 파라미터:**
+        - ALL: 전체
+        - TODAY: 오늘
+        - WEEK: 최근 7일
+        - MONTH: 최근 30일
+        - YEAR: 최근 1년
+        
+        **totalAmount:**
+        - 체굴된 전체 코인 + 레퍼럴 수익 (입금 제외, 출금 차감 안함)
+        
+        **aggregation.calculation:**
+        - totalAmount + (teamCount * 20)
+      tags: [Ranking]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          description: 범위 (REGIONAL, GLOBAL)
+          schema:
+            type: string
+            enum: [REGIONAL, GLOBAL]
+            default: REGIONAL
+        - name: period
+          in: query
+          description: 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
+          schema:
+            type: string
+            enum: [ALL, TODAY, WEEK, MONTH, YEAR]
+            default: TODAY
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RankingResponse'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  top3:
+                    - userId: 1
+                      rank: 1
+                      nickname: User1
+                      profileImage: null
+                      level: 9
+                      levelName: 영우야
+                      totalAmount: 50000.12345
+                      teamCount: 2000
+                      country: KR
+                      flag: 🇰🇷
+                    - userId: 2
+                      rank: 2
+                      nickname: User2
+                      profileImage: null
+                      level: 8
+                      levelName: 영우야
+                      totalAmount: 45000.54321
+                      teamCount: 1800
+                      country: US
+                      flag: 🇺🇸
+                    - userId: 3
+                      rank: 3
+                      nickname: User3
+                      profileImage: null
+                      level: 7
+                      levelName: 영우야
+                      totalAmount: 40000.98765
+                      teamCount: 1500
+                      country: JP
+                      flag: 🇯🇵
+                  rankings:
+                    - userId: 4
+                      rank: 4
+                      nickname: User4
+                      profileImage: null
+                      level: 6
+                      levelName: 영우야
+                      totalAmount: 35000.12345
+                      teamCount: 1200
+                      country: CN
+                      flag: 🇨🇳
+                  myRank:
+                    userId: 100
+                    rank: 25
+                    nickname: 나
+                    profileImage: null
+                    level: 5
+                    levelName: 영우야
+                    totalAmount: 15000.12345
+                    teamCount: 1026
+                    country: KR
+                    flag: 🇰🇷
+                  totalCount: 50
+                  aggregation:
+                    formula: "(체굴된 코인+래퍼럴 수익)+(팀원1x20코인)"
+                    calculation: 35520.12345
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 사용자를 찾을 수 없습니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/ranking/country:
+    get:
+      summary: 국가별 팀 랭킹 조회
+      description: 국가별 팀 랭킹을 조회합니다.
+      tags: [Ranking]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          description: 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
+          schema:
+            type: string
+            enum: [ALL, TODAY, WEEK, MONTH, YEAR]
+            default: TODAY
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CountryRankingResponse'
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ==================== Notice ====================
   /api/v1/notices:
