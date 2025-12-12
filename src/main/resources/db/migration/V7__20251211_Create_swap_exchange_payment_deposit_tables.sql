@@ -81,7 +81,7 @@ COMMENT ON COLUMN exchanges.exchange_id IS '환전 고유 ID (UUID)';
 COMMENT ON COLUMN exchanges.user_id IS '사용자 ID';
 COMMENT ON COLUMN exchanges.order_number IS '주문번호';
 COMMENT ON COLUMN exchanges.from_currency_id IS 'FROM 통화 ID (KRWT)';
-COMMENT ON COLUMN exchanges.to_currency_id IS 'TO 통화 ID (BLUE_DIAMOND)';
+COMMENT ON COLUMN exchanges.to_currency_id IS 'TO 통화 ID (BLUEDIA)';
 COMMENT ON COLUMN exchanges.from_amount IS 'FROM 금액';
 COMMENT ON COLUMN exchanges.to_amount IS 'TO 금액';
 COMMENT ON COLUMN exchanges.status IS '상태 (PENDING, COMPLETED, FAILED)';

@@ -22,7 +22,7 @@ public class Exchange {
     private Long userId;
     private String orderNumber;         // 주문번호
     private Integer fromCurrencyId;     // KRWT
-    private Integer toCurrencyId;       // BLUE_DIAMOND
+    private Integer toCurrencyId;       // BLUEDIA
     private BigDecimal fromAmount;
     private BigDecimal toAmount;
     private String status;              // PENDING, COMPLETED, FAILED

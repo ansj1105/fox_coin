@@ -5,7 +5,7 @@
 DELETE FROM internal_transfers;
 DELETE FROM external_transfers;
 DELETE FROM user_wallets WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
-DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX');
+DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX', 'ETH', 'KRWT', 'BLUEDIA', 'KRC');
 
 -- 테스트용 통화 추가
 INSERT INTO currency (code, name, chain, is_active, created_at, updated_at)
@@ -13,7 +13,12 @@ VALUES
     ('FOXYA', 'Foxya Token', 'TRON', true, NOW(), NOW()),
     ('USDT', 'Tether USD', 'TRON', true, NOW(), NOW()),
     ('TRX', 'TRON', 'TRON', true, NOW(), NOW()),
-    ('FOXYA', 'Foxya Token', 'INTERNAL', true, NOW(), NOW())
+    ('FOXYA', 'Foxya Token', 'INTERNAL', true, NOW(), NOW()),
+    ('ETH', 'Ethereum', 'Ether', true, NOW(), NOW()),
+    ('USDT', 'Tether USD', 'Ether', true, NOW(), NOW()),
+    ('KRWT', 'Korean Won Token', 'INTERNAL', true, NOW(), NOW()),
+    ('BLUEDIA', 'Blue Diamond', 'INTERNAL', true, NOW(), NOW()),
+    ('KRC', 'Korean Coin', 'INTERNAL', true, NOW(), NOW())
 ON CONFLICT (code, chain) DO NOTHING;
 
 -- 시퀀스 리셋

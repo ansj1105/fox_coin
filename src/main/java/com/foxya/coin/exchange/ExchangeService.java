@@ -26,7 +26,7 @@ public class ExchangeService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
     
-    // 환전 비율 (KRWT 1.0 = BLUE_DIAMOND 0.8)
+    // 환전 비율 (KRWT 1.0 = BLUEDIA 0.8)
     private static final BigDecimal EXCHANGE_RATE = new BigDecimal("0.8");
     // 최소 환전 금액
     private static final BigDecimal MIN_EXCHANGE_AMOUNT = new BigDecimal("1.0");
@@ -41,7 +41,7 @@ public class ExchangeService extends BaseService {
     }
     
     /**
-     * 환전 실행 (KRWT → BLUE_DIAMOND)
+     * 환전 실행 (KRWT → BLUEDIA)
      */
     public Future<ExchangeResponseDto> executeExchange(Long userId, ExchangeRequestDto request, String requestIp) {
         log.info("환전 실행 요청 - userId: {}, fromAmount: {}", userId, request.getFromAmount());
@@ -51,17 +51,17 @@ public class ExchangeService extends BaseService {
             return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + MIN_EXCHANGE_AMOUNT + " 입니다."));
         }
         
-        // 2. 통화 조회 (KRWT, BLUE_DIAMOND)
+        // 2. 통화 조회 (KRWT, BLUEDIA)
         return currencyRepository.getCurrencyByCode(pool, "KRWT")
             .compose(krwtCurrency -> {
                 if (krwtCurrency == null) {
                     return Future.failedFuture(new NotFoundException("KRWT 통화를 찾을 수 없습니다."));
                 }
                 
-                return currencyRepository.getCurrencyByCode(pool, "BLUE_DIAMOND")
+                return currencyRepository.getCurrencyByCode(pool, "BLUEDIA")
                     .compose(blueDiamondCurrency -> {
                         if (blueDiamondCurrency == null) {
-                            return Future.failedFuture(new NotFoundException("BLUE_DIAMOND 통화를 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("BLUEDIA 통화를 찾을 수 없습니다."));
                         }
                         
                         // 3. 사용자 지갑 조회
@@ -109,7 +109,7 @@ public class ExchangeService extends BaseService {
                     return transferRepository.getWalletByUserIdAndCurrencyId(client, userId, toCurrency.getId())
                         .compose(toWallet -> {
                             if (toWallet == null) {
-                                return Future.failedFuture(new NotFoundException("BLUE_DIAMOND 지갑을 찾을 수 없습니다."));
+                                return Future.failedFuture(new NotFoundException("BLUEDIA 지갑을 찾을 수 없습니다."));
                             }
                             
                             // 3. TO 지갑 잔액 추가
