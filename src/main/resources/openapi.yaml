@@ -894,6 +894,94 @@ components:
           type: number
           format: decimal
 
+    # Referral Team 관련 스키마
+    TeamInfoResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/TeamSummaryInfo'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamMemberInfo'
+          nullable: true
+          description: tab이 MEMBERS일 때 반환
+        revenues:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamRevenueInfo'
+          nullable: true
+          description: tab이 REVENUE일 때 반환
+        total:
+          type: integer
+          format: int64
+          description: 전체 개수
+        limit:
+          type: integer
+          description: 조회 개수
+        offset:
+          type: integer
+          description: 시작 위치
+
+    TeamSummaryInfo:
+      type: object
+      properties:
+        totalRevenue:
+          type: number
+          format: decimal
+          description: 팀의 체굴된 총 수익 (래퍼럴 수익)
+        todayRevenue:
+          type: number
+          format: decimal
+          description: 팀의 금일 채굴된 총 수익
+        totalMembers:
+          type: integer
+          format: int64
+          description: 추천인으로 등록한 총 인원
+        newMembersToday:
+          type: integer
+          format: int64
+          description: 금일 추천인 등록한 신규 인원
+
+    TeamMemberInfo:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+        level:
+          type: integer
+        nickname:
+          type: string
+        registeredAt:
+          type: string
+          format: date-time
+          description: 등록일시
+
+    TeamRevenueInfo:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+        level:
+          type: integer
+        nickname:
+          type: string
+        date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 수익 발생일
+        todayRevenue:
+          type: number
+          format: decimal
+          description: 금일 수익
+        totalRevenue:
+          type: number
+          format: decimal
+          description: 총 수익
+
     # Banner 관련 스키마
     BannerListResponse:
       type: object
@@ -1532,6 +1620,59 @@ paths:
           description: 인증 실패
         '404':
           description: 사용자를 찾을 수 없음
+
+  /api/v1/referrals/team:
+    get:
+      summary: 팀 정보 조회
+      description: 팀 통계 및 멤버/수익 목록을 조회합니다.
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tab
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [MEMBERS, REVENUE]
+            default: MEMBERS
+          description: 탭 유형 (MEMBERS: 멤버 목록, REVENUE: 수익 목록)
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ALL, TODAY, WEEK, MONTH, YEAR]
+            default: TODAY
+          description: 기간 필터
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+          description: 조회 개수
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+          description: 시작 위치
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TeamInfoResponse'
+        '401':
+          description: 인증 실패
 
   # ==================== Wallet ====================
   /api/v1/wallets/my:

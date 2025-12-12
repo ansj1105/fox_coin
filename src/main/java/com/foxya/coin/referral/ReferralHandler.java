@@ -62,6 +62,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::hardDeleteReferralRelation);
         
+        // 팀 정보 조회
+        router.get("/team")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getTeamInfo);
+        
         return router;
     }
     
@@ -118,6 +124,29 @@ public class ReferralHandler extends BaseHandler {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("User {} hard deleting referral relation", userId);
         response(ctx, referralService.hardDeleteReferralRelation(userId));
+    }
+    
+    /**
+     * 팀 정보 조회
+     */
+    private void getTeamInfo(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String tab = ctx.request().getParam("tab");
+        String period = ctx.request().getParam("period");
+        String limitStr = ctx.request().getParam("limit");
+        String offsetStr = ctx.request().getParam("offset");
+        
+        if (tab == null || tab.isEmpty()) {
+            tab = "MEMBERS";
+        }
+        if (period == null || period.isEmpty()) {
+            period = "TODAY";
+        }
+        Integer limit = limitStr != null && !limitStr.isEmpty() ? Integer.parseInt(limitStr) : 20;
+        Integer offset = offsetStr != null && !offsetStr.isEmpty() ? Integer.parseInt(offsetStr) : 0;
+        
+        log.info("Getting team info for user: {}, tab: {}, period: {}, limit: {}, offset: {}", userId, tab, period, limit, offset);
+        response(ctx, referralService.getTeamInfo(userId, tab, period, limit, offset));
     }
 }
 

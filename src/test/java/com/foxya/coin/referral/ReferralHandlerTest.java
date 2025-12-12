@@ -7,6 +7,7 @@ import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
+import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +21,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<Void>> refVoid = new TypeReference<>() {};
     private final TypeReference<ApiResponse<ReferralStatsDto>> refStats = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<TeamInfoResponseDto>> refTeamInfo = new TypeReference<>() {};
     
     public ReferralHandlerTest() {
         super("/api/v1/referrals");
@@ -370,6 +372,111 @@ public class ReferralHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 인증 없이 조회 시도")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/1/stats"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401); // Unauthorized
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("팀 정보 조회 테스트")
+    class GetTeamInfoTest {
+        
+        @Test
+        @Order(9)
+        @DisplayName("성공 - 팀 정보 조회 (MEMBERS 탭, 기본값)")
+        void successGetTeamInfoMembers(VertxTestContext tc) {
+            // referrer_user의 팀 정보 조회
+            String accessToken = getAccessTokenOfUser(5L); // referrer_user
+            
+            reqGet(getUrl("/team"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get team info (MEMBERS) response: {}", res.bodyAsJsonObject());
+                    TeamInfoResponseDto teamInfo = expectSuccessAndGetResponse(res, refTeamInfo);
+                    
+                    assertThat(teamInfo.getSummary()).isNotNull();
+                    assertThat(teamInfo.getSummary().getTotalMembers()).isNotNull();
+                    assertThat(teamInfo.getSummary().getNewMembersToday()).isNotNull();
+                    assertThat(teamInfo.getMembers()).isNotNull();
+                    assertThat(teamInfo.getRevenues()).isNull();
+                    assertThat(teamInfo.getTotal()).isNotNull();
+                    assertThat(teamInfo.getLimit()).isEqualTo(20);
+                    assertThat(teamInfo.getOffset()).isEqualTo(0);
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(10)
+        @DisplayName("성공 - 팀 정보 조회 (REVENUE 탭, ALL 기간)")
+        void successGetTeamInfoRevenue(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(5L); // referrer_user
+            
+            reqGet(getUrl("/team?tab=REVENUE&period=ALL"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get team info (REVENUE, ALL) response: {}", res.bodyAsJsonObject());
+                    TeamInfoResponseDto teamInfo = expectSuccessAndGetResponse(res, refTeamInfo);
+                    
+                    assertThat(teamInfo.getSummary()).isNotNull();
+                    assertThat(teamInfo.getMembers()).isNull();
+                    assertThat(teamInfo.getRevenues()).isNotNull();
+                    assertThat(teamInfo.getTotal()).isNotNull();
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(11)
+        @DisplayName("성공 - 팀 정보 조회 (MEMBERS 탭, WEEK 기간)")
+        void successGetTeamInfoMembersWeek(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(5L); // referrer_user
+            
+            reqGet(getUrl("/team?tab=MEMBERS&period=WEEK&limit=10&offset=0"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get team info (MEMBERS, WEEK) response: {}", res.bodyAsJsonObject());
+                    TeamInfoResponseDto teamInfo = expectSuccessAndGetResponse(res, refTeamInfo);
+                    
+                    assertThat(teamInfo.getSummary()).isNotNull();
+                    assertThat(teamInfo.getMembers()).isNotNull();
+                    assertThat(teamInfo.getRevenues()).isNull();
+                    assertThat(teamInfo.getLimit()).isEqualTo(10);
+                    assertThat(teamInfo.getOffset()).isEqualTo(0);
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(12)
+        @DisplayName("성공 - 팀 정보 조회 (REVENUE 탭, TODAY 기간)")
+        void successGetTeamInfoRevenueToday(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(5L); // referrer_user
+            
+            reqGet(getUrl("/team?tab=REVENUE&period=TODAY"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get team info (REVENUE, TODAY) response: {}", res.bodyAsJsonObject());
+                    TeamInfoResponseDto teamInfo = expectSuccessAndGetResponse(res, refTeamInfo);
+                    
+                    assertThat(teamInfo.getSummary()).isNotNull();
+                    assertThat(teamInfo.getMembers()).isNull();
+                    assertThat(teamInfo.getRevenues()).isNotNull();
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(13)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/team"))
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401); // Unauthorized
                     tc.completeNow();

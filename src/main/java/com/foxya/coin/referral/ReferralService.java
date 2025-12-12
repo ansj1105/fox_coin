@@ -3,11 +3,18 @@ package com.foxya.coin.referral;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.enums.RankingPeriod;
+import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
+import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 public class ReferralService extends BaseService {
@@ -134,6 +141,59 @@ public class ReferralService extends BaseService {
             
             return referralRepository.updateStats(pool, referrerId, directCount, activeTeamCount);
         }).mapEmpty();
+    }
+    
+    /**
+     * 팀 정보 조회
+     */
+    public Future<TeamInfoResponseDto> getTeamInfo(Long referrerId, String tab, String period, Integer limit, Integer offset) {
+        final String finalTab = ReferralTeamTab.fromValue(tab).getValue();
+        final String finalPeriod = RankingPeriod.fromValue(period).getValue();
+        
+        // summary 조회
+        Future<TeamInfoResponseDto.SummaryInfo> summaryFuture = referralRepository.getTeamSummary(pool, referrerId);
+        
+        // tab에 따라 다른 데이터 조회
+        if ("MEMBERS".equals(finalTab)) {
+            Future<List<TeamInfoResponseDto.MemberInfo>> membersFuture = referralRepository.getTeamMembers(pool, referrerId, finalPeriod, limit, offset);
+            Future<Long> totalFuture = referralRepository.getTeamMembersCount(pool, referrerId, finalPeriod);
+            
+            return Future.all(summaryFuture, membersFuture, totalFuture)
+                .map(results -> {
+                    TeamInfoResponseDto.SummaryInfo summary = results.resultAt(0);
+                    List<TeamInfoResponseDto.MemberInfo> members = results.resultAt(1);
+                    Long total = results.resultAt(2);
+                    
+                    return TeamInfoResponseDto.builder()
+                        .summary(summary)
+                        .members(members != null ? members : new ArrayList<>())
+                        .revenues(null)
+                        .total(total)
+                        .limit(limit)
+                        .offset(offset)
+                        .build();
+                });
+        } else {
+            // REVENUE 탭
+            Future<List<TeamInfoResponseDto.RevenueInfo>> revenuesFuture = referralRepository.getTeamRevenues(pool, referrerId, finalPeriod, limit, offset);
+            Future<Long> totalFuture = referralRepository.getTeamMembersCount(pool, referrerId, finalPeriod);
+            
+            return Future.all(summaryFuture, revenuesFuture, totalFuture)
+                .map(results -> {
+                    TeamInfoResponseDto.SummaryInfo summary = results.resultAt(0);
+                    List<TeamInfoResponseDto.RevenueInfo> revenues = results.resultAt(1);
+                    Long total = results.resultAt(2);
+                    
+                    return TeamInfoResponseDto.builder()
+                        .summary(summary)
+                        .members(null)
+                        .revenues(revenues != null ? revenues : new ArrayList<>())
+                        .total(total)
+                        .limit(limit)
+                        .offset(offset)
+                        .build();
+                });
+        }
     }
 }
 
