@@ -5,6 +5,7 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
+import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.swap.dto.SwapRequestDto;
 import com.foxya.coin.swap.dto.SwapResponseDto;
@@ -28,6 +29,7 @@ public class SwapService extends BaseService {
     
     private final SwapRepository swapRepository;
     private final CurrencyRepository currencyRepository;
+    private final CurrencyService currencyService;
     private final TransferRepository transferRepository;
     
     // 스왑 수수료 (0.0%)
@@ -47,10 +49,12 @@ public class SwapService extends BaseService {
     
     public SwapService(PgPool pool, SwapRepository swapRepository, 
                       CurrencyRepository currencyRepository,
+                      CurrencyService currencyService,
                       TransferRepository transferRepository) {
         super(pool);
         this.swapRepository = swapRepository;
         this.currencyRepository = currencyRepository;
+        this.currencyService = currencyService;
         this.transferRepository = transferRepository;
     }
     
@@ -94,8 +98,8 @@ public class SwapService extends BaseService {
                                     return Future.failedFuture(new NotFoundException("FROM 지갑을 찾을 수 없습니다."));
                                 }
                                 
-                                // 4. 환율 계산 (Oracle 기준, 임시로 고정 환율 사용)
-                                BigDecimal exchangeRate = getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
+                                // 4. 환율 계산 (CurrencyService 사용)
+                                BigDecimal exchangeRate = currencyService.getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
                                 
                                 // 5. 수수료 계산
                                 BigDecimal feeAmount = request.getFromAmount().multiply(SWAP_FEE_RATE).setScale(18, RoundingMode.DOWN);
@@ -229,8 +233,8 @@ public class SwapService extends BaseService {
                             throw new NotFoundException("TO 통화를 찾을 수 없습니다: " + toCurrencyCode);
                         }
                         
-                        // 2. 환율 계산 (Oracle 기준, 임시로 고정 환율 사용)
-                        BigDecimal exchangeRate = getExchangeRate(fromCurrencyCode, toCurrencyCode);
+                                // 2. 환율 계산 (CurrencyService 사용)
+                        BigDecimal exchangeRate = currencyService.getExchangeRate(fromCurrencyCode, toCurrencyCode);
                         
                         // 3. 수수료 계산
                         BigDecimal fee = SWAP_FEE_RATE;
@@ -304,34 +308,5 @@ public class SwapService extends BaseService {
             .build());
     }
     
-    /**
-     * 환율 계산 (임시 구현, Oracle 연동 전까지 사용)
-     * KRWT 기준 환율을 사용하여 통화 간 환율 계산
-     */
-    private BigDecimal getExchangeRate(String fromCurrencyCode, String toCurrencyCode) {
-        BigDecimal fromRate = getRateForCurrency(fromCurrencyCode);
-        BigDecimal toRate = getRateForCurrency(toCurrencyCode);
-        
-        // fromCurrency -> KRWT -> toCurrency 환율 계산
-        // 예: ETH -> USDT = (ETH/KRWT) / (USDT/KRWT) = 5000000 / 1300 = 3846.15...
-        return fromRate.divide(toRate, 18, RoundingMode.HALF_UP);
-    }
-    
-    /**
-     * 통화별 KRWT 기준 환율 조회 (임시 구현)
-     */
-    private BigDecimal getRateForCurrency(String currencyCode) {
-        switch (currencyCode) {
-            case "ETH":
-                return RATE_ETH;
-            case "USDT":
-                return RATE_USDT;
-            case "KRWT":
-                return RATE_KRWT;
-            default:
-                // 기본값: 1:1
-                return BigDecimal.ONE;
-        }
-    }
 }
 

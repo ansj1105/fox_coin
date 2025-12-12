@@ -4,6 +4,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.swap.dto.SwapResponseDto;
+import com.foxya.coin.swap.dto.SwapQuoteDto;
+import com.foxya.coin.swap.dto.SwapCurrenciesDto;
+import com.foxya.coin.swap.dto.SwapInfoDto;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -19,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class SwapHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<SwapResponseDto>> refSwap = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<SwapQuoteDto>> refSwapQuote = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<SwapCurrenciesDto>> refSwapCurrencies = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<SwapInfoDto>> refSwapInfo = new TypeReference<>() {};
     
     // 테스트용 사용자 ID
     private static final Long TESTUSER_ID = 1L;
@@ -154,6 +160,158 @@ public class SwapHandlerTest extends HandlerTestBase {
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 404);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("스왑 예상 수량 조회 테스트")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class GetSwapQuoteTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 스왑 예상 수량 조회")
+        void successGetSwapQuote(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+            
+            reqGet(getUrl("/quote"))
+                .bearerTokenAuthentication(accessToken)
+                .addQueryParam("fromCurrencyCode", "ETH")
+                .addQueryParam("toCurrencyCode", "USDT")
+                .addQueryParam("fromAmount", "1.0")
+                .addQueryParam("network", "Ether")
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get swap quote response: {}", res.bodyAsJsonObject());
+                    SwapQuoteDto quote = expectSuccessAndGetResponse(res, refSwapQuote);
+                    
+                    assertThat(quote).isNotNull();
+                    assertThat(quote.getFromCurrencyCode()).isEqualTo("ETH");
+                    assertThat(quote.getToCurrencyCode()).isEqualTo("USDT");
+                    assertThat(quote.getFromAmount()).isNotNull();
+                    assertThat(quote.getExchangeRate()).isNotNull();
+                    assertThat(quote.getFee()).isNotNull();
+                    assertThat(quote.getFeeAmount()).isNotNull();
+                    assertThat(quote.getSpread()).isNotNull();
+                    assertThat(quote.getSpreadAmount()).isNotNull();
+                    assertThat(quote.getToAmount()).isNotNull();
+                    assertThat(quote.getNetwork()).isEqualTo("Ether");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/quote"))
+                .addQueryParam("fromCurrencyCode", "ETH")
+                .addQueryParam("toCurrencyCode", "USDT")
+                .addQueryParam("fromAmount", "1.0")
+                .addQueryParam("network", "Ether")
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("스왑 가능한 통화 목록 조회 테스트")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class GetSwapCurrenciesTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 스왑 가능한 통화 목록 조회")
+        void successGetSwapCurrencies(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+            
+            reqGet(getUrl("/currencies"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get swap currencies response: {}", res.bodyAsJsonObject());
+                    SwapCurrenciesDto currencies = expectSuccessAndGetResponse(res, refSwapCurrencies);
+                    
+                    assertThat(currencies).isNotNull();
+                    assertThat(currencies.getCurrencies()).isNotNull();
+                    assertThat(currencies.getCurrencies().size()).isGreaterThan(0);
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/currencies"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("스왑 정보 조회 테스트")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class GetSwapInfoTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 스왑 정보 조회 (currencyCode 없음)")
+        void successGetSwapInfo(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+            
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get swap info response: {}", res.bodyAsJsonObject());
+                    SwapInfoDto info = expectSuccessAndGetResponse(res, refSwapInfo);
+                    
+                    assertThat(info).isNotNull();
+                    assertThat(info.getFee()).isNotNull();
+                    assertThat(info.getSpread()).isNotNull();
+                    assertThat(info.getPriceSource()).isNotNull();
+                    assertThat(info.getNote()).isNotNull();
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("성공 - 스왑 정보 조회 (KRWT currencyCode)")
+        void successGetSwapInfoWithCurrency(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+            
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(accessToken)
+                .addQueryParam("currencyCode", "KRWT")
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get swap info (KRWT) response: {}", res.bodyAsJsonObject());
+                    SwapInfoDto info = expectSuccessAndGetResponse(res, refSwapInfo);
+                    
+                    assertThat(info).isNotNull();
+                    assertThat(info.getFee()).isNotNull();
+                    assertThat(info.getSpread()).isNotNull();
+                    assertThat(info.getMinSwapAmount()).isNotNull();
+                    assertThat(info.getMinSwapAmount()).containsKey("KRWT");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(3)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/info"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
                     tc.completeNow();
                 })));
         }

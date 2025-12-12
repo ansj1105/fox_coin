@@ -417,21 +417,8 @@ WHERE NOT EXISTS (
 );
 
 -- 테스트용 레퍼럴 관계 데이터 (팀원 수 테스트용)
--- testuser (ID:1)이 referrer_user (ID:5)를 추천한 경우 (역방향, 테스트용)
-INSERT INTO referral_relations (referrer_id, referred_id, level, status, created_at)
-SELECT 
-    (SELECT id FROM users WHERE login_id = 'testuser'),
-    (SELECT id FROM users WHERE login_id = 'referrer_user'),
-    1,
-    'ACTIVE',
-    NOW() - INTERVAL '10 days'
-WHERE NOT EXISTS (
-    SELECT 1 FROM referral_relations 
-    WHERE referrer_id = (SELECT id FROM users WHERE login_id = 'testuser')
-    AND referred_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
-);
-
--- testuser2 (ID:2)이 testuser (ID:1)를 추천한 경우
+-- testuser2 (ID:2)이 testuser (ID:1)를 추천한 경우 (통계 조회 테스트용 - testuser는 피추천인)
+-- 주의: testuser (ID:1)는 직접 추천인이 없어야 통계 조회 테스트가 정상 동작합니다.
 INSERT INTO referral_relations (referrer_id, referred_id, level, status, created_at)
 SELECT 
     (SELECT id FROM users WHERE login_id = 'testuser2'),

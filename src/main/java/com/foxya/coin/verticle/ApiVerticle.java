@@ -74,6 +74,9 @@ import com.foxya.coin.subscription.SubscriptionService;
 import com.foxya.coin.swap.SwapHandler;
 import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
+import com.foxya.coin.currency.CurrencyHandler;
+import com.foxya.coin.currency.CurrencyService;
+import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -146,9 +149,16 @@ public class ApiVerticle extends AbstractVerticle {
         BannerRepository bannerRepository = new BannerRepository();
         BannerService bannerService = new BannerService(
             pool, bannerRepository);
+        
+        // WebClient 초기화 (외부 API 호출용)
+        WebClient webClient = WebClient.create(vertx);
+        
+        // CurrencyService 초기화 (다른 서비스에서 사용)
+        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, webClient);
+        
         SwapRepository swapRepository = new SwapRepository();
         SwapService swapService = new SwapService(
-            pool, swapRepository, currencyRepository, transferRepository);
+            pool, swapRepository, currencyRepository, currencyService, transferRepository);
         ExchangeRepository exchangeRepository = new ExchangeRepository();
         ExchangeService exchangeService = new ExchangeService(
             pool, exchangeRepository, currencyRepository, transferRepository);
@@ -178,6 +188,7 @@ public class ApiVerticle extends AbstractVerticle {
         ExchangeHandler exchangeHandler = new ExchangeHandler(vertx, exchangeService, jwtAuth);
         PaymentDepositHandler paymentDepositHandler = new PaymentDepositHandler(vertx, paymentDepositService, jwtAuth);
         TokenDepositHandler tokenDepositHandler = new TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
+        CurrencyHandler currencyHandler = new CurrencyHandler(vertx, currencyService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -233,6 +244,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 토큰 입금 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
+        
+        // 통화 API (환율 조회는 공개 API)
+        mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);

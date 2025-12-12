@@ -233,7 +233,12 @@ public class ReferralRepository extends BaseRepository {
         params.put("deleted_at", DateUtils.now());
         
         return query(client, sql, params)
-            .map(rows -> (Void) null)
+            .compose(rows -> {
+                if (rows.rowCount() == 0) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("등록된 레퍼럴 관계가 없습니다."));
+                }
+                return Future.succeededFuture((Void) null);
+            })
             .onFailure(throwable -> log.error("레퍼럴 관계 삭제 실패 - referredId: {}", referredId));
     }
     
@@ -247,7 +252,12 @@ public class ReferralRepository extends BaseRepository {
             .build();
         
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
-            .map(rows -> (Void) null)
+            .compose(rows -> {
+                if (rows.rowCount() == 0) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("레퍼럴 관계가 존재하지 않습니다."));
+                }
+                return Future.succeededFuture((Void) null);
+            })
             .onFailure(throwable -> log.error("레퍼럴 관계 완전 삭제 실패 - referredId: {}", referredId));
     }
     

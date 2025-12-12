@@ -420,6 +420,25 @@ components:
         note:
           type: string
           description: 참고 사항
+    
+    ExchangeRates:
+      type: object
+      properties:
+        rates:
+          type: object
+          additionalProperties:
+            type: number
+            format: decimal
+          description: 통화별 한화(KRW) 환율
+          example:
+            ETH: 5000000.0
+            USDT: 1300.0
+            KRWT: 1.0
+        updatedAt:
+          type: string
+          format: date-time
+          description: 환율 업데이트 시간
+          example: "2025-01-26T18:46:00Z"
 
     # Exchange 관련 스키마
     ExchangeRequest:
@@ -461,6 +480,26 @@ components:
         createdAt:
           type: string
           format: date-time
+        exchangeRate:
+          type: number
+          format: decimal
+          description: 실시간 가격 (Oracle 시세 기준)
+        fee:
+          type: number
+          format: decimal
+          description: 스왑 수수료
+        feeRate:
+          type: number
+          format: decimal
+          description: 스왑 수수료율 (0.0%)
+        spread:
+          type: number
+          format: decimal
+          description: 스프레드 (0.0%)
+        message:
+          type: string
+          description: 완료 메시지
+          example: 스왑이 완료되었습니다
 
     # Payment Deposit 관련 스키마
     PaymentDepositRequest:
@@ -2717,6 +2756,34 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/NoticeListResponse'
+
+  # ==================== Currency ====================
+  /api/v1/currencies/exchange-rates:
+    get:
+      summary: 통화별 한화(KRW) 환율 조회
+      description: 통화별 한화(KRW) 환율을 조회합니다. CoinGecko API를 통해 실시간 환율을 제공합니다.
+      tags: [System]
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeRates'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  rates:
+                    ETH: 5000000.0
+                    USDT: 1300.0
+                    KRWT: 1.0
+                  updatedAt: "2025-01-26T18:46:00Z"
         '401':
           description: 인증 실패
 
