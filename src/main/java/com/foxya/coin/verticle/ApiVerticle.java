@@ -32,6 +32,49 @@ import com.foxya.coin.user.UserService;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
+import com.foxya.coin.agency.AgencyHandler;
+import com.foxya.coin.agency.AgencyRepository;
+import com.foxya.coin.agency.AgencyService;
+import com.foxya.coin.auth.AuthHandler;
+import com.foxya.coin.auth.AuthService;
+import com.foxya.coin.auth.PhoneVerificationRepository;
+import com.foxya.coin.auth.SocialLinkRepository;
+import com.foxya.coin.banner.BannerHandler;
+import com.foxya.coin.banner.BannerRepository;
+import com.foxya.coin.banner.BannerService;
+import com.foxya.coin.bonus.BonusHandler;
+import com.foxya.coin.bonus.BonusRepository;
+import com.foxya.coin.bonus.BonusService;
+import com.foxya.coin.deposit.TokenDepositHandler;
+import com.foxya.coin.deposit.TokenDepositRepository;
+import com.foxya.coin.deposit.TokenDepositService;
+import com.foxya.coin.exchange.ExchangeHandler;
+import com.foxya.coin.exchange.ExchangeRepository;
+import com.foxya.coin.exchange.ExchangeService;
+import com.foxya.coin.level.LevelHandler;
+import com.foxya.coin.level.LevelService;
+import com.foxya.coin.mining.MiningHandler;
+import com.foxya.coin.mining.MiningRepository;
+import com.foxya.coin.mining.MiningService;
+import com.foxya.coin.notice.NoticeHandler;
+import com.foxya.coin.notice.NoticeRepository;
+import com.foxya.coin.notice.NoticeService;
+import com.foxya.coin.payment.PaymentDepositHandler;
+import com.foxya.coin.payment.PaymentDepositRepository;
+import com.foxya.coin.payment.PaymentDepositService;
+import com.foxya.coin.ranking.RankingHandler;
+import com.foxya.coin.ranking.RankingRepository;
+import com.foxya.coin.ranking.RankingService;
+import com.foxya.coin.review.ReviewHandler;
+import com.foxya.coin.review.ReviewRepository;
+import com.foxya.coin.review.ReviewService;
+import com.foxya.coin.subscription.SubscriptionHandler;
+import com.foxya.coin.subscription.SubscriptionRepository;
+import com.foxya.coin.subscription.SubscriptionService;
+import com.foxya.coin.swap.SwapHandler;
+import com.foxya.coin.swap.SwapRepository;
+import com.foxya.coin.swap.SwapService;
+import io.vertx.ext.web.handler.JWTAuthHandler;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -66,75 +109,75 @@ public class ApiVerticle extends AbstractVerticle {
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
         TransferRepository transferRepository = new TransferRepository();
-        com.foxya.coin.bonus.BonusRepository bonusRepository = new com.foxya.coin.bonus.BonusRepository();
-        com.foxya.coin.mining.MiningRepository miningRepository = new com.foxya.coin.mining.MiningRepository();
-        com.foxya.coin.notice.NoticeRepository noticeRepository = new com.foxya.coin.notice.NoticeRepository();
-        com.foxya.coin.auth.SocialLinkRepository socialLinkRepository = new com.foxya.coin.auth.SocialLinkRepository();
-        com.foxya.coin.auth.PhoneVerificationRepository phoneVerificationRepository = new com.foxya.coin.auth.PhoneVerificationRepository();
-        com.foxya.coin.subscription.SubscriptionRepository subscriptionRepository = new com.foxya.coin.subscription.SubscriptionRepository();
-        com.foxya.coin.review.ReviewRepository reviewRepository = new com.foxya.coin.review.ReviewRepository();
-        com.foxya.coin.agency.AgencyRepository agencyRepository = new com.foxya.coin.agency.AgencyRepository();
+        BonusRepository bonusRepository = new BonusRepository();
+        MiningRepository miningRepository = new MiningRepository();
+        NoticeRepository noticeRepository = new NoticeRepository();
+        SocialLinkRepository socialLinkRepository = new SocialLinkRepository();
+        PhoneVerificationRepository phoneVerificationRepository = new PhoneVerificationRepository();
+        SubscriptionRepository subscriptionRepository = new SubscriptionRepository();
+        ReviewRepository reviewRepository = new ReviewRepository();
+        AgencyRepository agencyRepository = new AgencyRepository();
         
         // Service 초기화
-        com.foxya.coin.auth.AuthService authService = new com.foxya.coin.auth.AuthService(
+        AuthService authService = new AuthService(
             pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
         UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig, frontendConfig);
         WalletService walletService = new WalletService(pool, walletRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
-        com.foxya.coin.bonus.BonusService bonusService = new com.foxya.coin.bonus.BonusService(
+        BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository, 
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
-        com.foxya.coin.mining.MiningService miningService = new com.foxya.coin.mining.MiningService(
+        MiningService miningService = new MiningService(
             pool, miningRepository, userRepository);
-        com.foxya.coin.level.LevelService levelService = new com.foxya.coin.level.LevelService(
+        LevelService levelService = new LevelService(
             pool, userRepository, miningRepository);
-        com.foxya.coin.notice.NoticeService noticeService = new com.foxya.coin.notice.NoticeService(
+        NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
-        com.foxya.coin.subscription.SubscriptionService subscriptionService = new com.foxya.coin.subscription.SubscriptionService(
+        SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
-        com.foxya.coin.review.ReviewService reviewService = new com.foxya.coin.review.ReviewService(
+        ReviewService reviewService = new ReviewService(
             pool, reviewRepository);
-        com.foxya.coin.agency.AgencyService agencyService = new com.foxya.coin.agency.AgencyService(
+        AgencyService agencyService = new AgencyService(
             pool, agencyRepository);
-        com.foxya.coin.ranking.RankingRepository rankingRepository = new com.foxya.coin.ranking.RankingRepository();
-        com.foxya.coin.ranking.RankingService rankingService = new com.foxya.coin.ranking.RankingService(
+        RankingRepository rankingRepository = new RankingRepository();
+        RankingService rankingService = new RankingService(
             pool, rankingRepository);
-        com.foxya.coin.banner.BannerRepository bannerRepository = new com.foxya.coin.banner.BannerRepository();
-        com.foxya.coin.banner.BannerService bannerService = new com.foxya.coin.banner.BannerService(
+        BannerRepository bannerRepository = new BannerRepository();
+        BannerService bannerService = new BannerService(
             pool, bannerRepository);
-        com.foxya.coin.swap.SwapRepository swapRepository = new com.foxya.coin.swap.SwapRepository();
-        com.foxya.coin.swap.SwapService swapService = new com.foxya.coin.swap.SwapService(
+        SwapRepository swapRepository = new SwapRepository();
+        SwapService swapService = new SwapService(
             pool, swapRepository, currencyRepository, transferRepository);
-        com.foxya.coin.exchange.ExchangeRepository exchangeRepository = new com.foxya.coin.exchange.ExchangeRepository();
-        com.foxya.coin.exchange.ExchangeService exchangeService = new com.foxya.coin.exchange.ExchangeService(
+        ExchangeRepository exchangeRepository = new ExchangeRepository();
+        ExchangeService exchangeService = new ExchangeService(
             pool, exchangeRepository, currencyRepository, transferRepository);
-        com.foxya.coin.payment.PaymentDepositRepository paymentDepositRepository = new com.foxya.coin.payment.PaymentDepositRepository();
-        com.foxya.coin.payment.PaymentDepositService paymentDepositService = new com.foxya.coin.payment.PaymentDepositService(
+        PaymentDepositRepository paymentDepositRepository = new PaymentDepositRepository();
+        PaymentDepositService paymentDepositService = new PaymentDepositService(
             pool, paymentDepositRepository, currencyRepository, transferRepository);
-        com.foxya.coin.deposit.TokenDepositRepository tokenDepositRepository = new com.foxya.coin.deposit.TokenDepositRepository();
-        com.foxya.coin.deposit.TokenDepositService tokenDepositService = new com.foxya.coin.deposit.TokenDepositService(
+        TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
+        TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository);
         
         // Handler 초기화
-        com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
+        AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
-        com.foxya.coin.bonus.BonusHandler bonusHandler = new com.foxya.coin.bonus.BonusHandler(vertx, bonusService, jwtAuth);
-        com.foxya.coin.mining.MiningHandler miningHandler = new com.foxya.coin.mining.MiningHandler(vertx, miningService, jwtAuth);
-        com.foxya.coin.level.LevelHandler levelHandler = new com.foxya.coin.level.LevelHandler(vertx, levelService, jwtAuth);
-        com.foxya.coin.notice.NoticeHandler noticeHandler = new com.foxya.coin.notice.NoticeHandler(vertx, noticeService, jwtAuth);
-        com.foxya.coin.subscription.SubscriptionHandler subscriptionHandler = new com.foxya.coin.subscription.SubscriptionHandler(vertx, subscriptionService, jwtAuth);
-        com.foxya.coin.review.ReviewHandler reviewHandler = new com.foxya.coin.review.ReviewHandler(vertx, reviewService, jwtAuth);
-        com.foxya.coin.agency.AgencyHandler agencyHandler = new com.foxya.coin.agency.AgencyHandler(vertx, agencyService, jwtAuth);
-        com.foxya.coin.ranking.RankingHandler rankingHandler = new com.foxya.coin.ranking.RankingHandler(vertx, rankingService, jwtAuth);
-        com.foxya.coin.banner.BannerHandler bannerHandler = new com.foxya.coin.banner.BannerHandler(vertx, bannerService, jwtAuth);
-        com.foxya.coin.swap.SwapHandler swapHandler = new com.foxya.coin.swap.SwapHandler(vertx, swapService, jwtAuth);
-        com.foxya.coin.exchange.ExchangeHandler exchangeHandler = new com.foxya.coin.exchange.ExchangeHandler(vertx, exchangeService, jwtAuth);
-        com.foxya.coin.payment.PaymentDepositHandler paymentDepositHandler = new com.foxya.coin.payment.PaymentDepositHandler(vertx, paymentDepositService, jwtAuth);
-        com.foxya.coin.deposit.TokenDepositHandler tokenDepositHandler = new com.foxya.coin.deposit.TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
+        BonusHandler bonusHandler = new BonusHandler(vertx, bonusService, jwtAuth);
+        MiningHandler miningHandler = new MiningHandler(vertx, miningService, jwtAuth);
+        LevelHandler levelHandler = new LevelHandler(vertx, levelService, jwtAuth);
+        NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
+        SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
+        ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
+        AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
+        RankingHandler rankingHandler = new RankingHandler(vertx, rankingService, jwtAuth);
+        BannerHandler bannerHandler = new BannerHandler(vertx, bannerService, jwtAuth);
+        SwapHandler swapHandler = new SwapHandler(vertx, swapService, jwtAuth);
+        ExchangeHandler exchangeHandler = new ExchangeHandler(vertx, exchangeService, jwtAuth);
+        PaymentDepositHandler paymentDepositHandler = new PaymentDepositHandler(vertx, paymentDepositService, jwtAuth);
+        TokenDepositHandler tokenDepositHandler = new TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -193,7 +236,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);
-        protectedRouter.route().handler(io.vertx.ext.web.handler.JWTAuthHandler.create(jwtAuth));
+        protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         
         mainRouter.mountSubRouter("/", protectedRouter);
