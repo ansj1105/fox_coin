@@ -189,6 +189,14 @@ components:
         transferType:
           type: string
           enum: [INTERNAL, EXTERNAL]
+          description: 전송 유형
+        transactionType:
+          type: string
+          enum: [WITHDRAW, TOKEN_DEPOSIT, PAYMENT_DEPOSIT, SWAP, EXCHANGE]
+          description: 거래 유형
+        orderNumber:
+          type: string
+          description: 주문번호
         senderId:
           type: integer
           format: int64
@@ -197,17 +205,50 @@ components:
           format: int64
         toAddress:
           type: string
+          description: 외부 전송 시 수신 지갑 주소
+        senderAddress:
+          type: string
+          description: 입금 시 송신 지갑 주소
         currencyCode:
           type: string
+        fromCurrencyCode:
+          type: string
+          description: 스왑/환전 시 FROM 토큰
+        toCurrencyCode:
+          type: string
+          description: 스왑/환전 시 TO 토큰
         amount:
           type: number
           format: decimal
+        fromAmount:
+          type: number
+          format: decimal
+          description: 스왑/환전 시 FROM 금액
+        toAmount:
+          type: number
+          format: decimal
+          description: 스왑/환전 시 TO 금액
         fee:
           type: number
           format: decimal
+        networkFee:
+          type: number
+          format: decimal
+          description: 외부 전송 시 네트워크 수수료
+        network:
+          type: string
+          description: 네트워크 (Ether, TRON 등)
+        depositMethod:
+          type: string
+          enum: [CARD, BANK_TRANSFER, PAY]
+          description: 입금 방법 (결제 입금 시)
+        paymentAmount:
+          type: number
+          format: decimal
+          description: 결제금액 (결제 입금 시)
         status:
           type: string
-          enum: [PENDING, COMPLETED, FAILED, CANCELLED]
+          enum: [PENDING, COMPLETED, FAILED, CANCELLED, CONFIRMED, SUBMITTED]
         memo:
           type: string
         createdAt:
@@ -227,6 +268,199 @@ components:
           type: integer
         offset:
           type: integer
+
+    # Swap 관련 스키마
+    SwapRequest:
+      type: object
+      required:
+        - fromCurrencyCode
+        - toCurrencyCode
+        - fromAmount
+        - network
+      properties:
+        fromCurrencyCode:
+          type: string
+          description: FROM 통화 코드
+          example: ETH
+        toCurrencyCode:
+          type: string
+          description: TO 통화 코드
+          example: USDT
+        fromAmount:
+          type: number
+          format: decimal
+          description: FROM 금액
+          example: 1.0
+        network:
+          type: string
+          description: 네트워크
+          example: Ether
+
+    SwapResponse:
+      type: object
+      properties:
+        swapId:
+          type: string
+          description: 스왑 고유 ID
+        orderNumber:
+          type: string
+          description: 주문번호
+        fromCurrencyCode:
+          type: string
+        toCurrencyCode:
+          type: string
+        fromAmount:
+          type: number
+          format: decimal
+        toAmount:
+          type: number
+          format: decimal
+        network:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+
+    # Exchange 관련 스키마
+    ExchangeRequest:
+      type: object
+      required:
+        - fromAmount
+      properties:
+        fromAmount:
+          type: number
+          format: decimal
+          description: FROM 금액 (KRWT)
+          example: 100.0
+          minimum: 1.0
+
+    ExchangeResponse:
+      type: object
+      properties:
+        exchangeId:
+          type: string
+          description: 환전 고유 ID
+        orderNumber:
+          type: string
+          description: 주문번호
+        fromCurrencyCode:
+          type: string
+          example: KRWT
+        toCurrencyCode:
+          type: string
+          example: BLUEDIA
+        fromAmount:
+          type: number
+          format: decimal
+        toAmount:
+          type: number
+          format: decimal
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+
+    # Payment Deposit 관련 스키마
+    PaymentDepositRequest:
+      type: object
+      required:
+        - currencyCode
+        - amount
+        - depositMethod
+        - paymentAmount
+      properties:
+        currencyCode:
+          type: string
+          description: 통화 코드
+          example: KRWT
+        amount:
+          type: number
+          format: decimal
+          description: 입금할 코인 양
+          example: 1000.0
+        depositMethod:
+          type: string
+          enum: [CARD, BANK_TRANSFER, PAY]
+          description: 입금 방법
+          example: CARD
+        paymentAmount:
+          type: number
+          format: decimal
+          description: 결제 금액 (원화 등)
+          example: 100000.0
+
+    PaymentDepositResponse:
+      type: object
+      properties:
+        depositId:
+          type: string
+          description: 결제 입금 고유 ID
+        orderNumber:
+          type: string
+          description: 주문번호
+        currencyCode:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        depositMethod:
+          type: string
+          enum: [CARD, BANK_TRANSFER, PAY]
+        paymentAmount:
+          type: number
+          format: decimal
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+
+    # Token Deposit 관련 스키마
+    TokenDepositListResponse:
+      type: object
+      properties:
+        deposits:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenDepositInfo'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    TokenDepositInfo:
+      type: object
+      properties:
+        depositId:
+          type: string
+          description: 토큰 입금 고유 ID
+        orderNumber:
+          type: string
+          description: 주문번호
+        currencyCode:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        network:
+          type: string
+        senderAddress:
+          type: string
+          description: 송신 지갑 주소
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
 
     # Bonus 관련 스키마
     BonusEfficiencyResponse:
@@ -1360,6 +1594,256 @@ paths:
           description: 인증 실패
         '404':
           description: 전송 내역을 찾을 수 없음
+
+  # ==================== Swap ====================
+  /api/v1/swap:
+    post:
+      summary: 스왑 실행
+      description: |
+        한 토큰을 다른 토큰으로 스왑합니다.
+        예: ETH → USDT (Ether 네트워크)
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwapRequest'
+            example:
+              fromCurrencyCode: ETH
+              toCurrencyCode: USDT
+              fromAmount: 1.0
+              network: Ether
+      responses:
+        '200':
+          description: 스왑 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SwapResponse'
+        '400':
+          description: 잘못된 요청 (잔액 부족, 유효하지 않은 통화 등)
+        '401':
+          description: 인증 실패
+
+  /api/v1/swap/{swapId}:
+    get:
+      summary: 스왑 상세 조회
+      description: 특정 스왑 건의 상세 정보를 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: swapId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 스왑 고유 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SwapResponse'
+        '401':
+          description: 인증 실패
+        '404':
+          description: 스왑 내역을 찾을 수 없음
+
+  # ==================== Exchange ====================
+  /api/v1/exchange:
+    post:
+      summary: 환전 실행
+      description: |
+        KRWT를 BLUEDIA로 환전합니다.
+        환전 비율은 1 KRWT = 0.8 BLUEDIA 입니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExchangeRequest'
+            example:
+              fromAmount: 100.0
+      responses:
+        '200':
+          description: 환전 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeResponse'
+        '400':
+          description: 잘못된 요청 (잔액 부족, 최소 금액 미달 등)
+        '401':
+          description: 인증 실패
+
+  /api/v1/exchange/{exchangeId}:
+    get:
+      summary: 환전 상세 조회
+      description: 특정 환전 건의 상세 정보를 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: exchangeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 환전 고유 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeResponse'
+        '401':
+          description: 인증 실패
+        '404':
+          description: 환전 내역을 찾을 수 없음
+
+  # ==================== Payment Deposit ====================
+  /api/v1/payment/deposit:
+    post:
+      summary: 결제 입금 요청
+      description: |
+        카드, 계좌이체, 간편결제 등을 통해 코인을 구매합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentDepositRequest'
+            example:
+              currencyCode: KRWT
+              amount: 1000.0
+              depositMethod: CARD
+              paymentAmount: 100000.0
+      responses:
+        '200':
+          description: 결제 입금 요청 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PaymentDepositResponse'
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
+  /api/v1/payment/deposit/{depositId}:
+    get:
+      summary: 결제 입금 상세 조회
+      description: 특정 결제 입금 건의 상세 정보를 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: depositId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 결제 입금 고유 ID
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PaymentDepositResponse'
+        '401':
+          description: 인증 실패
+        '404':
+          description: 결제 입금 내역을 찾을 수 없음
+
+  # ==================== Token Deposit ====================
+  /api/v1/deposits:
+    get:
+      summary: 토큰 입금 목록 조회
+      description: |
+        외부 지갑에서 입금된 토큰 내역을 조회합니다.
+        currencyCode로 필터링할 수 있습니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: currencyCode
+          in: query
+          schema:
+            type: string
+          description: 통화 코드 (선택)
+          example: FOXYA
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: 조회할 개수
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: 시작 위치
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenDepositListResponse'
+        '401':
+          description: 인증 실패
 
   # ==================== Bonus ====================
   /api/v1/bonus/efficiency:
