@@ -40,6 +40,21 @@ public class SwapHandler extends BaseHandler {
         // 모든 스왑 API에 JWT 인증 적용
         router.route().handler(JWTAuthHandler.create(jwtAuth));
         
+        // 스왑 예상 수량 조회
+        router.get("/quote")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getSwapQuote);
+        
+        // 스왑 가능한 통화 목록 조회
+        router.get("/currencies")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getSwapCurrencies);
+        
+        // 스왑 정보 조회
+        router.get("/info")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getSwapInfo);
+        
         // 스왑 실행
         router.post("/")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -100,6 +115,50 @@ public class SwapHandler extends BaseHandler {
         log.info("스왑 상세 조회 - userId: {}, swapId: {}", userId, swapId);
         
         response(ctx, swapService.getSwap(userId, swapId));
+    }
+    
+    /**
+     * 스왑 예상 수량 조회
+     */
+    private void getSwapQuote(RoutingContext ctx) {
+        String fromCurrencyCode = ctx.queryParams().get("fromCurrencyCode");
+        String toCurrencyCode = ctx.queryParams().get("toCurrencyCode");
+        String fromAmountStr = ctx.queryParams().get("fromAmount");
+        String network = ctx.queryParams().get("network");
+        
+        if (fromCurrencyCode == null || toCurrencyCode == null || fromAmountStr == null || network == null) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("필수 파라미터가 누락되었습니다."));
+            return;
+        }
+        
+        try {
+            java.math.BigDecimal fromAmount = new java.math.BigDecimal(fromAmountStr);
+            
+            log.info("스왑 예상 수량 조회 - fromCurrency: {}, toCurrency: {}, fromAmount: {}, network: {}", 
+                fromCurrencyCode, toCurrencyCode, fromAmount, network);
+            
+            response(ctx, swapService.getSwapQuote(fromCurrencyCode, toCurrencyCode, fromAmount, network));
+        } catch (NumberFormatException e) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("잘못된 금액 형식입니다."));
+        }
+    }
+    
+    /**
+     * 스왑 가능한 통화 목록 조회
+     */
+    private void getSwapCurrencies(RoutingContext ctx) {
+        log.info("스왑 가능한 통화 목록 조회");
+        response(ctx, swapService.getSwapCurrencies());
+    }
+    
+    /**
+     * 스왑 정보 조회
+     */
+    private void getSwapInfo(RoutingContext ctx) {
+        String currencyCode = ctx.queryParams().get("currencyCode");
+        
+        log.info("스왑 정보 조회 - currencyCode: {}", currencyCode);
+        response(ctx, swapService.getSwapInfo(currencyCode));
     }
 }
 

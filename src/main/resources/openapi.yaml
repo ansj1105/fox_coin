@@ -323,6 +323,103 @@ components:
         createdAt:
           type: string
           format: date-time
+    
+    SwapQuote:
+      type: object
+      properties:
+        fromCurrencyCode:
+          type: string
+          description: FROM 통화 코드
+        toCurrencyCode:
+          type: string
+          description: TO 통화 코드
+        fromAmount:
+          type: number
+          format: decimal
+          description: FROM 금액
+        exchangeRate:
+          type: number
+          format: decimal
+          description: 실시간 가격 (Oracle 기준)
+        fee:
+          type: number
+          format: decimal
+          description: 수수료 비율 (예: 0.0 = 0.0%)
+        feeAmount:
+          type: number
+          format: decimal
+          description: 수수료 금액
+        spread:
+          type: number
+          format: decimal
+          description: 스프레드 비율 (예: 0.0 = 0.0%)
+        spreadAmount:
+          type: number
+          format: decimal
+          description: 스프레드 금액
+        toAmount:
+          type: number
+          format: decimal
+          description: TO 금액 (fromAmount * exchangeRate - feeAmount - spreadAmount)
+        network:
+          type: string
+          description: 네트워크
+    
+    SwapCurrencies:
+      type: object
+      properties:
+        currencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/SwapCurrencyInfo'
+    
+    SwapCurrencyInfo:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 통화 코드
+        name:
+          type: string
+          description: 통화 이름
+        symbol:
+          type: string
+          description: 통화 심볼
+        network:
+          type: string
+          description: 네트워크
+        decimals:
+          type: integer
+          description: 소수점 자릿수
+        minSwapAmount:
+          type: number
+          format: decimal
+          description: 최소 스왑 금액
+    
+    SwapInfo:
+      type: object
+      properties:
+        fee:
+          type: number
+          format: decimal
+          description: 수수료 비율
+        spread:
+          type: number
+          format: decimal
+          description: 스프레드 비율
+        minSwapAmount:
+          type: object
+          additionalProperties:
+            type: number
+            format: decimal
+          description: 통화별 최소 스왑 금액
+          nullable: true
+        priceSource:
+          type: string
+          description: 가격 소스 (예: "Oracle")
+        note:
+          type: string
+          description: 참고 사항
 
     # Exchange 관련 스키마
     ExchangeRequest:
@@ -1933,6 +2030,114 @@ paths:
           description: 인증 실패
         '404':
           description: 스왑 내역을 찾을 수 없음
+
+  /api/v1/swap/quote:
+    get:
+      summary: 스왑 예상 수량 조회
+      description: 스왑 예상 수량을 조회합니다. 실시간 가격, 수수료, 스프레드를 계산합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fromCurrencyCode
+          in: query
+          required: true
+          schema:
+            type: string
+          description: FROM 통화 코드 (예: ETH)
+          example: ETH
+        - name: toCurrencyCode
+          in: query
+          required: true
+          schema:
+            type: string
+          description: TO 통화 코드 (예: USDT)
+          example: USDT
+        - name: fromAmount
+          in: query
+          required: true
+          schema:
+            type: number
+            format: decimal
+          description: FROM 금액
+          example: 1.0
+        - name: network
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 네트워크 (예: Ether, TRON)
+          example: Ether
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SwapQuote'
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+        '404':
+          description: 통화를 찾을 수 없음
+
+  /api/v1/swap/currencies:
+    get:
+      summary: 스왑 가능한 통화 목록 조회
+      description: 스왑 가능한 통화 목록을 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SwapCurrencies'
+        '401':
+          description: 인증 실패
+
+  /api/v1/swap/info:
+    get:
+      summary: 스왑 정보 조회
+      description: 스왑 정보(수수료, 스프레드, 최소 스왑 금액 등)를 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: currencyCode
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 통화 코드 (선택, KRWT일 경우 최소 스왑 금액 확인)
+          example: KRWT
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SwapInfo'
+        '401':
+          description: 인증 실패
 
   # ==================== Exchange ====================
   /api/v1/exchange:

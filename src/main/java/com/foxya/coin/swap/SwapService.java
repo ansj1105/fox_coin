@@ -8,6 +8,9 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.swap.dto.SwapRequestDto;
 import com.foxya.coin.swap.dto.SwapResponseDto;
+import com.foxya.coin.swap.dto.SwapQuoteDto;
+import com.foxya.coin.swap.dto.SwapCurrenciesDto;
+import com.foxya.coin.swap.dto.SwapInfoDto;
 import com.foxya.coin.swap.entities.Swap;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -17,7 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class SwapService extends BaseService {
@@ -26,10 +30,20 @@ public class SwapService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
     
-    // 스왑 수수료 (0.5%)
-    private static final BigDecimal SWAP_FEE_RATE = new BigDecimal("0.005");
+    // 스왑 수수료 (0.0%)
+    private static final BigDecimal SWAP_FEE_RATE = BigDecimal.ZERO;
+    // 스프레드 (0.0%)
+    private static final BigDecimal SWAP_SPREAD_RATE = BigDecimal.ZERO;
     // 최소 스왑 금액
     private static final BigDecimal MIN_SWAP_AMOUNT = new BigDecimal("0.000001");
+    // KRWT 최소 스왑 금액
+    private static final BigDecimal MIN_SWAP_AMOUNT_KRWT = new BigDecimal("1000.0");
+    
+    // 임시 환율 (Oracle 연동 전까지 사용)
+    // KRWT 기준 환율
+    private static final BigDecimal RATE_ETH = new BigDecimal("5000000.0");
+    private static final BigDecimal RATE_USDT = new BigDecimal("1300.0");
+    private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
     
     public SwapService(PgPool pool, SwapRepository swapRepository, 
                       CurrencyRepository currencyRepository,
@@ -80,19 +94,27 @@ public class SwapService extends BaseService {
                                     return Future.failedFuture(new NotFoundException("FROM 지갑을 찾을 수 없습니다."));
                                 }
                                 
-                                // 4. 수수료 계산 및 TO 금액 계산 (간단한 환율 계산, 실제로는 외부 API 사용)
-                                BigDecimal fee = request.getFromAmount().multiply(SWAP_FEE_RATE);
-                                BigDecimal netAmount = request.getFromAmount().subtract(fee);
-                                // TODO: 실제 환율 API 연동 필요
-                                BigDecimal exchangeRate = BigDecimal.ONE; // 임시로 1:1
-                                BigDecimal toAmount = netAmount.multiply(exchangeRate).setScale(18, RoundingMode.DOWN);
+                                // 4. 환율 계산 (Oracle 기준, 임시로 고정 환율 사용)
+                                BigDecimal exchangeRate = getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
                                 
-                                // 5. 잔액 확인
+                                // 5. 수수료 계산
+                                BigDecimal feeAmount = request.getFromAmount().multiply(SWAP_FEE_RATE).setScale(18, RoundingMode.DOWN);
+                                
+                                // 6. 스프레드 계산
+                                BigDecimal spreadAmount = request.getFromAmount().multiply(exchangeRate).multiply(SWAP_SPREAD_RATE).setScale(18, RoundingMode.DOWN);
+                                
+                                // 7. TO 금액 계산: toAmount = (fromAmount * exchangeRate) - feeAmount - spreadAmount
+                                BigDecimal toAmount = request.getFromAmount().multiply(exchangeRate)
+                                    .subtract(feeAmount)
+                                    .subtract(spreadAmount)
+                                    .setScale(18, RoundingMode.DOWN);
+                                
+                                // 8. 잔액 확인
                                 if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
                                     return Future.failedFuture(new BadRequestException("잔액이 부족합니다."));
                                 }
                                 
-                                // 6. 스왑 실행
+                                // 9. 스왑 실행
                                 return executeSwapTransaction(userId, fromCurrency, toCurrency, fromWallet, 
                                     request.getFromAmount(), toAmount, request.getNetwork(), requestIp);
                             });
@@ -187,6 +209,129 @@ public class SwapService extends BaseService {
                                 .createdAt(swap.getCreatedAt())
                                 .build()));
             });
+    }
+    
+    /**
+     * 스왑 예상 수량 조회
+     */
+    public Future<SwapQuoteDto> getSwapQuote(String fromCurrencyCode, String toCurrencyCode, 
+                                             BigDecimal fromAmount, String network) {
+        // 1. 통화 조회
+        return currencyRepository.getCurrencyByCodeAndChain(pool, fromCurrencyCode, network)
+            .compose(fromCurrency -> {
+                if (fromCurrency == null) {
+                    return Future.failedFuture(new NotFoundException("FROM 통화를 찾을 수 없습니다: " + fromCurrencyCode));
+                }
+                
+                return currencyRepository.getCurrencyByCodeAndChain(pool, toCurrencyCode, network)
+                    .map(toCurrency -> {
+                        if (toCurrency == null) {
+                            throw new NotFoundException("TO 통화를 찾을 수 없습니다: " + toCurrencyCode);
+                        }
+                        
+                        // 2. 환율 계산 (Oracle 기준, 임시로 고정 환율 사용)
+                        BigDecimal exchangeRate = getExchangeRate(fromCurrencyCode, toCurrencyCode);
+                        
+                        // 3. 수수료 계산
+                        BigDecimal fee = SWAP_FEE_RATE;
+                        BigDecimal feeAmount = fromAmount.multiply(fee).setScale(18, RoundingMode.DOWN);
+                        
+                        // 4. 스프레드 계산
+                        BigDecimal spread = SWAP_SPREAD_RATE;
+                        BigDecimal spreadAmount = fromAmount.multiply(exchangeRate).multiply(spread).setScale(18, RoundingMode.DOWN);
+                        
+                        // 5. TO 금액 계산: toAmount = (fromAmount * exchangeRate) - feeAmount - spreadAmount
+                        BigDecimal toAmount = fromAmount.multiply(exchangeRate)
+                            .subtract(feeAmount)
+                            .subtract(spreadAmount)
+                            .setScale(18, RoundingMode.DOWN);
+                        
+                        return SwapQuoteDto.builder()
+                            .fromCurrencyCode(fromCurrencyCode)
+                            .toCurrencyCode(toCurrencyCode)
+                            .fromAmount(fromAmount)
+                            .exchangeRate(exchangeRate)
+                            .fee(fee)
+                            .feeAmount(feeAmount)
+                            .spread(spread)
+                            .spreadAmount(spreadAmount)
+                            .toAmount(toAmount)
+                            .network(network)
+                            .build();
+                    });
+            });
+    }
+    
+    /**
+     * 스왑 가능한 통화 목록 조회
+     */
+    public Future<SwapCurrenciesDto> getSwapCurrencies() {
+        return currencyRepository.getAllActiveCurrencies(pool)
+            .map(currencies -> {
+                List<SwapCurrenciesDto.CurrencyInfo> currencyInfos = currencies.stream()
+                    .filter(c -> !"INTERNAL".equals(c.getChain())) // INTERNAL 체인 제외 (스왑 불가)
+                    .map(c -> SwapCurrenciesDto.CurrencyInfo.builder()
+                        .code(c.getCode())
+                        .name(c.getName())
+                        .symbol(c.getCode()) // 임시로 code를 symbol로 사용
+                        .network(c.getChain())
+                        .decimals(18) // 임시로 18로 설정 (실제로는 DB에 저장되어야 함)
+                        .minSwapAmount("KRWT".equals(c.getCode()) ? MIN_SWAP_AMOUNT_KRWT : MIN_SWAP_AMOUNT)
+                        .build())
+                    .collect(Collectors.toList());
+                
+                return SwapCurrenciesDto.builder()
+                    .currencies(currencyInfos)
+                    .build();
+            });
+    }
+    
+    /**
+     * 스왑 정보 조회
+     */
+    public Future<SwapInfoDto> getSwapInfo(String currencyCode) {
+        Map<String, BigDecimal> minSwapAmount = new HashMap<>();
+        if (currencyCode != null && "KRWT".equals(currencyCode)) {
+            minSwapAmount.put("KRWT", MIN_SWAP_AMOUNT_KRWT);
+        }
+        
+        return Future.succeededFuture(SwapInfoDto.builder()
+            .fee(SWAP_FEE_RATE)
+            .spread(SWAP_SPREAD_RATE)
+            .minSwapAmount(minSwapAmount.isEmpty() ? null : minSwapAmount)
+            .priceSource("Oracle")
+            .note("실시간 가격: (Oracle) 시세 기준")
+            .build());
+    }
+    
+    /**
+     * 환율 계산 (임시 구현, Oracle 연동 전까지 사용)
+     * KRWT 기준 환율을 사용하여 통화 간 환율 계산
+     */
+    private BigDecimal getExchangeRate(String fromCurrencyCode, String toCurrencyCode) {
+        BigDecimal fromRate = getRateForCurrency(fromCurrencyCode);
+        BigDecimal toRate = getRateForCurrency(toCurrencyCode);
+        
+        // fromCurrency -> KRWT -> toCurrency 환율 계산
+        // 예: ETH -> USDT = (ETH/KRWT) / (USDT/KRWT) = 5000000 / 1300 = 3846.15...
+        return fromRate.divide(toRate, 18, RoundingMode.HALF_UP);
+    }
+    
+    /**
+     * 통화별 KRWT 기준 환율 조회 (임시 구현)
+     */
+    private BigDecimal getRateForCurrency(String currencyCode) {
+        switch (currencyCode) {
+            case "ETH":
+                return RATE_ETH;
+            case "USDT":
+                return RATE_USDT;
+            case "KRWT":
+                return RATE_KRWT;
+            default:
+                // 기본값: 1:1
+                return BigDecimal.ONE;
+        }
     }
 }
 
