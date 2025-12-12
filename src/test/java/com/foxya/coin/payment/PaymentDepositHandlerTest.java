@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.payment.dto.PaymentDepositResponseDto;
+import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import lombok.extern.slf4j.Slf4j;
@@ -37,14 +38,11 @@ public class PaymentDepositHandlerTest extends HandlerTestBase {
         void successRequestPaymentDepositCard(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "currencyCode": "KRC",
-                    "amount": 100.0,
-                    "depositMethod": "CARD",
-                    "paymentAmount": 10000.0
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("currencyCode", "KRC")
+                .put("amount", 100.0)
+                .put("depositMethod", "CARD")
+                .put("paymentAmount", 10000.0);
             
             reqPost(getUrl("/deposit"))
                 .bearerTokenAuthentication(accessToken)
@@ -72,14 +70,11 @@ public class PaymentDepositHandlerTest extends HandlerTestBase {
         void successRequestPaymentDepositBankTransfer(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "currencyCode": "KRC",
-                    "amount": 200.0,
-                    "depositMethod": "BANK_TRANSFER",
-                    "paymentAmount": 20000.0
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("currencyCode", "KRC")
+                .put("amount", 200.0)
+                .put("depositMethod", "BANK_TRANSFER")
+                .put("paymentAmount", 20000.0);
             
             reqPost(getUrl("/deposit"))
                 .bearerTokenAuthentication(accessToken)
@@ -98,14 +93,11 @@ public class PaymentDepositHandlerTest extends HandlerTestBase {
         @Order(3)
         @DisplayName("실패 - 인증 없이 요청")
         void failNoAuth(VertxTestContext tc) {
-            String requestBody = """
-                {
-                    "currencyCode": "KRC",
-                    "amount": 100.0,
-                    "depositMethod": "CARD",
-                    "paymentAmount": 10000.0
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("currencyCode", "KRC")
+                .put("amount", 100.0)
+                .put("depositMethod", "CARD")
+                .put("paymentAmount", 10000.0);
             
             reqPost(getUrl("/deposit"))
                 .sendJson(requestBody)
@@ -128,14 +120,11 @@ public class PaymentDepositHandlerTest extends HandlerTestBase {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
             // 먼저 결제 입금 요청
-            String requestBody = """
-                {
-                    "currencyCode": "KRC",
-                    "amount": 100.0,
-                    "depositMethod": "CARD",
-                    "paymentAmount": 10000.0
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("currencyCode", "KRC")
+                .put("amount", 100.0)
+                .put("depositMethod", "CARD")
+                .put("paymentAmount", 10000.0);
             
             reqPost(getUrl("/deposit"))
                 .bearerTokenAuthentication(accessToken)

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.swap.dto.SwapResponseDto;
+import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import lombok.extern.slf4j.Slf4j;
@@ -37,14 +38,11 @@ public class SwapHandlerTest extends HandlerTestBase {
         void successExecuteSwap(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "fromCurrencyCode": "ETH",
-                    "toCurrencyCode": "USDT",
-                    "fromAmount": 0.1,
-                    "network": "Ether"
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("fromCurrencyCode", "ETH")
+                .put("toCurrencyCode", "USDT")
+                .put("fromAmount", 0.1)
+                .put("network", "Ether");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
@@ -71,14 +69,11 @@ public class SwapHandlerTest extends HandlerTestBase {
         @Order(2)
         @DisplayName("실패 - 인증 없이 실행")
         void failNoAuth(VertxTestContext tc) {
-            String requestBody = """
-                {
-                    "fromCurrencyCode": "ETH",
-                    "toCurrencyCode": "USDT",
-                    "fromAmount": 0.1,
-                    "network": "Ether"
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("fromCurrencyCode", "ETH")
+                .put("toCurrencyCode", "USDT")
+                .put("fromAmount", 0.1)
+                .put("network", "Ether");
             
             reqPost(getUrl("/"))
                 .sendJson(requestBody)
@@ -94,14 +89,11 @@ public class SwapHandlerTest extends HandlerTestBase {
         void failSameCurrency(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "fromCurrencyCode": "ETH",
-                    "toCurrencyCode": "ETH",
-                    "fromAmount": 0.1,
-                    "network": "Ether"
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("fromCurrencyCode", "ETH")
+                .put("toCurrencyCode", "ETH")
+                .put("fromAmount", 0.1)
+                .put("network", "Ether");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
@@ -125,14 +117,11 @@ public class SwapHandlerTest extends HandlerTestBase {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
             // 먼저 스왑 실행
-            String requestBody = """
-                {
-                    "fromCurrencyCode": "ETH",
-                    "toCurrencyCode": "USDT",
-                    "fromAmount": 0.1,
-                    "network": "Ether"
-                }
-                """;
+            JsonObject requestBody = new JsonObject()
+                .put("fromCurrencyCode", "ETH")
+                .put("toCurrencyCode", "USDT")
+                .put("fromAmount", 0.1)
+                .put("network", "Ether");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
