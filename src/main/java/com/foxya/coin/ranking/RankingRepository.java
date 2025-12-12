@@ -33,7 +33,7 @@ public class RankingRepository extends BaseRepository {
                     COUNT(DISTINCT u.id) as total_members,
                     COALESCE(SUM(dm.mining_amount), 0) as total_mined_coins
                 FROM users u
-                LEFT JOIN referral_relations rr ON rr.referred_user_id = u.id
+                LEFT JOIN referral_relations rr ON rr.referred_id = u.id
                 LEFT JOIN daily_mining dm ON dm.user_id = u.id
                     AND (dm.mining_date >= #{start_date} OR #{start_date} IS NULL)
                 WHERE u.status = 'ACTIVE'
@@ -84,7 +84,7 @@ public class RankingRepository extends BaseRepository {
                     COUNT(DISTINCT u.id) as total_members,
                     COALESCE(SUM(dm.mining_amount), 0) as total_mined_coins
                 FROM users u
-                LEFT JOIN referral_relations rr ON rr.referred_user_id = u.id
+                LEFT JOIN referral_relations rr ON rr.referred_id = u.id
                 LEFT JOIN daily_mining dm ON dm.user_id = u.id
                     AND (dm.mining_date >= #{start_date} OR #{start_date} IS NULL)
                 WHERE u.status = 'ACTIVE'
