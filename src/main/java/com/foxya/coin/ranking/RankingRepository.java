@@ -173,17 +173,36 @@ public class RankingRepository extends BaseRepository {
             .append(" u.login_id as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
-            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,")
-            .append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
-            .append(" AND (#{start_date} IS NULL OR it.created_at >= #{start_date}) ")
-            .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,")
-            .append(" COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as team_count")
+            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
+        
+        // referral_reward 계산 (start_date가 null이 아닐 때만 날짜 조건 추가)
+        if (startDate != null) {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
+                .append(" AND it.created_at >= #{start_date} ")
+                .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,");
+        } else {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
+                .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,");
+        }
+        
+        cteSql.append(" COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as team_count")
             .append(" FROM users u")
-            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id")
-            .append(" AND (#{start_date} IS NULL OR dm.mining_date >= #{start_date})")
-            .append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'")
-            .append(" LEFT JOIN referral_relations rr ON rr.referrer_id = u.id")
+            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id");
+        
+        // daily_mining 날짜 조건 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            cteSql.append(" AND dm.mining_date >= #{start_date}");
+        }
+        
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+        
+        // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            cteSql.append(" AND it.created_at >= #{start_date}");
+        }
+        
+        cteSql.append(" LEFT JOIN referral_relations rr ON rr.referrer_id = u.id")
             .append(" WHERE u.status = 'ACTIVE'");
         
         // scope에 따라 국가 필터 추가
@@ -205,7 +224,10 @@ public class RankingRepository extends BaseRepository {
         String query = cteSql.toString() + " " + queryBuilder.build();
         
         Map<String, Object> params = new HashMap<>();
-        params.put("start_date", startDate);
+        // start_date가 null이 아닐 때만 params에 추가
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         if ("REGIONAL".equals(scope) && countryCode != null) {
             params.put("country_code", countryCode);
         }
@@ -243,17 +265,36 @@ public class RankingRepository extends BaseRepository {
             .append(" u.login_id as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
-            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,")
-            .append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
-            .append(" AND (#{start_date} IS NULL OR it.created_at >= #{start_date}) ")
-            .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,")
-            .append(" COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as team_count")
+            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
+        
+        // referral_reward 계산 (start_date가 null이 아닐 때만 날짜 조건 추가)
+        if (startDate != null) {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
+                .append(" AND it.created_at >= #{start_date} ")
+                .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,");
+        } else {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
+                .append(" THEN it.amount ELSE 0 END), 0) as referral_reward,");
+        }
+        
+        cteSql.append(" COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as team_count")
             .append(" FROM users u")
-            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id")
-            .append(" AND (#{start_date} IS NULL OR dm.mining_date >= #{start_date})")
-            .append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'")
-            .append(" LEFT JOIN referral_relations rr ON rr.referrer_id = u.id")
+            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id");
+        
+        // daily_mining 날짜 조건 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            cteSql.append(" AND dm.mining_date >= #{start_date}");
+        }
+        
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+        
+        // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
+        if (startDate != null) {
+            cteSql.append(" AND it.created_at >= #{start_date}");
+        }
+        
+        cteSql.append(" LEFT JOIN referral_relations rr ON rr.referrer_id = u.id")
             .append(" WHERE u.id = #{user_id}")
             .append(" AND u.status = 'ACTIVE'");
         
@@ -272,7 +313,10 @@ public class RankingRepository extends BaseRepository {
         String query = cteSql.toString() + " " + queryBuilder.build();
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
-        params.put("start_date", startDate);
+        // start_date가 null이 아닐 때만 params에 추가
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         if ("REGIONAL".equals(scope) && countryCode != null) {
             params.put("country_code", countryCode);
         }
