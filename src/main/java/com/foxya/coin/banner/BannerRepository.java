@@ -1,5 +1,6 @@
 package com.foxya.coin.banner;
 
+import com.foxya.coin.banner.entities.Banner;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.utils.QueryBuilder;
@@ -77,9 +78,12 @@ public class BannerRepository extends BaseRepository {
                     .whereById()
                     .build();
                 return query(client, updateSql, Collections.singletonMap("id", bannerId))
-                    .map(updateRows -> null);
+                    .map(updateRows -> (Void) null);
             })
-            .onFailure(throwable -> log.error("배너 클릭 이벤트 기록 실패: {}", throwable.getMessage()));
+            .onFailure(throwable -> {
+                log.error("배너 클릭 이벤트 기록 실패: {}", throwable.getMessage());
+            })
+            .map(v -> (Void) null);
     }
     
     /**

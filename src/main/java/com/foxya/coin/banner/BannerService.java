@@ -4,7 +4,7 @@ import com.foxya.coin.banner.dto.BannerListResponseDto;
 import com.foxya.coin.banner.entities.Banner;
 import com.foxya.coin.common.BaseService;
 import io.vertx.core.Future;
-import io.vertx.sqlclient.PgPool;
+import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;

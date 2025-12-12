@@ -70,11 +70,7 @@ public class BannerHandler extends BaseHandler {
         
         log.info("Recording banner click - bannerId: {}, userId: {}", bannerId, userId);
         bannerService.recordBannerClick(bannerId, userId, ipAddress, userAgent)
-            .onSuccess(v -> {
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(com.foxya.coin.common.dto.ApiResponse.success(null).toString());
-            })
+            .onSuccess(v -> success(ctx, null))
             .onFailure(throwable -> ctx.fail(throwable));
     }
 }
