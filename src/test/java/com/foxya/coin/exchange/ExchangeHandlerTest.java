@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.exchange.dto.ExchangeResponseDto;
+import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import lombok.extern.slf4j.Slf4j;
@@ -37,16 +38,12 @@ public class ExchangeHandlerTest extends HandlerTestBase {
         void successExecuteExchange(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "fromAmount": 100.0
-                }
-                """;
+            JsonObject data = new JsonObject()
+                .put("fromAmount", 100.0);
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
-                .sendJson(requestBody)
-                .onComplete(tc.succeeding(res -> tc.verify(() -> {
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     log.info("Exchange response: {}", res.bodyAsJsonObject());
                     ExchangeResponseDto response = expectSuccessAndGetResponse(res, refExchange);
                     
@@ -54,7 +51,7 @@ public class ExchangeHandlerTest extends HandlerTestBase {
                     assertThat(response.getExchangeId()).isNotNull();
                     assertThat(response.getOrderNumber()).isNotNull();
                     assertThat(response.getFromCurrencyCode()).isEqualTo("KRWT");
-                    assertThat(response.getToCurrencyCode()).isEqualTo("BLUE_DIAMOND");
+                    assertThat(response.getToCurrencyCode()).isEqualTo("BLUEDIA");
                     assertThat(response.getFromAmount()).isNotNull();
                     assertThat(response.getToAmount()).isNotNull();
                     assertThat(response.getStatus()).isEqualTo("COMPLETED");
@@ -67,15 +64,11 @@ public class ExchangeHandlerTest extends HandlerTestBase {
         @Order(2)
         @DisplayName("실패 - 인증 없이 실행")
         void failNoAuth(VertxTestContext tc) {
-            String requestBody = """
-                {
-                    "fromAmount": 100.0
-                }
-                """;
+            JsonObject data = new JsonObject()
+                .put("fromAmount", 100.0);
             
             reqPost(getUrl("/"))
-                .sendJson(requestBody)
-                .onComplete(tc.succeeding(res -> tc.verify(() -> {
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
                 })));
@@ -87,16 +80,12 @@ public class ExchangeHandlerTest extends HandlerTestBase {
         void failMinAmount(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
-            String requestBody = """
-                {
-                    "fromAmount": 0.5
-                }
-                """;
+            JsonObject data = new JsonObject()
+                .put("fromAmount", 0.5);
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
-                .sendJson(requestBody)
-                .onComplete(tc.succeeding(res -> tc.verify(() -> {
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 400);
                     tc.completeNow();
                 })));
@@ -115,16 +104,12 @@ public class ExchangeHandlerTest extends HandlerTestBase {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
             // 먼저 환전 실행
-            String requestBody = """
-                {
-                    "fromAmount": 100.0
-                }
-                """;
+            JsonObject data = new JsonObject()
+                .put("fromAmount", 100.0);
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
-                .sendJson(requestBody)
-                .onComplete(tc.succeeding(createRes -> tc.verify(() -> {
+                .sendJson(data, tc.succeeding(createRes -> tc.verify(() -> {
                     ExchangeResponseDto created = expectSuccessAndGetResponse(createRes, refExchange);
                     
                     // 환전 상세 조회
