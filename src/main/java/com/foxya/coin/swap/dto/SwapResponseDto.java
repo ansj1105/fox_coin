@@ -44,5 +44,20 @@ public class SwapResponseDto {
     
     @JsonProperty("createdAt")
     private LocalDateTime createdAt;
+    
+    @JsonProperty("exchangeRate")
+    private BigDecimal exchangeRate;
+    
+    @JsonProperty("fee")
+    private BigDecimal fee;
+    
+    @JsonProperty("feeRate")
+    private BigDecimal feeRate;
+    
+    @JsonProperty("spread")
+    private BigDecimal spread;
+    
+    @JsonProperty("message")
+    private String message;
 }
 
