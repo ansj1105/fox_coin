@@ -103,6 +103,18 @@ public class ApiVerticle extends AbstractVerticle {
         com.foxya.coin.banner.BannerRepository bannerRepository = new com.foxya.coin.banner.BannerRepository();
         com.foxya.coin.banner.BannerService bannerService = new com.foxya.coin.banner.BannerService(
             pool, bannerRepository);
+        com.foxya.coin.swap.SwapRepository swapRepository = new com.foxya.coin.swap.SwapRepository();
+        com.foxya.coin.swap.SwapService swapService = new com.foxya.coin.swap.SwapService(
+            pool, swapRepository, currencyRepository, transferRepository);
+        com.foxya.coin.exchange.ExchangeRepository exchangeRepository = new com.foxya.coin.exchange.ExchangeRepository();
+        com.foxya.coin.exchange.ExchangeService exchangeService = new com.foxya.coin.exchange.ExchangeService(
+            pool, exchangeRepository, currencyRepository, transferRepository);
+        com.foxya.coin.payment.PaymentDepositRepository paymentDepositRepository = new com.foxya.coin.payment.PaymentDepositRepository();
+        com.foxya.coin.payment.PaymentDepositService paymentDepositService = new com.foxya.coin.payment.PaymentDepositService(
+            pool, paymentDepositRepository, currencyRepository, transferRepository);
+        com.foxya.coin.deposit.TokenDepositRepository tokenDepositRepository = new com.foxya.coin.deposit.TokenDepositRepository();
+        com.foxya.coin.deposit.TokenDepositService tokenDepositService = new com.foxya.coin.deposit.TokenDepositService(
+            pool, tokenDepositRepository, currencyRepository, transferRepository);
         
         // Handler 초기화
         com.foxya.coin.auth.AuthHandler authHandler = new com.foxya.coin.auth.AuthHandler(vertx, authService, jwtAuth);
@@ -119,6 +131,10 @@ public class ApiVerticle extends AbstractVerticle {
         com.foxya.coin.agency.AgencyHandler agencyHandler = new com.foxya.coin.agency.AgencyHandler(vertx, agencyService, jwtAuth);
         com.foxya.coin.ranking.RankingHandler rankingHandler = new com.foxya.coin.ranking.RankingHandler(vertx, rankingService, jwtAuth);
         com.foxya.coin.banner.BannerHandler bannerHandler = new com.foxya.coin.banner.BannerHandler(vertx, bannerService, jwtAuth);
+        com.foxya.coin.swap.SwapHandler swapHandler = new com.foxya.coin.swap.SwapHandler(vertx, swapService, jwtAuth);
+        com.foxya.coin.exchange.ExchangeHandler exchangeHandler = new com.foxya.coin.exchange.ExchangeHandler(vertx, exchangeService, jwtAuth);
+        com.foxya.coin.payment.PaymentDepositHandler paymentDepositHandler = new com.foxya.coin.payment.PaymentDepositHandler(vertx, paymentDepositService, jwtAuth);
+        com.foxya.coin.deposit.TokenDepositHandler tokenDepositHandler = new com.foxya.coin.deposit.TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -162,6 +178,18 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 배너 API
         mainRouter.mountSubRouter("/api/v1/banners", bannerHandler.getRouter());
+        
+        // 스왑 API
+        mainRouter.mountSubRouter("/api/v1/swap", swapHandler.getRouter());
+        
+        // 환전 API
+        mainRouter.mountSubRouter("/api/v1/exchange", exchangeHandler.getRouter());
+        
+        // 결제 입금 API
+        mainRouter.mountSubRouter("/api/v1/payment", paymentDepositHandler.getRouter());
+        
+        // 토큰 입금 API
+        mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
         
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);

@@ -36,6 +36,8 @@ public class TransferRepository extends BaseRepository {
         .fee(getBigDecimalColumnValue(row, "fee"))
         .status(getStringColumnValue(row, "status"))
         .transferType(getStringColumnValue(row, "transfer_type"))
+        .orderNumber(getStringColumnValue(row, "order_number"))
+        .transactionType(getStringColumnValue(row, "transaction_type"))
         .memo(getStringColumnValue(row, "memo"))
         .requestIp(getStringColumnValue(row, "request_ip"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
@@ -55,6 +57,8 @@ public class TransferRepository extends BaseRepository {
         .fee(getBigDecimalColumnValue(row, "fee"))
         .networkFee(getBigDecimalColumnValue(row, "network_fee"))
         .status(getStringColumnValue(row, "status"))
+        .orderNumber(getStringColumnValue(row, "order_number"))
+        .transactionType(getStringColumnValue(row, "transaction_type"))
         .txHash(getStringColumnValue(row, "tx_hash"))
         .chain(getStringColumnValue(row, "chain"))
         .confirmations(getIntegerColumnValue(row, "confirmations"))
@@ -99,6 +103,8 @@ public class TransferRepository extends BaseRepository {
         params.put("fee", transfer.getFee() != null ? transfer.getFee() : BigDecimal.ZERO);
         params.put("status", transfer.getStatus());
         params.put("transfer_type", transfer.getTransferType());
+        params.put("order_number", transfer.getOrderNumber());
+        params.put("transaction_type", transfer.getTransactionType());
         params.put("memo", transfer.getMemo());
         params.put("request_ip", transfer.getRequestIp());
         
@@ -199,6 +205,8 @@ public class TransferRepository extends BaseRepository {
         params.put("fee", transfer.getFee() != null ? transfer.getFee() : BigDecimal.ZERO);
         params.put("network_fee", transfer.getNetworkFee() != null ? transfer.getNetworkFee() : BigDecimal.ZERO);
         params.put("status", transfer.getStatus());
+        params.put("order_number", transfer.getOrderNumber());
+        params.put("transaction_type", transfer.getTransactionType());
         params.put("chain", transfer.getChain());
         params.put("required_confirmations", transfer.getRequiredConfirmations() != null ? transfer.getRequiredConfirmations() : 1);
         params.put("memo", transfer.getMemo());
@@ -270,6 +278,28 @@ public class TransferRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
             .onFailure(e -> log.error("외부 전송 실패 처리 실패: {}", e.getMessage()));
+    }
+    
+    /**
+     * 사용자의 외부 전송 내역 조회
+     */
+    public Future<List<ExternalTransfer>> getExternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
+        String sql = QueryBuilder
+            .select("external_transfers")
+            .where("user_id", Op.Equal, "user_id")
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+        params.put("offset", offset);
+        
+        return query(client, sql, params)
+            .map(rows -> fetchAll(externalTransferMapper, rows))
+            .onFailure(e -> log.error("외부 전송 내역 조회 실패 - userId: {}", userId));
     }
     
     /**

@@ -37,6 +37,8 @@ public class BannerRepository extends BaseRepository {
      * 배너 목록 조회
      */
     public Future<List<Banner>> getBanners(SqlClient client, String position) {
+        // 복잡한 날짜 조건과 NULL 체크는 selectStringQuery 사용
+        // QueryBuilder는 날짜 범위 조건과 NULL 체크를 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             SELECT * FROM banners
             WHERE is_active = true

@@ -28,6 +28,8 @@ public class InternalTransfer {
     private BigDecimal fee;
     private String status;              // PENDING, COMPLETED, FAILED, CANCELLED
     private String transferType;        // INTERNAL, REFERRAL_REWARD, ADMIN_GRANT
+    private String orderNumber;         // 주문번호
+    private String transactionType;     // WITHDRAW, TOKEN_DEPOSIT, PAYMENT_DEPOSIT, SWAP, EXCHANGE
     private String memo;
     private String requestIp;
     private LocalDateTime createdAt;

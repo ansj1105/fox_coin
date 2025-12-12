@@ -27,6 +27,8 @@ public class ExternalTransfer {
     private BigDecimal fee;             // 서비스 수수료
     private BigDecimal networkFee;      // 네트워크 수수료 (가스비)
     private String status;              // PENDING, PROCESSING, SUBMITTED, CONFIRMED, FAILED, CANCELLED
+    private String orderNumber;         // 주문번호
+    private String transactionType;     // WITHDRAW, TOKEN_DEPOSIT, PAYMENT_DEPOSIT, SWAP, EXCHANGE
     private String txHash;              // 블록체인 트랜잭션 해시
     private String chain;               // TRON, ETH 등
     private Integer confirmations;

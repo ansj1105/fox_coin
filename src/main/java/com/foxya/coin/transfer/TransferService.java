@@ -148,6 +148,7 @@ public class TransferService extends BaseService {
                     }
                     
                     // 3. 전송 기록 생성
+                    String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
                     InternalTransfer transfer = InternalTransfer.builder()
                         .transferId(transferId)
                         .senderId(senderId)
@@ -159,6 +160,8 @@ public class TransferService extends BaseService {
                         .fee(fee)
                         .status(InternalTransfer.STATUS_COMPLETED)
                         .transferType(InternalTransfer.TYPE_INTERNAL)
+                        .orderNumber(orderNumber)
+                        .transactionType(com.foxya.coin.common.enums.TransactionType.WITHDRAW.getValue())
                         .memo(memo)
                         .requestIp(requestIp)
                         .build();
@@ -280,6 +283,7 @@ public class TransferService extends BaseService {
                     }
                     
                     // 2. 외부 전송 기록 생성
+                    String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
                     ExternalTransfer transfer = ExternalTransfer.builder()
                         .transferId(transferId)
                         .userId(userId)
@@ -290,6 +294,8 @@ public class TransferService extends BaseService {
                         .fee(serviceFee)
                         .networkFee(BigDecimal.ZERO) // Node.js에서 계산 후 업데이트
                         .status(ExternalTransfer.STATUS_PENDING)
+                        .orderNumber(orderNumber)
+                        .transactionType(com.foxya.coin.common.enums.TransactionType.WITHDRAW.getValue())
                         .chain(request.getChain())
                         .requiredConfirmations(getRequiredConfirmations(request.getChain()))
                         .memo(request.getMemo())
@@ -342,24 +348,78 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 전송 내역 조회
+     * 전송 내역 조회 (확장: 모든 거래 내역 통합)
      */
     public Future<List<TransferResponseDto>> getTransferHistory(Long userId, int limit, int offset) {
+        // 내부 전송과 외부 전송을 모두 조회하여 통합
         return transferRepository.getInternalTransfersByUserId(pool, userId, limit, offset)
-            .map(transfers -> transfers.stream()
-                .map(t -> TransferResponseDto.builder()
-                    .transferId(t.getTransferId())
-                    .transferType("INTERNAL")
-                    .senderId(t.getSenderId())
-                    .receiverId(t.getReceiverId())
-                    .amount(t.getAmount())
-                    .fee(t.getFee())
-                    .status(t.getStatus())
-                    .memo(t.getMemo())
-                    .createdAt(t.getCreatedAt())
-                    .completedAt(t.getCompletedAt())
-                    .build())
-                .collect(Collectors.toList()));
+            .compose(internalTransfers -> 
+                transferRepository.getExternalTransfersByUserId(pool, userId, limit, offset)
+                    .compose(externalTransfers -> {
+                        // 내부 전송 매핑
+                        List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
+                            .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                .map(currency -> TransferResponseDto.builder()
+                                    .transferId(t.getTransferId())
+                                    .transferType("INTERNAL")
+                                    .transactionType(t.getTransactionType())
+                                    .orderNumber(t.getOrderNumber())
+                                    .senderId(t.getSenderId())
+                                    .receiverId(t.getReceiverId())
+                                    .currencyCode(currency.getCode())
+                                    .amount(t.getAmount())
+                                    .fee(t.getFee())
+                                    .status(t.getStatus())
+                                    .memo(t.getMemo())
+                                    .createdAt(t.getCreatedAt())
+                                    .completedAt(t.getCompletedAt())
+                                    .build()))
+                            .collect(Collectors.toList());
+                        
+                        // 외부 전송 매핑
+                        List<Future<TransferResponseDto>> externalDtos = externalTransfers.stream()
+                            .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                .map(currency -> TransferResponseDto.builder()
+                                    .transferId(t.getTransferId())
+                                    .transferType("EXTERNAL")
+                                    .transactionType(t.getTransactionType())
+                                    .orderNumber(t.getOrderNumber())
+                                    .senderId(t.getUserId())
+                                    .toAddress(t.getToAddress())
+                                    .currencyCode(currency.getCode())
+                                    .network(t.getChain())
+                                    .amount(t.getAmount())
+                                    .fee(t.getFee())
+                                    .networkFee(t.getNetworkFee())
+                                    .status(t.getStatus())
+                                    .txHash(t.getTxHash())
+                                    .memo(t.getMemo())
+                                    .createdAt(t.getCreatedAt())
+                                    .completedAt(t.getConfirmedAt())
+                                    .build()))
+                            .collect(Collectors.toList());
+                        
+                        // 모든 Future 통합
+                        List<Future<TransferResponseDto>> allDtos = new java.util.ArrayList<>();
+                        allDtos.addAll(internalDtos);
+                        allDtos.addAll(externalDtos);
+                        
+                        return Future.all(allDtos)
+                            .map(results -> {
+                                List<TransferResponseDto> allTransfers = results.list();
+                                // 생성일시 기준 내림차순 정렬
+                                allTransfers.sort((a, b) -> {
+                                    if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
+                                    if (a.getCreatedAt() == null) return 1;
+                                    if (b.getCreatedAt() == null) return -1;
+                                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                                });
+                                // limit 적용
+                                return allTransfers.stream()
+                                    .limit(limit)
+                                    .collect(Collectors.toList());
+                            });
+                    }));
     }
     
     /**
@@ -370,40 +430,49 @@ public class TransferService extends BaseService {
         return transferRepository.getInternalTransferById(pool, transferId)
             .compose(internalTransfer -> {
                 if (internalTransfer != null) {
-                    return Future.succeededFuture(TransferResponseDto.builder()
-                        .transferId(internalTransfer.getTransferId())
-                        .transferType("INTERNAL")
-                        .senderId(internalTransfer.getSenderId())
-                        .receiverId(internalTransfer.getReceiverId())
-                        .amount(internalTransfer.getAmount())
-                        .fee(internalTransfer.getFee())
-                        .status(internalTransfer.getStatus())
-                        .memo(internalTransfer.getMemo())
-                        .createdAt(internalTransfer.getCreatedAt())
-                        .completedAt(internalTransfer.getCompletedAt())
-                        .build());
+                    return currencyRepository.getCurrencyById(pool, internalTransfer.getCurrencyId())
+                        .map(currency -> TransferResponseDto.builder()
+                            .transferId(internalTransfer.getTransferId())
+                            .transferType("INTERNAL")
+                            .transactionType(internalTransfer.getTransactionType())
+                            .orderNumber(internalTransfer.getOrderNumber())
+                            .senderId(internalTransfer.getSenderId())
+                            .receiverId(internalTransfer.getReceiverId())
+                            .currencyCode(currency.getCode())
+                            .amount(internalTransfer.getAmount())
+                            .fee(internalTransfer.getFee())
+                            .status(internalTransfer.getStatus())
+                            .memo(internalTransfer.getMemo())
+                            .createdAt(internalTransfer.getCreatedAt())
+                            .completedAt(internalTransfer.getCompletedAt())
+                            .build());
                 }
                 
                 // 외부 전송에서 조회
                 return transferRepository.getExternalTransferById(pool, transferId)
-                    .map(externalTransfer -> {
+                    .compose(externalTransfer -> {
                         if (externalTransfer == null) {
-                            return null;
+                            return Future.succeededFuture(null);
                         }
-                        return TransferResponseDto.builder()
-                            .transferId(externalTransfer.getTransferId())
-                            .transferType("EXTERNAL")
-                            .senderId(externalTransfer.getUserId())
-                            .toAddress(externalTransfer.getToAddress())
-                            .amount(externalTransfer.getAmount())
-                            .fee(externalTransfer.getFee())
-                            .networkFee(externalTransfer.getNetworkFee())
-                            .status(externalTransfer.getStatus())
-                            .txHash(externalTransfer.getTxHash())
-                            .memo(externalTransfer.getMemo())
-                            .createdAt(externalTransfer.getCreatedAt())
-                            .completedAt(externalTransfer.getConfirmedAt())
-                            .build();
+                        return currencyRepository.getCurrencyById(pool, externalTransfer.getCurrencyId())
+                            .map(currency -> TransferResponseDto.builder()
+                                .transferId(externalTransfer.getTransferId())
+                                .transferType("EXTERNAL")
+                                .transactionType(externalTransfer.getTransactionType())
+                                .orderNumber(externalTransfer.getOrderNumber())
+                                .senderId(externalTransfer.getUserId())
+                                .toAddress(externalTransfer.getToAddress())
+                                .currencyCode(currency.getCode())
+                                .network(externalTransfer.getChain())
+                                .amount(externalTransfer.getAmount())
+                                .fee(externalTransfer.getFee())
+                                .networkFee(externalTransfer.getNetworkFee())
+                                .status(externalTransfer.getStatus())
+                                .txHash(externalTransfer.getTxHash())
+                                .memo(externalTransfer.getMemo())
+                                .createdAt(externalTransfer.getCreatedAt())
+                                .completedAt(externalTransfer.getConfirmedAt())
+                                .build());
                     });
             });
     }

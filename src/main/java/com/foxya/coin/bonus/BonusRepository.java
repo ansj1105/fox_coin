@@ -53,6 +53,7 @@ public class BonusRepository extends BaseRepository {
     public Future<UserBonus> createOrUpdateUserBonus(SqlClient client, Long userId, String bonusType, 
                                                       Boolean isActive, LocalDateTime expiresAt, 
                                                       Integer currentCount, Integer maxCount, String metadata) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO user_bonuses (user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata)
             VALUES (#{userId}, #{bonusType}, #{isActive}, #{expiresAt}, #{currentCount}, #{maxCount}, #{metadata})

@@ -51,6 +51,7 @@ public class SubscriptionRepository extends BaseRepository {
     
     public Future<Subscription> createSubscription(SqlClient client, Long userId, String packageType, 
                                                   LocalDateTime expiresAt) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO subscriptions (user_id, package_type, is_active, started_at, expires_at)
             VALUES (#{userId}, #{packageType}, true, CURRENT_TIMESTAMP, #{expiresAt})

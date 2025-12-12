@@ -95,6 +95,7 @@ public class MiningRepository extends BaseRepository {
     
     public Future<DailyMining> createOrUpdateDailyMining(SqlClient client, Long userId, LocalDate date, 
                                                           BigDecimal amount, LocalDateTime resetAt) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at)
             VALUES (#{userId}, #{date}, #{amount}, #{resetAt})

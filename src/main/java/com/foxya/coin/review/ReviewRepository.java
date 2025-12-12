@@ -59,6 +59,7 @@ public class ReviewRepository extends BaseRepository {
     }
     
     public Future<Review> createReview(SqlClient client, Long userId, String platform, String reviewId) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO reviews (user_id, platform, review_id, reviewed_at)
             VALUES (#{userId}, #{platform}, #{reviewId}, CURRENT_TIMESTAMP)

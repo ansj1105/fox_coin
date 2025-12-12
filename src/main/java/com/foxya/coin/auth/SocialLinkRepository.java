@@ -33,6 +33,7 @@ public class SocialLinkRepository extends BaseRepository {
     
     public Future<Boolean> createSocialLink(SqlClient client, Long userId, String provider, 
                                           String providerUserId, String email) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO social_links (user_id, provider, provider_user_id, email)
             VALUES (#{userId}, #{provider}, #{providerUserId}, #{email})

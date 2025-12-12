@@ -32,6 +32,7 @@ public class PhoneVerificationRepository extends BaseRepository {
     }
     
     public Future<Boolean> verifyPhone(SqlClient client, Long userId, String phoneNumber, String verificationCode) {
+        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
         String sql = """
             INSERT INTO phone_verifications (user_id, phone_number, verification_code, is_verified, verified_at, expires_at)
             VALUES (#{userId}, #{phoneNumber}, #{verificationCode}, true, CURRENT_TIMESTAMP, #{expiresAt})
