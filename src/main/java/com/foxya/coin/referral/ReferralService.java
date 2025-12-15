@@ -6,6 +6,7 @@ import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import com.foxya.coin.user.UserRepository;
@@ -82,6 +83,30 @@ public class ReferralService extends BaseService {
                 .todayReward(stats.getTodayReward())
                 .build();
         });
+    }
+    
+    /**
+     * 현재 로그인한 사용자를 추천한 사람의 추천인 코드 조회
+     */
+    public Future<CurrentReferralCodeDto> getCurrentReferralCode(Long userId) {
+        // 1. 레퍼럴 관계 조회 (삭제되지 않은 것만)
+        return referralRepository.getReferralRelationByReferredId(pool, userId)
+            .compose(relation -> {
+                if (relation == null) {
+                    // 추천인이 없는 경우 referralCode = null
+                    return Future.succeededFuture(CurrentReferralCodeDto.builder()
+                        .referralCode(null)
+                        .build());
+                }
+                
+                Long referrerId = relation.getReferrerId();
+                
+                // 2. 추천인의 사용자 정보 조회 후 추천인 코드 반환
+                return userRepository.getUserById(pool, referrerId)
+                    .map(referrer -> CurrentReferralCodeDto.builder()
+                        .referralCode(referrer != null ? referrer.getReferralCode() : null)
+                        .build());
+            });
     }
     
     /**

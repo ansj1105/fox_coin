@@ -44,6 +44,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(registerValidation(parser))
             .handler(this::registerReferralCode);
         
+        // 현재 로그인한 사용자를 추천한 사람의 추천인 코드 조회
+        router.get("/current")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getCurrentReferralCode);
+        
         // 레퍼럴 통계 조회
         router.get("/:id/stats")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -97,6 +103,15 @@ public class ReferralHandler extends BaseHandler {
         
         log.info("User {} registering referral code: {}", userId, dto.getReferralCode());
         response(ctx, referralService.registerReferralCode(userId, dto.getReferralCode()));
+    }
+    
+    /**
+     * 현재 로그인한 사용자를 추천한 사람의 추천인 코드 조회
+     */
+    private void getCurrentReferralCode(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting current referral code for user: {}", userId);
+        response(ctx, referralService.getCurrentReferralCode(userId));
     }
     
     /**

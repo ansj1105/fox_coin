@@ -6,6 +6,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
+import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<Void>> refVoid = new TypeReference<>() {};
     private final TypeReference<ApiResponse<ReferralStatsDto>> refStats = new TypeReference<>() {};
     private final TypeReference<ApiResponse<TeamInfoResponseDto>> refTeamInfo = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<CurrentReferralCodeDto>> refCurrentCode = new TypeReference<>() {};
     
     public ReferralHandlerTest() {
         super("/api/v1/referrals");
@@ -124,6 +126,62 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401); // Unauthorized
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("현재 추천인 코드 조회 테스트")
+    class GetCurrentReferralCodeTest {
+        
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 추천인이 있는 경우")
+        void successHasReferrer(VertxTestContext tc) {
+            // no_code_user(ID:6)는 referrer_user(ID:5)의 피추천인
+            String accessToken = getAccessTokenOfUser(6L);
+            
+            reqGet(getUrl("/current"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get current referral code response: {}", res.bodyAsJsonObject());
+                    CurrentReferralCodeDto data = expectSuccessAndGetResponse(res, refCurrentCode);
+                    
+                    assertThat(data).isNotNull();
+                    assertThat(data.getReferralCode()).isEqualTo("REFER123");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(2)
+        @DisplayName("성공 - 추천인이 없는 경우")
+        void successNoReferrer(VertxTestContext tc) {
+            // testuser2(ID:2)는 초기 상태에서 추천인이 없음
+            String accessToken = getAccessTokenOfUser(2L);
+            
+            reqGet(getUrl("/current"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get current referral code (no referrer) response: {}", res.bodyAsJsonObject());
+                    CurrentReferralCodeDto data = expectSuccessAndGetResponse(res, refCurrentCode);
+                    
+                    assertThat(data).isNotNull();
+                    assertThat(data.getReferralCode()).isNull();
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(3)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/current"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401); // Unauthorized
                     tc.completeNow();
                 })));

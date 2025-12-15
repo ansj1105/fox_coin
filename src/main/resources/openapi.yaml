@@ -913,6 +913,14 @@ components:
           type: string
           format: uri
 
+    CurrentReferralCodeResponse:
+      type: object
+      properties:
+        referralCode:
+          type: string
+          description: 나를 추천한 사용자의 추천인 코드
+          nullable: true
+
     # Ranking 관련 스키마
     CountryRankingResponse:
       type: object
@@ -1687,6 +1695,33 @@ paths:
                 $ref: '#/components/schemas/ApiResponse'
         '400':
           description: 등록된 레퍼럴 관계가 없음
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/current:
+    get:
+      summary: 현재 로그인한 사용자의 추천인 코드 조회
+      description: 나를 추천한 사용자의 추천인 코드를 조회합니다. 추천인이 없으면 referralCode는 null입니다.
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CurrentReferralCodeResponse'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  referralCode: "DAWKFS"
         '401':
           description: 인증 실패
 
