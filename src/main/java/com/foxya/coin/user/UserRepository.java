@@ -110,4 +110,23 @@ public class UserRepository extends BaseRepository {
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("레퍼럴 코드 업데이트 실패 - userId: {}, referralCode: {}", userId, referralCode));
     }
+
+    /**
+     * 거래 비밀번호(해시) 업데이트
+     */
+    public Future<User> updateTransactionPassword(SqlClient client, Long userId, String transactionPasswordHash) {
+        String sql = QueryBuilder
+            .update("users", "transaction_password_hash", "updated_at")
+            .whereById()
+            .returning("*");
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("transaction_password_hash", transactionPasswordHash);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("거래 비밀번호 업데이트 실패 - userId: {}", userId));
+    }
 }

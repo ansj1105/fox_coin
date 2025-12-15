@@ -41,6 +41,8 @@ tags:
     description: 랭킹 관련 API
   - name: Banner
     description: 배너 광고 관련 API
+  - name: Security
+    description: 보안 관련 API (거래 비밀번호 등)
 
 components:
   securitySchemes:
@@ -913,6 +915,18 @@ components:
           type: string
           format: uri
 
+    EmailInfoResponse:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: 현재 등록된 이메일 (없으면 null)
+        verified:
+          type: boolean
+          description: 이메일 인증 여부
+
     CurrentReferralCodeResponse:
       type: object
       properties:
@@ -1627,6 +1641,147 @@ paths:
                         $ref: '#/components/schemas/ReferralCodeResponse'
         '400':
           description: 레퍼럴 코드가 없음
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/email:
+    get:
+      summary: 이메일 정보 조회
+      description: 현재 로그인한 사용자의 이메일 주소와 인증 여부를 조회합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailInfoResponse'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  email: "test@test.com"
+                  verified: true
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/email/send-code:
+    post:
+      summary: 이메일 인증 코드 발송
+      description: 입력한 이메일 주소로 인증 코드를 발송합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "test@test.com"
+      responses:
+        '200':
+          description: 발송 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/email/verify:
+    post:
+      summary: 이메일 인증 및 등록
+      description: 이메일로 전송된 인증 코드를 검증하고 이메일을 인증 상태로 저장합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - code
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "test@test.com"
+                code:
+                  type: string
+                  minLength: 4
+                  maxLength: 10
+                  example: "123456"
+      responses:
+        '200':
+          description: 인증 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 인증 코드가 유효하지 않거나 만료됨
+        '401':
+          description: 인증 실패
+
+  # ==================== Security ====================
+  /api/v1/security/transaction-password:
+    post:
+      summary: 거래 비밀번호 설정/변경
+      description: 이메일로 발송된 인증 코드를 기반으로 거래 비밀번호(숫자 6자리)를 설정하거나 변경합니다.
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+                - newPassword
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  description: 이메일로 발송된 6자리 숫자 인증 코드
+                  example: "123456"
+                newPassword:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: '^[0-9]{6}$'
+                  description: 거래 비밀번호 (숫자 6자리 문자열)
+                  example: "123456"
+      responses:
+        '200':
+          description: 설정/변경 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 잘못된 요청 또는 인증 코드 오류
         '401':
           description: 인증 실패
 

@@ -22,6 +22,7 @@ public class User {
     private String status;
     private Integer level;
     private BigDecimal exp;
+    private String transactionPasswordHash;
     private String countryCode;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

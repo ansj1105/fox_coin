@@ -38,6 +38,7 @@ import com.foxya.coin.agency.AgencyService;
 import com.foxya.coin.auth.AuthHandler;
 import com.foxya.coin.auth.AuthService;
 import com.foxya.coin.auth.PhoneVerificationRepository;
+import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.auth.SocialLinkRepository;
 import com.foxya.coin.banner.BannerHandler;
 import com.foxya.coin.banner.BannerRepository;
@@ -74,8 +75,10 @@ import com.foxya.coin.subscription.SubscriptionService;
 import com.foxya.coin.swap.SwapHandler;
 import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
+import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
+import com.foxya.coin.security.SecurityHandler;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -117,6 +120,7 @@ public class ApiVerticle extends AbstractVerticle {
         NoticeRepository noticeRepository = new NoticeRepository();
         SocialLinkRepository socialLinkRepository = new SocialLinkRepository();
         PhoneVerificationRepository phoneVerificationRepository = new PhoneVerificationRepository();
+        EmailVerificationRepository emailVerificationRepository = new EmailVerificationRepository();
         SubscriptionRepository subscriptionRepository = new SubscriptionRepository();
         ReviewRepository reviewRepository = new ReviewRepository();
         AgencyRepository agencyRepository = new AgencyRepository();
@@ -124,7 +128,11 @@ public class ApiVerticle extends AbstractVerticle {
         // Service 초기화
         AuthService authService = new AuthService(
             pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
-        UserService userService = new UserService(pool, userRepository, jwtAuth, jwtConfig, frontendConfig);
+        // 이메일 서비스 (SMTP 설정은 선택 사항)
+        EmailService emailService = new EmailService(config().getJsonObject("smtp", new JsonObject()));
+
+        UserService userService = new UserService(
+            pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
         WalletService walletService = new WalletService(pool, walletRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
@@ -189,6 +197,7 @@ public class ApiVerticle extends AbstractVerticle {
         PaymentDepositHandler paymentDepositHandler = new PaymentDepositHandler(vertx, paymentDepositService, jwtAuth);
         TokenDepositHandler tokenDepositHandler = new TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
         CurrencyHandler currencyHandler = new CurrencyHandler(vertx, currencyService, jwtAuth);
+        SecurityHandler securityHandler = new SecurityHandler(vertx, userService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -244,6 +253,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 토큰 입금 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
+        
+        // 보안 API (거래 비밀번호 등)
+        mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
         
         // 통화 API (환율 조회는 공개 API)
         mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());

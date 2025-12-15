@@ -56,6 +56,26 @@ public class UserHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getReferralCode);
+
+        // 이메일 설정 조회
+        router.get("/email")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getEmailInfo);
+
+        // 이메일 인증 코드 발송
+        router.post("/email/send-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(sendEmailCodeValidation(parser))
+            .handler(this::sendEmailCode);
+
+        // 이메일 인증 및 등록
+        router.post("/email/verify")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(verifyEmailValidation(parser))
+            .handler(this::verifyEmail);
         
         // ADMIN이 특정 유저에게 레퍼럴 코드 생성
         router.post("/:id/generate/referral-code")
@@ -149,6 +169,63 @@ public class UserHandler extends BaseHandler {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("Getting referral code for user: {}", userId);
         response(ctx, userService.getReferralCode(userId));
+    }
+
+    /**
+     * 이메일 설정 조회
+     */
+    private void getEmailInfo(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting email info for user: {}", userId);
+        response(ctx, userService.getEmailInfo(userId));
+    }
+
+    /**
+     * 이메일 인증 코드 발송 Validation
+     */
+    private Handler<RoutingContext> sendEmailCodeValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", emailSchema())
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 이메일 인증 코드 발송
+     */
+    private void sendEmailCode(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String email = ctx.getBodyAsJson().getString("email");
+        log.info("Sending email verification code - userId: {}, email: {}", userId, email);
+        response(ctx, userService.sendEmailVerificationCode(userId, email));
+    }
+
+    /**
+     * 이메일 인증 요청 Validation
+     */
+    private Handler<RoutingContext> verifyEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", emailSchema())
+                    .requiredProperty("code", stringSchema().with(minLength(4), maxLength(10)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 이메일 인증 및 등록
+     */
+    private void verifyEmail(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String email = ctx.getBodyAsJson().getString("email");
+        String code = ctx.getBodyAsJson().getString("code");
+        log.info("Verifying email - userId: {}, email: {}", userId, email);
+        response(ctx, userService.verifyEmail(userId, email, code));
     }
 }
 
