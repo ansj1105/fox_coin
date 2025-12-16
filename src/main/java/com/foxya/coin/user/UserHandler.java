@@ -44,38 +44,36 @@ public class UserHandler extends BaseHandler {
         router.post("/register").handler(registerValidation(parser)).handler(this::register);
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
         
-        // 인증 필요 API
-        // 본인 레퍼럴 코드 생성 (USER)
-        router.post("/generate/referral-code")
-            .handler(JWTAuthHandler.create(jwtAuth))
-            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
-            .handler(this::generateReferralCode);
+        // 인증 필요 API - 구체적인 경로를 먼저 등록 (파라미터 경로보다 우선)
         
-        // 사용자의 추천인 코드 조회 (구체적인 라우트를 먼저 등록)
-        router.get("/referral-code")
-            .handler(JWTAuthHandler.create(jwtAuth))
-            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
-            .handler(this::getReferralCode);
-
-        // 이메일 설정 조회
+        // 이메일 관련 API (가장 구체적인 경로 우선)
         router.get("/email")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getEmailInfo);
 
-        // 이메일 인증 코드 발송
         router.post("/email/send-code")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(sendEmailCodeValidation(parser))
             .handler(this::sendEmailCode);
 
-        // 이메일 인증 및 등록
         router.post("/email/verify")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(verifyEmailValidation(parser))
             .handler(this::verifyEmail);
+        
+        // 레퍼럴 코드 관련 API
+        router.get("/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getReferralCode);
+        
+        router.post("/generate/referral-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::generateReferralCode);
         
         // ADMIN이 특정 유저에게 레퍼럴 코드 생성
         router.post("/:id/generate/referral-code")
@@ -83,7 +81,7 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.ADMIN))
             .handler(this::generateReferralCodeForUser);
         
-        // 사용자 조회 (파라미터 라우트는 구체적인 라우트보다 나중에 등록)
+        // 사용자 조회 (파라미터 라우트는 모든 구체적인 라우트보다 나중에 등록)
         router.get("/:id")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.USER))
