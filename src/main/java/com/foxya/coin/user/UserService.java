@@ -51,7 +51,24 @@ public class UserService extends BaseService {
         String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
         dto.setPasswordHash(passwordHash);
         
-        return userRepository.createUser(pool, dto);
+        // 사용자 생성 후 레퍼럴 코드 자동 생성
+        return userRepository.createUser(pool, dto)
+            .compose(user -> {
+                // 레퍼럴 코드가 없으면 자동 생성
+                if (user.getReferralCode() == null || user.getReferralCode().isEmpty()) {
+                    return generateUniqueReferralCode(0)
+                        .compose(referralCode -> {
+                            log.info("Auto-generating referral code for new user: {} -> {}", user.getId(), referralCode);
+                            return userRepository.updateReferralCode(pool, user.getId(), referralCode);
+                        })
+                        .recover(throwable -> {
+                            // 레퍼럴 코드 생성 실패해도 사용자 생성은 성공으로 처리
+                            log.warn("Failed to auto-generate referral code for user {}: {}", user.getId(), throwable.getMessage());
+                            return Future.succeededFuture(user);
+                        });
+                }
+                return Future.succeededFuture(user);
+            });
     }
     
     public Future<LoginResponseDto> login(LoginDto dto) {
