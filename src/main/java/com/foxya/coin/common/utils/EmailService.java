@@ -66,28 +66,36 @@ public class EmailService {
      * 이메일 인증 코드 발송
      */
     public Future<Void> sendVerificationCode(String email, String code) {
+        log.info("[EmailService] sendVerificationCode called. smtpEnabled: {}, mailClient: {}, to: {}, code: {}", 
+            smtpEnabled, mailClient != null, email, code);
+        
         if (!smtpEnabled || mailClient == null) {
-            log.info("[EmailService] Sending verification code (SMTP disabled). from: {}, to: {}, code: {}", 
+            log.warn("[EmailService] SMTP disabled or mailClient is null. Sending verification code (SMTP disabled). from: {}, to: {}, code: {}", 
                 fromAddress, email, code);
             return Future.succeededFuture();
         }
 
+        log.info("[EmailService] Preparing to send email. from: {}, to: {}", fromAddress, email);
+        
         MailMessage message = new MailMessage();
         message.setFrom(fromAddress);
         message.setTo(email);
         message.setSubject("[Foxya] 이메일 인증 코드");
         message.setHtml(getEmailTemplate(code));
 
+        log.info("[EmailService] Sending mail via SMTP. Host: {}, Port: {}", 
+            mailClient.getClass().getName(), "checking...");
+        
         Future<Void> sendFuture = mailClient.sendMail(message)
             .map(result -> {
                 log.info("[EmailService] Verification code sent successfully. to: {}, messageId: {}", 
-                    email, result.getMessageID());
+                    email, result != null ? result.getMessageID() : "N/A");
                 return (Void) null;
             });
         
         return sendFuture.recover(throwable -> {
-            log.error("[EmailService] Failed to send verification code. to: {}, error: {}", 
-                email, throwable.getMessage(), throwable);
+            log.error("[EmailService] Failed to send verification code. to: {}, error: {}, cause: {}", 
+                email, throwable.getMessage(), throwable.getClass().getName(), throwable);
             // 실패해도 Future는 성공으로 반환 (사용자 경험을 위해)
             return Future.succeededFuture((Void) null);
         });
