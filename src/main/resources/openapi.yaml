@@ -346,7 +346,7 @@ components:
         fee:
           type: number
           format: decimal
-          description: 수수료 비율 (예: 0.0 = 0.0%)
+          description: "수수료 비율 (예: 0.0 = 0.0%)"
         feeAmount:
           type: number
           format: decimal
@@ -354,7 +354,7 @@ components:
         spread:
           type: number
           format: decimal
-          description: 스프레드 비율 (예: 0.0 = 0.0%)
+          description: "스프레드 비율 (예: 0.0 = 0.0%)"
         spreadAmount:
           type: number
           format: decimal
@@ -418,7 +418,7 @@ components:
           nullable: true
         priceSource:
           type: string
-          description: 가격 소스 (예: "Oracle")
+          description: "가격 소스 (예: \"Oracle\")"
         note:
           type: string
           description: 참고 사항
@@ -713,7 +713,7 @@ components:
         type:
           type: string
           enum: [BROADCAST_PROGRESS, BROADCAST_WATCH]
-          description: 채굴 유형 (BROADCAST_PROGRESS: 방송진행, BROADCAST_WATCH: 방송시청)
+          description: "채굴 유형 (BROADCAST_PROGRESS: 방송진행, BROADCAST_WATCH: 방송시청)"
         status:
           type: string
           enum: [COMPLETED, FAILED, CANCELLED]
@@ -1962,7 +1962,7 @@ paths:
             type: string
             enum: [MEMBERS, REVENUE]
             default: MEMBERS
-          description: 탭 유형 (MEMBERS: 멤버 목록, REVENUE: 수익 목록)
+          description: "탭 유형 (MEMBERS: 멤버 목록, REVENUE: 수익 목록)"
         - name: period
           in: query
           required: false
@@ -2273,14 +2273,14 @@ paths:
           required: true
           schema:
             type: string
-          description: FROM 통화 코드 (예: ETH)
+          description: "FROM 통화 코드 (예: ETH)"
           example: ETH
         - name: toCurrencyCode
           in: query
           required: true
           schema:
             type: string
-          description: TO 통화 코드 (예: USDT)
+          description: "TO 통화 코드 (예: USDT)"
           example: USDT
         - name: fromAmount
           in: query
@@ -2295,7 +2295,7 @@ paths:
           required: true
           schema:
             type: string
-          description: 네트워크 (예: Ether, TRON)
+          description: "네트워크 (예: Ether, TRON)"
           example: Ether
       responses:
         '200':
