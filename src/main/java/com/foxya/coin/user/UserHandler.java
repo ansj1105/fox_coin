@@ -140,11 +140,24 @@ public class UserHandler extends BaseHandler {
     
     private void getUser(RoutingContext ctx) {
         String idParam = ctx.pathParam("id");
+        if (idParam == null || idParam.isEmpty()) {
+            log.warn("User ID parameter is missing");
+            ctx.fail(404, new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+            return;
+        }
+        
+        // 숫자가 아닌 경우 (예: "email") 404 반환
+        if (!idParam.matches("^\\d+$")) {
+            log.warn("Invalid user ID format (not numeric): {}", idParam);
+            ctx.fail(404, new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+            return;
+        }
+        
         try {
             Long id = Long.valueOf(idParam);
             response(ctx, userService.getUserById(id));
         } catch (NumberFormatException e) {
-            log.warn("Invalid user ID format: {}", idParam);
+            log.warn("Invalid user ID format: {}", idParam, e);
             ctx.fail(404, new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
         }
     }
