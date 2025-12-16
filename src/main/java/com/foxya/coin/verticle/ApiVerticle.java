@@ -208,6 +208,8 @@ public class ApiVerticle extends AbstractVerticle {
         // 공개 API (인증 불필요)
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/users", userHandler.getRouter());
+        // /api/v1/user도 지원 (단수형 경로)
+        mainRouter.mountSubRouter("/api/v1/user", userHandler.getRouter());
         
         // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
         mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
@@ -221,8 +223,8 @@ public class ApiVerticle extends AbstractVerticle {
         // 채굴 API
         mainRouter.mountSubRouter("/api/v1/mining", miningHandler.getRouter());
         
-        // 레벨 API (UserHandler와 경로가 겹치므로 별도 경로 사용)
-        mainRouter.mountSubRouter("/api/v1/user", levelHandler.getRouter());
+        // 레벨 API (별도 경로 사용)
+        mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());
         
         // 공지사항 API
         mainRouter.mountSubRouter("/api/v1/notices", noticeHandler.getRouter());
