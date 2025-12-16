@@ -3,9 +3,11 @@ package com.foxya.coin.common.utils;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.mail.LoginOption;
 import io.vertx.ext.mail.MailClient;
 import io.vertx.ext.mail.MailConfig;
 import io.vertx.ext.mail.MailMessage;
+import io.vertx.ext.mail.StartTLSOptions;
 import lombok.extern.slf4j.Slf4j;
 
 import java.security.SecureRandom;
@@ -29,8 +31,21 @@ public class EmailService {
             MailConfig mailConfig = new MailConfig();
             mailConfig.setHostname(smtpConfig.getString("host"));
             mailConfig.setPort(smtpConfig.getInteger("port", 587));
-            mailConfig.setStarttls(smtpConfig.getString("starttls", "OPTIONAL")); // NONE, OPTIONAL, REQUIRED
-            mailConfig.setLogin(smtpConfig.getString("login", "LOGIN")); // NONE, LOGIN
+            
+            // StartTLS 설정 (enum 변환)
+            String starttlsStr = smtpConfig.getString("starttls", "OPTIONAL").toUpperCase();
+            StartTLSOptions starttls = switch (starttlsStr) {
+                case "NONE" -> StartTLSOptions.DISABLED;
+                case "REQUIRED" -> StartTLSOptions.REQUIRED;
+                default -> StartTLSOptions.OPTIONAL;
+            };
+            mailConfig.setStarttls(starttls);
+            
+            // Login 설정 (enum 변환)
+            String loginStr = smtpConfig.getString("login", "LOGIN").toUpperCase();
+            LoginOption login = "NONE".equals(loginStr) ? LoginOption.NONE : LoginOption.REQUIRED;
+            mailConfig.setLogin(login);
+            
             mailConfig.setUsername(smtpConfig.getString("username", ""));
             mailConfig.setPassword(smtpConfig.getString("password", ""));
             mailConfig.setAuthMethods(smtpConfig.getString("authMethods", "PLAIN"));
@@ -63,18 +78,19 @@ public class EmailService {
         message.setSubject("[Foxya] 이메일 인증 코드");
         message.setHtml(getEmailTemplate(code));
 
-        return mailClient.sendMail(message)
+        Future<Void> sendFuture = mailClient.sendMail(message)
             .map(result -> {
                 log.info("[EmailService] Verification code sent successfully. to: {}, messageId: {}", 
                     email, result.getMessageID());
-                return null;
-            })
-            .recover(throwable -> {
-                log.error("[EmailService] Failed to send verification code. to: {}, error: {}", 
-                    email, throwable.getMessage(), throwable);
-                // 실패해도 Future는 성공으로 반환 (사용자 경험을 위해)
-                return Future.succeededFuture();
+                return (Void) null;
             });
+        
+        return sendFuture.recover(throwable -> {
+            log.error("[EmailService] Failed to send verification code. to: {}, error: {}", 
+                email, throwable.getMessage(), throwable);
+            // 실패해도 Future는 성공으로 반환 (사용자 경험을 위해)
+            return Future.succeededFuture((Void) null);
+        });
     }
 
     /**
