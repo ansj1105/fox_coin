@@ -26,7 +26,7 @@ public class RankingHandler extends BaseHandler {
     public Router getRouter() {
         Router router = Router.router(getVertx());
         
-        // 개인 랭킹 조회
+        // 개인 랭킹 조회 (명시적으로 경로 지정)
         router.get("/")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))

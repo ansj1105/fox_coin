@@ -139,8 +139,14 @@ public class UserHandler extends BaseHandler {
     }
     
     private void getUser(RoutingContext ctx) {
-        Long id = Long.valueOf(ctx.pathParam("id"));
-        response(ctx, userService.getUserById(id));
+        String idParam = ctx.pathParam("id");
+        try {
+            Long id = Long.valueOf(idParam);
+            response(ctx, userService.getUserById(id));
+        } catch (NumberFormatException e) {
+            log.warn("Invalid user ID format: {}", idParam);
+            ctx.fail(404, new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+        }
     }
     
     /**
