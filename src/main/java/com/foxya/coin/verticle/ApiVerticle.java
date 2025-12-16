@@ -129,7 +129,7 @@ public class ApiVerticle extends AbstractVerticle {
         AuthService authService = new AuthService(
             pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
         // 이메일 서비스 (SMTP 설정은 선택 사항)
-        EmailService emailService = new EmailService(config().getJsonObject("smtp", new JsonObject()));
+        EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
 
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);

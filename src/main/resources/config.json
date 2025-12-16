@@ -35,6 +35,16 @@
       "password": "",
       "maxPoolSize": 8,
       "maxPoolWaiting": 32
+    },
+    "smtp": {
+      "host": "email-smtp.us-east-1.amazonaws.com",
+      "port": 587,
+      "username": "AKIATTSKFLKFVANYDJK7",
+      "password": "BI7aXIdXCXANENM14UTcRcH2uuFITqvP0rAvAp+SUJUZ",
+      "from": "no-reply@foxya.com",
+      "starttls": "REQUIRED",
+      "login": "LOGIN",
+      "authMethods": "PLAIN"
     }
   },
   "local-cluster": {
@@ -115,6 +125,16 @@
       "password": "",
       "maxPoolSize": 16,
       "maxPoolWaiting": 64
+    },
+    "smtp": {
+      "host": "email-smtp.us-east-1.amazonaws.com",
+      "port": 587,
+      "username": "AKIATTSKFLKFVANYDJK7",
+      "password": "BI7aXIdXCXANENM14UTcRcH2uuFITqvP0rAvAp+SUJUZ",
+      "from": "no-reply@foxya.com",
+      "starttls": "REQUIRED",
+      "login": "LOGIN",
+      "authMethods": "PLAIN"
     }
   },
   "prod-sentinel": {

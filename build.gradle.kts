@@ -63,6 +63,9 @@ dependencies {
     // Vert.x Redis Client
     implementation("io.vertx:vertx-redis-client")
     
+    // Vert.x Mail Client (SMTP)
+    implementation("io.vertx:vertx-mail-client")
+    
     // PostgreSQL JDBC (Flyway용)
     implementation("org.postgresql:postgresql:$postgresqlVersion")
     
