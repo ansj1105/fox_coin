@@ -150,6 +150,9 @@ services:
       - ./nginx/logs:/var/log/nginx
       # 프론트엔드 빌드 파일 마운트 (프로덕션)
       - ./frontend/dist:/usr/share/nginx/html/frontend:ro
+      # Let's Encrypt 인증서 갱신용 (certbot 사용 시)
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       - app
     networks:
