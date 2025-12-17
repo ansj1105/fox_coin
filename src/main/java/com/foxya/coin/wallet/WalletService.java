@@ -46,19 +46,30 @@ public class WalletService extends BaseService {
             return Future.failedFuture(new BadRequestException("KRWT 지갑 생성은 아직 구현되지 않았습니다."));
         }
         
-        // 1. 통화 조회 (체인별로 조회)
+        // 1. 통화 조회 (체인별로 조회, 여러 체인 시도)
         String chain = determineChain(currencyCode);
         return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, chain)
             .compose(currency -> {
                 if (currency == null) {
+                    // ETH의 경우 "Ether" 체인도 시도
+                    if ("ETH".equalsIgnoreCase(currencyCode) && "ETH".equals(chain)) {
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, "Ether")
+                            .compose(etherCurrency -> {
+                                if (etherCurrency != null) {
+                                    return Future.succeededFuture(etherCurrency);
+                                }
+                                // Ether도 없으면 일반 조회 시도
+                                return currencyRepository.getCurrencyByCode(pool, currencyCode);
+                            });
+                    }
                     // 체인별 조회 실패 시 일반 조회 시도
-                    return currencyRepository.getCurrencyByCode(pool, currencyCode)
-                        .compose(generalCurrency -> {
-                            if (generalCurrency == null) {
-                                return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyCode));
-                            }
-                            return Future.succeededFuture(generalCurrency);
-                        });
+                    return currencyRepository.getCurrencyByCode(pool, currencyCode);
+                }
+                return Future.succeededFuture(currency);
+            })
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyCode + ". 통화를 먼저 등록해주세요."));
                 }
                 return Future.succeededFuture(currency);
             })
@@ -82,12 +93,14 @@ public class WalletService extends BaseService {
     
     /**
      * 통화 코드에 따른 체인 결정
+     * DB에 저장된 체인 이름과 매핑
      */
     private String determineChain(String currencyCode) {
         if ("USDT".equalsIgnoreCase(currencyCode) || "TRX".equalsIgnoreCase(currencyCode)) {
             return "TRON";
         } else if ("ETH".equalsIgnoreCase(currencyCode)) {
-            return "ETH";
+            // DB에는 "Ether"로 저장되어 있을 수 있으므로 둘 다 시도
+            return "ETH"; // 우선 ETH로 시도, 없으면 "Ether"로 재시도
         } else if ("BTC".equalsIgnoreCase(currencyCode)) {
             return "BTC"; // BTC는 별도 체인
         } else if ("KORI".equalsIgnoreCase(currencyCode)) {
