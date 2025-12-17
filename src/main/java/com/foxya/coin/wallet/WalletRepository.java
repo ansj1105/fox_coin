@@ -78,4 +78,4 @@ public class WalletRepository extends BaseRepository {
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(throwable -> log.error("지갑 생성 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable));
     }
-
+}
