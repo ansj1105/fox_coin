@@ -133,7 +133,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
-        WalletService walletService = new WalletService(pool, walletRepository);
+        WalletService walletService = new WalletService(pool, walletRepository, currencyRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
         BonusService bonusService = new BonusService(

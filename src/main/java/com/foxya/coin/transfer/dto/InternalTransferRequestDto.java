@@ -36,7 +36,7 @@ public class InternalTransferRequestDto {
     private String receiverValue;
     
     /**
-     * 통화 코드 (예: FOXYA, USDT)
+     * 통화 코드 (예: KRO, USDT)
      */
     @JsonProperty("currencyCode")
     private String currencyCode;

@@ -10,7 +10,9 @@ import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class WalletRepository extends BaseRepository {
@@ -36,5 +38,44 @@ public class WalletRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchAll(walletMapper, rows));
     }
-}
+    
+    /**
+     * 사용자와 통화로 지갑 존재 여부 확인
+     */
+    public Future<Boolean> existsByUserIdAndCurrencyId(SqlClient client, Long userId, Integer currencyId) {
+        String sql = QueryBuilder
+            .count("user_wallets")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("currency_id", Op.Equal, "currencyId")
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("currencyId", currencyId);
+        
+        return query(client, sql, params)
+            .map(rows -> {
+                Integer count = fetchOne(COUNT_MAPPER, rows);
+                return count != null && count > 0;
+            });
+    }
+    
+    /**
+     * 지갑 생성
+     */
+    public Future<Wallet> createWallet(SqlClient client, Long userId, Integer currencyId, String address) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("currency_id", currencyId);
+        params.put("address", address);
+        params.put("balance", java.math.BigDecimal.ZERO);
+        params.put("locked_balance", java.math.BigDecimal.ZERO);
+        params.put("status", "ACTIVE");
+        
+        String sql = QueryBuilder.insert("user_wallets", params, "*");
+        
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows))
+            .onFailure(throwable -> log.error("지갑 생성 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable));
+    }
 

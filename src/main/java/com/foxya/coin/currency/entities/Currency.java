@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Currency {
     private Integer id;
-    private String code;        // 통화 코드 (KRW, USDT, FOXYA 등)
+    private String code;        // 통화 코드 (KRW, USDT, KRO 등)
     private String name;        // 통화 이름
     private String chain;       // 체인 (TRON, ETH, INTERNAL 등)
     private Boolean isActive;   // 활성화 여부
