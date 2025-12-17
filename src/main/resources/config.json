@@ -25,7 +25,8 @@
         "fullNode": "https://api.trongrid.io",
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
-        "apiKey": ""
+        "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {
@@ -72,7 +73,8 @@
         "fullNode": "https://api.trongrid.io",
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
-        "apiKey": ""
+        "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {
@@ -115,7 +117,8 @@
         "fullNode": "https://api.trongrid.io",
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
-        "apiKey": ""
+        "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {
@@ -162,7 +165,8 @@
         "fullNode": "https://api.trongrid.io",
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
-        "apiKey": ""
+        "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {

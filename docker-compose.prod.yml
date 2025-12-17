@@ -71,6 +71,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      tron-service:
+        condition: service_started
     networks:
       - foxya-network
     restart: unless-stopped
@@ -83,6 +85,56 @@ services:
       options:
         max-size: "100m"
         max-file: "5"
+
+  # ==================== TRON Service (Node.js) ====================
+  tron-service:
+    # 외부 프로젝트 경로를 build context로 사용
+    build:
+      context: ${TRON_SERVICE_PATH:-/var/www/coin_publish}  # TRON 서비스 프로젝트 경로
+      dockerfile: Dockerfile
+    # 또는 방법 2: 이미 빌드된 이미지 사용
+    # image: foxya-tron-service:latest
+    
+    container_name: foxya-tron-service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    # .env 파일의 모든 변수를 자동으로 로드 (중복 없이 자동 반영)
+    # .env.example에 정의된 모든 TRON 서비스 변수가 자동으로 전달됩니다.
+    env_file:
+      - .env  # Foxya Coin Service의 .env 파일 사용
+    environment:
+      # Docker 네트워크 내에서 컨테이너 이름으로 오버라이드 (필수)
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      # 기본 환경 변수 (env_file에 없어도 사용 가능)
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=Asia/Seoul
+    networks:
+      - foxya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs/tron:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   # ==================== Nginx (Reverse Proxy) ====================
   nginx:
