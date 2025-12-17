@@ -150,18 +150,34 @@ public class WalletService extends BaseService {
             .compose(response -> {
                 if (response.statusCode() == 200) {
                     JsonObject body = response.bodyAsJsonObject();
-                    if (body.containsKey("address")) {
+                    if (body != null && body.containsKey("address")) {
                         String address = body.getString("address");
                         log.info("지갑 생성 성공 - currencyCode: {}, address: {}", currencyCode, address);
                         return Future.succeededFuture(address);
                     } else {
-                        return Future.failedFuture("블록체인 서비스 응답에 address가 없습니다");
+                        String errorMsg = "블록체인 서비스 응답에 address가 없습니다. 응답: " + (body != null ? body.encode() : "null");
+                        log.error(errorMsg);
+                        return Future.failedFuture(errorMsg);
                     }
                 } else {
-                    String errorMessage = "블록체인 서비스 호출 실패 (status: " + response.statusCode() + ")";
+                    // 400 에러 등 상세 정보 로깅
+                    String responseBody = "";
+                    try {
+                        if (response.body() != null) {
+                            responseBody = response.bodyAsString();
+                        }
+                    } catch (Exception e) {
+                        // 응답 본문 읽기 실패 시 무시
+                    }
+                    String errorMessage = String.format("블록체인 서비스 호출 실패 (status: %d, currencyCode: %s, response: %s)", 
+                        response.statusCode(), currencyCode, responseBody);
                     log.error(errorMessage);
                     return Future.failedFuture(errorMessage);
                 }
+            })
+            .recover(throwable -> {
+                log.error("블록체인 서비스 네트워크 오류 - currencyCode: {}, error: {}", currencyCode, throwable.getMessage());
+                return Future.failedFuture("블록체인 서비스 연결 실패: " + throwable.getMessage());
             });
     }
     
@@ -169,19 +185,24 @@ public class WalletService extends BaseService {
      * 더미 주소 생성 (TRON 서비스가 없거나 실패한 경우, 또는 BTC/ETH)
      */
     private String generateDummyAddress(String currencyCode, String chain) {
-        String uuid = UUID.randomUUID().toString().replace("-", "");
+        // UUID 2개를 합쳐서 충분한 길이 확보
+        String uuid1 = UUID.randomUUID().toString().replace("-", "");
+        String uuid2 = UUID.randomUUID().toString().replace("-", "");
+        String combined = uuid1 + uuid2; // 64자
         
         // 체인별 주소 형식
         if ("TRON".equalsIgnoreCase(chain)) {
-            return "T" + uuid.substring(0, 33).toUpperCase(); // TRON 주소 형식 (T로 시작, 34자)
-        } else if ("ETH".equalsIgnoreCase(chain) || "BTC".equalsIgnoreCase(currencyCode)) {
-            if ("BTC".equalsIgnoreCase(currencyCode)) {
-                return "bc1" + uuid.substring(0, 39).toLowerCase(); // BTC 주소 형식 (bc1로 시작)
-            } else {
-                return "0x" + uuid.substring(0, 40).toLowerCase(); // ETH 주소 형식 (0x로 시작, 42자)
-            }
+            // TRON 주소: T로 시작, 총 34자 (T + 33자)
+            return "T" + combined.substring(0, 33).toUpperCase();
+        } else if ("ETH".equalsIgnoreCase(chain)) {
+            // ETH 주소: 0x로 시작, 총 42자 (0x + 40자)
+            return "0x" + combined.substring(0, 40).toLowerCase();
+        } else if ("BTC".equalsIgnoreCase(currencyCode)) {
+            // BTC 주소: bc1로 시작, 총 42자 (bc1 + 39자)
+            return "bc1" + combined.substring(0, 39).toLowerCase();
         } else {
-            return "ADDR_" + currencyCode + "_" + uuid.substring(0, 16).toUpperCase();
+            // 기타 체인
+            return "ADDR_" + currencyCode + "_" + uuid1.substring(0, 16).toUpperCase();
         }
     }
 }
