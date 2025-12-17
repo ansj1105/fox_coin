@@ -5,8 +5,7 @@ import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.JWTAuthHandler;
-import io.vertx.ext.validation.ValidationHandler;
-import io.vertx.ext.validation.openapi3.OpenAPI3RequestValidationHandler;
+import io.vertx.ext.web.validation.ValidationHandler;
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.utils.AuthUtils;
@@ -15,6 +14,9 @@ import com.foxya.coin.wallet.dto.CreateWalletRequestDto;
 import io.vertx.json.schema.SchemaParser;
 import lombok.extern.slf4j.Slf4j;
 
+import static io.vertx.ext.web.validation.builder.Bodies.json;
+import static io.vertx.json.schema.common.dsl.Keywords.*;
+import static io.vertx.json.schema.common.dsl.Schemas.*;
 import static com.foxya.coin.common.jsonschema.Schemas.*;
 
 @Slf4j

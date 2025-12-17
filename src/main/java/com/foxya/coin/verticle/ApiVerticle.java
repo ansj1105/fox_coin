@@ -134,6 +134,9 @@ public class ApiVerticle extends AbstractVerticle {
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
         
+        // WebClient 초기화 (외부 API 호출용)
+        WebClient webClient = WebClient.create(vertx);
+        
         // TRON 서비스 URL 가져오기
         JsonObject blockchainConfig = config().getJsonObject("blockchain", new JsonObject());
         JsonObject tronConfig = blockchainConfig.getJsonObject("tron", new JsonObject());
@@ -163,9 +166,6 @@ public class ApiVerticle extends AbstractVerticle {
         BannerRepository bannerRepository = new BannerRepository();
         BannerService bannerService = new BannerService(
             pool, bannerRepository);
-        
-        // WebClient 초기화 (외부 API 호출용)
-        WebClient webClient = WebClient.create(vertx);
         
         // CurrencyService 초기화 (다른 서비스에서 사용)
         CurrencyService currencyService = new CurrencyService(pool, currencyRepository, webClient);
