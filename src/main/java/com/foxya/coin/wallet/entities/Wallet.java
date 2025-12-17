@@ -18,6 +18,10 @@ public class Wallet {
     private Long id;
     private Long userId;
     private Integer currencyId;
+    private String currencyCode;
+    private String currencyName;
+    private String currencySymbol; // code와 동일하게 사용
+    private String network;        // chain 값
     private String address;
     private BigDecimal balance;
     private BigDecimal lockedBalance;

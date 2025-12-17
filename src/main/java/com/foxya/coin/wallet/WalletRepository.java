@@ -21,6 +21,10 @@ public class WalletRepository extends BaseRepository {
         .id(getLongColumnValue(row, "id"))
         .userId(getLongColumnValue(row, "user_id"))
         .currencyId(getIntegerColumnValue(row, "currency_id"))
+        .currencyCode(getStringColumnValue(row, "currency_code"))
+        .currencyName(getStringColumnValue(row, "currency_name"))
+        .currencySymbol(getStringColumnValue(row, "currency_symbol"))
+        .network(getStringColumnValue(row, "network"))
         .address(getStringColumnValue(row, "address"))
         .balance(getBigDecimalColumnValue(row, "balance"))
         .lockedBalance(getBigDecimalColumnValue(row, "locked_balance"))
@@ -30,11 +34,17 @@ public class WalletRepository extends BaseRepository {
         .build();
     
     public Future<List<Wallet>> getWalletsByUserId(SqlClient client, Long userId) {
-        String sql = QueryBuilder
-            .select("user_wallets")
-            .where("user_id", Op.Equal, "userId")
-            .build();
-        
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            LEFT JOIN currency c ON uw.currency_id = c.id
+            WHERE uw.user_id = #{userId}
+            """;
+
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchAll(walletMapper, rows));
     }

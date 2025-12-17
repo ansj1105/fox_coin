@@ -83,10 +83,22 @@ public class WalletService extends BaseService {
                         
                         // 3. 지갑 주소 생성 (TRON.js 서버 호출 또는 더미 주소)
                         return generateWalletAddress(currency, currencyCode)
-                            .compose(address -> {
-                                // 4. 지갑 생성
-                                return walletRepository.createWallet(pool, userId, currency.getId(), address);
-                            });
+                            .compose(address -> walletRepository.createWallet(pool, userId, currency.getId(), address))
+                            .map(wallet -> Wallet.builder()
+                                .id(wallet.getId())
+                                .userId(wallet.getUserId())
+                                .currencyId(wallet.getCurrencyId())
+                                .currencyCode(currency.getCode())
+                                .currencyName(currency.getName())
+                                .currencySymbol(currency.getCode())
+                                .network(currency.getChain())
+                                .address(wallet.getAddress())
+                                .balance(wallet.getBalance())
+                                .lockedBalance(wallet.getLockedBalance())
+                                .status(wallet.getStatus())
+                                .createdAt(wallet.getCreatedAt())
+                                .updatedAt(wallet.getUpdatedAt())
+                                .build());
                     });
             });
     }
@@ -119,14 +131,11 @@ public class WalletService extends BaseService {
             "BTC".equalsIgnoreCase(currency.getChain()) || 
             "ETH".equalsIgnoreCase(currency.getChain())) {
             if (tronServiceUrl != null && !tronServiceUrl.isEmpty()) {
-                return callTronServiceToCreateWallet(currencyCode)
-                    .recover(throwable -> {
-                        log.warn("블록체인 서비스 호출 실패, 더미 주소 생성: {}", throwable.getMessage());
-                        return Future.succeededFuture(generateDummyAddress(currencyCode, currency.getChain()));
-                    });
+                // 블록체인 서비스가 설정되어 있다면 실패 시에도 더미로 넘기지 않고 에러 반환
+                return callTronServiceToCreateWallet(currencyCode);
             } else {
-                log.warn("블록체인 서비스 URL이 설정되지 않음, 더미 주소 생성");
-                return Future.succeededFuture(generateDummyAddress(currencyCode, currency.getChain()));
+                // 설정이 없으면 명확하게 실패 반환 (운영에서는 실주소 필요)
+                return Future.failedFuture("블록체인 서비스 URL이 설정되지 않았습니다. 환경변수를 확인해주세요.");
             }
         } else {
             // INTERNAL 등 다른 체인은 더미 주소 생성
