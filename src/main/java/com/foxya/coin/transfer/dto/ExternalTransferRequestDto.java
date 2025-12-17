@@ -24,7 +24,7 @@ public class ExternalTransferRequestDto {
     private String toAddress;
     
     /**
-     * 통화 코드 (예: KRO, USDT)
+     * 통화 코드 (예: KORI, USDT)
      */
     @JsonProperty("currencyCode")
     private String currencyCode;

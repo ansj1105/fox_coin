@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class CreateWalletRequestDto {
     
     /**
-     * 통화 코드 (예: KRWT, USDT, ETH, KRO 등)
+     * 통화 코드 (예: KORI, USDT, ETH, BTC 등)
      */
     @JsonProperty("currencyCode")
     private String currencyCode;

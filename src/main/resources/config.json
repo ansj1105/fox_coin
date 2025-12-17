@@ -27,6 +27,16 @@
         "eventServer": "https://api.trongrid.io",
         "apiKey": "",
         "serviceUrl": "http://tron-service:3000"
+      },
+      "btc": {
+        "network": "mainnet",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "eth": {
+        "network": "mainnet",
+        "rpcUrl": "https://mainnet.infura.io/v3/d208ee1b94fd4b60ab25c8f0ec935440",
+        "etherscanApiKey": "G7G1YQTBF5BUVSS1BE8F1XBWMBDAXEP3BK",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {
@@ -75,6 +85,16 @@
         "eventServer": "https://api.trongrid.io",
         "apiKey": "",
         "serviceUrl": "http://tron-service:3000"
+      },
+      "btc": {
+        "network": "mainnet",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "eth": {
+        "network": "mainnet",
+        "rpcUrl": "https://mainnet.infura.io/v3/d208ee1b94fd4b60ab25c8f0ec935440",
+        "etherscanApiKey": "G7G1YQTBF5BUVSS1BE8F1XBWMBDAXEP3BK",
+        "serviceUrl": "http://tron-service:3000"
       }
     },
     "redis": {
@@ -118,6 +138,16 @@
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
         "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "btc": {
+        "network": "mainnet",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "eth": {
+        "network": "mainnet",
+        "rpcUrl": "https://mainnet.infura.io/v3/d208ee1b94fd4b60ab25c8f0ec935440",
+        "etherscanApiKey": "G7G1YQTBF5BUVSS1BE8F1XBWMBDAXEP3BK",
         "serviceUrl": "http://tron-service:3000"
       }
     },
@@ -166,6 +196,16 @@
         "solidityNode": "https://api.trongrid.io",
         "eventServer": "https://api.trongrid.io",
         "apiKey": "",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "btc": {
+        "network": "mainnet",
+        "serviceUrl": "http://tron-service:3000"
+      },
+      "eth": {
+        "network": "mainnet",
+        "rpcUrl": "https://mainnet.infura.io/v3/d208ee1b94fd4b60ab25c8f0ec935440",
+        "etherscanApiKey": "G7G1YQTBF5BUVSS1BE8F1XBWMBDAXEP3BK",
         "serviceUrl": "http://tron-service:3000"
       }
     },

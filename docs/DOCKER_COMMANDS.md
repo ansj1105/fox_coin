@@ -167,6 +167,35 @@ docker volume ls
 docker volume inspect foxya_coin_service_postgres-data
 ```
 
+## 🧹 Docker 빌드 캐시 오류 해결
+
+### 빌드 캐시 손상 오류
+```
+target tron-service: failed to solve: failed to prepare extraction snapshot: parent snapshot does not exist
+```
+
+**해결 방법:**
+```bash
+# 1. 빌드 캐시 정리 (권장)
+docker builder prune -a -f
+
+# 2. 캐시 없이 재빌드
+docker-compose -f docker-compose.prod.yml build --no-cache tron-service
+docker-compose -f docker-compose.prod.yml up -d
+
+# 3. 전체 시스템 정리 (주의: 모든 이미지 삭제)
+docker system prune -a -f
+```
+
+### 리소스 사용량 확인
+```bash
+# Docker 리소스 사용량
+docker system df
+
+# 빌드 캐시만 정리 (이미지 유지)
+docker builder prune -a -f
+```
+
 ## 📝 배포 후 확인 사항
 
 1. **컨테이너 상태**
