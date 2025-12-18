@@ -82,7 +82,7 @@ public class WalletService extends BaseService {
                         }
                         
                         // 3. 지갑 주소 생성 (TRON.js 서버 호출 또는 더미 주소)
-                        return generateWalletAddress(currency, currencyCode)
+                        return generateWalletAddress(userId, currency, currencyCode)
                             .compose(address -> walletRepository.createWallet(pool, userId, currency.getId(), address))
                             .map(wallet -> Wallet.builder()
                                 .id(wallet.getId())
@@ -125,14 +125,14 @@ public class WalletService extends BaseService {
      * 지갑 주소 생성
      * TRON, BTC, ETH 모두 블록체인 서비스(TRON 서비스)를 호출하여 실제 주소 생성
      */
-    private Future<String> generateWalletAddress(com.foxya.coin.currency.entities.Currency currency, String currencyCode) {
+    private Future<String> generateWalletAddress(Long userId, com.foxya.coin.currency.entities.Currency currency, String currencyCode) {
         // TRON, BTC, ETH 모두 블록체인 서비스 호출
         if ("TRON".equalsIgnoreCase(currency.getChain()) || 
             "BTC".equalsIgnoreCase(currency.getChain()) || 
             "ETH".equalsIgnoreCase(currency.getChain())) {
             if (tronServiceUrl != null && !tronServiceUrl.isEmpty()) {
                 // 블록체인 서비스가 설정되어 있다면 실패 시에도 더미로 넘기지 않고 에러 반환
-                return callTronServiceToCreateWallet(currencyCode);
+                return callTronServiceToCreateWallet(userId, currencyCode);
             } else {
                 // 설정이 없으면 명확하게 실패 반환 (운영에서는 실주소 필요)
                 return Future.failedFuture("블록체인 서비스 URL이 설정되지 않았습니다. 환경변수를 확인해주세요.");
@@ -147,12 +147,13 @@ public class WalletService extends BaseService {
      * 블록체인 서비스(TRON 서비스)를 호출하여 지갑 생성
      * TRON, BTC, ETH 모두 지원
      */
-    private Future<String> callTronServiceToCreateWallet(String currencyCode) {
+    private Future<String> callTronServiceToCreateWallet(Long userId, String currencyCode) {
         String url = tronServiceUrl + "/api/wallet/create";
         JsonObject requestBody = new JsonObject()
+            .put("userId", userId)
             .put("currencyCode", currencyCode);
         
-        log.info("블록체인 서비스 호출 - URL: {}, currencyCode: {}", url, currencyCode);
+        log.info("블록체인 서비스 호출 - URL: {}, userId: {}, currencyCode: {}", url, userId, currencyCode);
         
         return webClient.postAbs(url)
             .sendJsonObject(requestBody)

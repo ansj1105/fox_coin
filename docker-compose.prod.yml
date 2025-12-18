@@ -97,8 +97,9 @@ services:
     
     container_name: foxya-tron-service
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # 포트를 외부에 노출하지 않음 (Nginx를 통해서만 접근)
+    # ports:
+    #   - "3000:3000"
     # .env 파일의 모든 변수를 자동으로 로드 (중복 없이 자동 반영)
     # .env.example에 정의된 모든 TRON 서비스 변수가 자동으로 전달됩니다.
     env_file:
