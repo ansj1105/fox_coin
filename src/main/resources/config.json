@@ -48,10 +48,10 @@
       "maxPoolWaiting": 32
     },
     "smtp": {
-      "host": "email-smtp.us-east-1.amazonaws.com",
+      "host": "smtp.gmail.com",
       "port": 587,
-      "username": "AKIATTSKFLKFVANYDJK7",
-      "password": "BI7aXIdXCXANENM14UTcRcH2uuFITqvP0rAvAp+SUJUZ",
+      "username": "your-gmail@gmail.com",
+      "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
       "login": "LOGIN",
@@ -110,6 +110,16 @@
       "password": "",
       "maxPoolSize": 8,
       "maxPoolWaiting": 32
+    },
+    "smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "username": "your-gmail@gmail.com",
+      "password": "wdodlmjvijgljedk",
+      "from": "no-reply@foxya.com",
+      "starttls": "REQUIRED",
+      "login": "LOGIN",
+      "authMethods": "PLAIN"
     }
   },
   "prod": {
@@ -160,10 +170,10 @@
       "maxPoolWaiting": 64
     },
     "smtp": {
-      "host": "email-smtp.us-east-1.amazonaws.com",
+      "host": "smtp.gmail.com",
       "port": 587,
-      "username": "AKIATTSKFLKFVANYDJK7",
-      "password": "BI7aXIdXCXANENM14UTcRcH2uuFITqvP0rAvAp+SUJUZ",
+      "username": "your-gmail@gmail.com",
+      "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
       "login": "LOGIN",
@@ -220,6 +230,16 @@
       "password": "",
       "maxPoolSize": 16,
       "maxPoolWaiting": 64
+    },
+    "smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "username": "your-gmail@gmail.com",
+      "password": "wdodlmjvijgljedk",
+      "from": "no-reply@foxya.com",
+      "starttls": "REQUIRED",
+      "login": "LOGIN",
+      "authMethods": "PLAIN"
     }
   }
 }
