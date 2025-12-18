@@ -86,6 +86,40 @@ public class WalletRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
-            .onFailure(throwable -> log.error("지갑 생성 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable));
+            .recover(throwable -> {
+                // 중복 키 오류 처리
+                if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                    log.warn("지갑이 이미 존재함 - userId: {}, currencyId: {}", userId, currencyId);
+                    // 기존 지갑 조회하여 반환
+                    return getWalletByUserIdAndCurrencyId(client, userId, currencyId)
+                        .compose(existingWallet -> {
+                            if (existingWallet != null) {
+                                return Future.succeededFuture(existingWallet);
+                            }
+                            return Future.failedFuture(throwable);
+                        });
+                }
+                log.error("지갑 생성 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable);
+                return Future.failedFuture(throwable);
+            });
+    }
+    
+    /**
+     * 사용자와 통화로 지갑 조회
+     */
+    public Future<Wallet> getWalletByUserIdAndCurrencyId(SqlClient client, Long userId, Integer currencyId) {
+        String sql = QueryBuilder
+            .select("user_wallets")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("currency_id", Op.Equal, "currencyId")
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("currencyId", currencyId);
+        
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows))
+            .onFailure(throwable -> log.error("지갑 조회 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable));
     }
 }

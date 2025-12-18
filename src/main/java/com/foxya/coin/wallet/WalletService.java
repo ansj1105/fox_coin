@@ -78,12 +78,48 @@ public class WalletService extends BaseService {
                 return walletRepository.existsByUserIdAndCurrencyId(pool, userId, currency.getId())
                     .compose(exists -> {
                         if (exists) {
-                            return Future.failedFuture(new BadRequestException("이미 해당 통화의 지갑이 존재합니다: " + currencyCode));
+                            // 기존 지갑 조회하여 반환
+                            return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                .compose(existingWallet -> {
+                                    if (existingWallet == null) {
+                                        return Future.failedFuture(new BadRequestException("이미 해당 통화의 지갑이 존재합니다: " + currencyCode));
+                                    }
+                                    // 기존 지갑 정보 반환 (통화 정보 포함)
+                                    return Future.succeededFuture(Wallet.builder()
+                                        .id(existingWallet.getId())
+                                        .userId(existingWallet.getUserId())
+                                        .currencyId(existingWallet.getCurrencyId())
+                                        .currencyCode(currency.getCode())
+                                        .currencyName(currency.getName())
+                                        .currencySymbol(currency.getCode())
+                                        .network(currency.getChain())
+                                        .address(existingWallet.getAddress())
+                                        .balance(existingWallet.getBalance())
+                                        .lockedBalance(existingWallet.getLockedBalance())
+                                        .status(existingWallet.getStatus())
+                                        .createdAt(existingWallet.getCreatedAt())
+                                        .updatedAt(existingWallet.getUpdatedAt())
+                                        .build());
+                                });
                         }
                         
                         // 3. 지갑 주소 생성 (TRON.js 서버 호출 또는 더미 주소)
                         return generateWalletAddress(userId, currency, currencyCode)
                             .compose(address -> walletRepository.createWallet(pool, userId, currency.getId(), address))
+                            .recover(throwable -> {
+                                // 중복 키 오류 발생 시 기존 지갑 조회하여 반환
+                                if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                                    log.warn("지갑 생성 중 중복 감지, 기존 지갑 반환 - userId: {}, currencyId: {}", userId, currency.getId());
+                                    return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                        .compose(existingWallet -> {
+                                            if (existingWallet == null) {
+                                                return Future.failedFuture(new BadRequestException("이미 해당 통화의 지갑이 존재합니다: " + currencyCode));
+                                            }
+                                            return Future.succeededFuture(existingWallet);
+                                        });
+                                }
+                                return Future.failedFuture(throwable);
+                            })
                             .map(wallet -> Wallet.builder()
                                 .id(wallet.getId())
                                 .userId(wallet.getUserId())
