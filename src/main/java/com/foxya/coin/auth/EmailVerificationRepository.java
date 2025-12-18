@@ -113,6 +113,31 @@ public class EmailVerificationRepository extends BaseRepository {
             .map(rows -> rows.rowCount() > 0)
             .onFailure(throwable -> log.error("이메일 인증 코드 검증 실패 - userId: {}, email: {}", userId, email, throwable));
     }
+    
+    /**
+     * 이메일이 이미 다른 사용자에게 인증되어 있는지 확인
+     * @return 다른 사용자 ID (없으면 null)
+     */
+    public Future<Long> findVerifiedEmailUserId(SqlClient client, String email) {
+        String sql = QueryBuilder
+            .select("email_verifications")
+            .where("email", Op.Equal, "email")
+            .andWhere("is_verified", Op.Equal, "is_verified")
+            .orderBy("verified_at", Sort.DESC)
+            .limit(1)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("email", email);
+        params.put("is_verified", true);
+        
+        return query(client, sql, params)
+            .map(rows -> {
+                EmailVerification ev = fetchOne(mapper, rows);
+                return ev != null ? ev.userId : null;
+            })
+            .onFailure(throwable -> log.error("이메일 중복 확인 실패 - email: {}", email, throwable));
+    }
 }
 
 

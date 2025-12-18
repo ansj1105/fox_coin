@@ -222,17 +222,25 @@ public class UserService extends BaseService {
      * 이메일 인증 코드 발송
      */
     public Future<Void> sendEmailVerificationCode(Long userId, String email) {
-        // 인증 코드 생성
-        String code = emailService.generateVerificationCode();
-
-        // 만료 시간: 현재 기준 10분 뒤
-        return emailVerificationRepository.upsertVerification(pool, userId, email, code, com.foxya.coin.common.utils.DateUtils.now().plusMinutes(10))
-            .compose(saved -> {
-                if (!saved) {
-                    return Future.failedFuture(new BadRequestException("이메일 인증 코드를 저장하지 못했습니다."));
+        // 1. 이메일 중복 검증: 이미 다른 사용자가 인증한 이메일인지 확인
+        return emailVerificationRepository.findVerifiedEmailUserId(pool, email)
+            .compose(existingUserId -> {
+                if (existingUserId != null && !existingUserId.equals(userId)) {
+                    return Future.failedFuture(new BadRequestException("이미 다른 사용자가 사용 중인 이메일입니다."));
                 }
-                // 이메일 발송 (현재는 로그만 출력)
-                return emailService.sendVerificationCode(email, code);
+                
+                // 2. 인증 코드 생성
+                String code = emailService.generateVerificationCode();
+
+                // 3. 만료 시간: 현재 기준 10분 뒤
+                return emailVerificationRepository.upsertVerification(pool, userId, email, code, com.foxya.coin.common.utils.DateUtils.now().plusMinutes(10))
+                    .compose(saved -> {
+                        if (!saved) {
+                            return Future.failedFuture(new BadRequestException("이메일 인증 코드를 저장하지 못했습니다."));
+                        }
+                        // 4. 이메일 발송
+                        return emailService.sendVerificationCode(email, code);
+                    });
             })
             .mapEmpty();
     }
@@ -241,12 +249,21 @@ public class UserService extends BaseService {
      * 이메일 인증 및 등록
      */
     public Future<Void> verifyEmail(Long userId, String email, String code) {
-        return emailVerificationRepository.verifyEmail(pool, userId, email, code)
-            .compose(success -> {
-                if (!success) {
-                    return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+        // 1. 이메일 중복 검증: 이미 다른 사용자가 인증한 이메일인지 확인
+        return emailVerificationRepository.findVerifiedEmailUserId(pool, email)
+            .compose(existingUserId -> {
+                if (existingUserId != null && !existingUserId.equals(userId)) {
+                    return Future.failedFuture(new BadRequestException("이미 다른 사용자가 사용 중인 이메일입니다."));
                 }
-                return Future.succeededFuture();
+                
+                // 2. 인증 코드 검증 및 인증 처리
+                return emailVerificationRepository.verifyEmail(pool, userId, email, code)
+                    .compose(success -> {
+                        if (!success) {
+                            return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+                        }
+                        return Future.succeededFuture();
+                    });
             })
             .mapEmpty();
     }
