@@ -50,7 +50,7 @@
     "smtp": {
       "host": "smtp.gmail.com",
       "port": 587,
-      "username": "your-gmail@gmail.com",
+      "username": "dianainteen@gmail.com",
       "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
@@ -114,7 +114,7 @@
     "smtp": {
       "host": "smtp.gmail.com",
       "port": 587,
-      "username": "your-gmail@gmail.com",
+      "username": "dianainteen@gmail.com",
       "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
@@ -172,7 +172,7 @@
     "smtp": {
       "host": "smtp.gmail.com",
       "port": 587,
-      "username": "your-gmail@gmail.com",
+      "username": "dianainteen@gmail.com",
       "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
@@ -234,7 +234,7 @@
     "smtp": {
       "host": "smtp.gmail.com",
       "port": 587,
-      "username": "your-gmail@gmail.com",
+      "username": "dianainteen@gmail.com",
       "password": "wdodlmjvijgljedk",
       "from": "no-reply@foxya.com",
       "starttls": "REQUIRED",
