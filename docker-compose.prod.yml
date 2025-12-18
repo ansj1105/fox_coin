@@ -156,9 +156,13 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       - app
+      # tron-service는 선택사항 (없어도 nginx 시작 가능)
     networks:
       - foxya-network
     restart: unless-stopped
+    # DNS 설정 (Docker 내부 DNS 사용)
+    dns:
+      - 127.0.0.11
     deploy:
       resources:
         limits:
