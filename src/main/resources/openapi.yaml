@@ -1167,6 +1167,22 @@ components:
           type: number
           format: decimal
           description: 팀의 금일 채굴된 총 수익
+        weekRevenue:
+          type: number
+          format: decimal
+          description: 최근 7일 채굴 수익
+        monthRevenue:
+          type: number
+          format: decimal
+          description: 최근 30일 채굴 수익
+        yearRevenue:
+          type: number
+          format: decimal
+          description: 최근 1년 채굴 수익
+        periodRevenue:
+          type: number
+          format: decimal
+          description: 선택된 period 파라미터에 따른 총 수익 (ALL, TODAY, WEEK, MONTH, YEAR 중 선택된 기간의 수익)
         totalMembers:
           type: integer
           format: int64

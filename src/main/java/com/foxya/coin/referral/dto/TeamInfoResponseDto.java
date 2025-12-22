@@ -34,6 +34,10 @@ public class TeamInfoResponseDto {
     public static class SummaryInfo {
         private BigDecimal totalRevenue;
         private BigDecimal todayRevenue;
+        private BigDecimal weekRevenue;
+        private BigDecimal monthRevenue;
+        private BigDecimal yearRevenue;
+        private BigDecimal periodRevenue; // 선택된 period에 따른 수익
         private Long totalMembers;
         private Long newMembersToday;
     }

@@ -275,6 +275,9 @@ public class ReferralRepository extends BaseRepository {
     public Future<TeamInfoResponseDto.SummaryInfo> getTeamSummary(SqlClient client, Long referrerId) {
         // totalRevenue: 팀의 체굴된 총 수익 (래퍼럴 수익) - internal_transfers에서 REFERRAL_REWARD 합계
         // todayRevenue: 팀의 금일 채굴된 총 수익 - daily_mining에서 오늘 합계
+        // weekRevenue: 최근 7일 채굴 수익
+        // monthRevenue: 최근 30일 채굴 수익
+        // yearRevenue: 최근 1년 채굴 수익
         // totalMembers: 추천인으로 등록한 총 인원 - referral_relations에서 referrer_id로 카운트
         // newMembersToday: 금일 추천인 등록한 신규 인원 - referral_relations에서 오늘 생성된 것 카운트
         
@@ -284,6 +287,9 @@ public class ReferralRepository extends BaseRepository {
                 COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' 
                     THEN it.amount ELSE 0 END), 0) as total_revenue,
                 COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
+                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '7 days' THEN dm.mining_amount ELSE 0 END), 0) as week_revenue,
+                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '30 days' THEN dm.mining_amount ELSE 0 END), 0) as month_revenue,
+                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '1 year' THEN dm.mining_amount ELSE 0 END), 0) as year_revenue,
                 COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as total_members,
                 COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL 
                     AND rr.created_at::date = CURRENT_DATE THEN rr.referred_id END) as new_members_today
@@ -305,6 +311,9 @@ public class ReferralRepository extends BaseRepository {
                     return TeamInfoResponseDto.SummaryInfo.builder()
                         .totalRevenue(getBigDecimalColumnValue(row, "total_revenue"))
                         .todayRevenue(getBigDecimalColumnValue(row, "today_revenue"))
+                        .weekRevenue(getBigDecimalColumnValue(row, "week_revenue"))
+                        .monthRevenue(getBigDecimalColumnValue(row, "month_revenue"))
+                        .yearRevenue(getBigDecimalColumnValue(row, "year_revenue"))
                         .totalMembers(getLongColumnValue(row, "total_members"))
                         .newMembersToday(getLongColumnValue(row, "new_members_today"))
                         .build();
@@ -312,6 +321,9 @@ public class ReferralRepository extends BaseRepository {
                 return TeamInfoResponseDto.SummaryInfo.builder()
                     .totalRevenue(BigDecimal.ZERO)
                     .todayRevenue(BigDecimal.ZERO)
+                    .weekRevenue(BigDecimal.ZERO)
+                    .monthRevenue(BigDecimal.ZERO)
+                    .yearRevenue(BigDecimal.ZERO)
                     .totalMembers(0L)
                     .newMembersToday(0L)
                     .build();

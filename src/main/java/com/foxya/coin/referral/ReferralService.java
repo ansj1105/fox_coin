@@ -176,7 +176,22 @@ public class ReferralService extends BaseService {
         final String finalPeriod = RankingPeriod.fromValue(period).getValue();
         
         // summary 조회
-        Future<TeamInfoResponseDto.SummaryInfo> summaryFuture = referralRepository.getTeamSummary(pool, referrerId);
+        Future<TeamInfoResponseDto.SummaryInfo> summaryFuture = referralRepository.getTeamSummary(pool, referrerId)
+            .map(summary -> {
+                // 선택된 period에 따른 수익 설정
+                BigDecimal periodRevenue = switch (finalPeriod) {
+                    case "ALL" -> summary.getTotalRevenue();
+                    case "TODAY" -> summary.getTodayRevenue();
+                    case "WEEK" -> summary.getWeekRevenue();
+                    case "MONTH" -> summary.getMonthRevenue();
+                    case "YEAR" -> summary.getYearRevenue();
+                    default -> summary.getTodayRevenue();
+                };
+                
+                // periodRevenue 설정
+                summary.setPeriodRevenue(periodRevenue);
+                return summary;
+            });
         
         // tab에 따라 다른 데이터 조회
         if ("MEMBERS".equals(finalTab)) {
