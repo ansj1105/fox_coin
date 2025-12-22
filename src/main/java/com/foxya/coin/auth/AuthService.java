@@ -10,6 +10,7 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.user.UserRepository;
+import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.auth.dto.LoginDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
@@ -26,15 +27,17 @@ import java.util.UUID;
 public class AuthService extends BaseService {
     
     private final UserRepository userRepository;
+    private final UserService userService;
     private final JWTAuth jwtAuth;
     private final JsonObject jwtConfig;
     private final SocialLinkRepository socialLinkRepository;
     private final PhoneVerificationRepository phoneVerificationRepository;
     
-    public AuthService(PgPool pool, UserRepository userRepository, JWTAuth jwtAuth, JsonObject jwtConfig,
+    public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository) {
         super(pool);
         this.userRepository = userRepository;
+        this.userService = userService;
         this.jwtAuth = jwtAuth;
         this.jwtConfig = jwtConfig;
         this.socialLinkRepository = socialLinkRepository;
@@ -75,11 +78,8 @@ public class AuthService extends BaseService {
      * 회원가입
      */
     public Future<LoginResponseDto> register(CreateUserDto dto) {
-        // 비밀번호 해시
-        String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
-        dto.setPasswordHash(passwordHash);
-        
-        return userRepository.createUser(pool, dto)
+        // UserService.createUser()를 사용하여 레퍼럴 코드 자동 생성 포함
+        return userService.createUser(dto)
             .compose(user -> {
                 // 회원가입 후 자동 로그인
                 String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);

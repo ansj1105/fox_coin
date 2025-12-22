@@ -125,14 +125,16 @@ public class ApiVerticle extends AbstractVerticle {
         ReviewRepository reviewRepository = new ReviewRepository();
         AgencyRepository agencyRepository = new AgencyRepository();
         
-        // Service 초기화
-        AuthService authService = new AuthService(
-            pool, userRepository, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
 
+        // UserService를 먼저 생성 (AuthService에서 사용)
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
+        
+        // Service 초기화
+        AuthService authService = new AuthService(
+            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
         
         // WebClient 초기화 (외부 API 호출용)
         WebClient webClient = WebClient.create(vertx);
