@@ -1912,7 +1912,7 @@ paths:
   /api/v1/referrals/:
     delete:
       summary: 레퍼럴 관계 삭제 (Soft Delete)
-      description: deleted_at을 현재 시간으로 업데이트합니다. 데이터는 보존됩니다.
+      description: 현재 로그인한 사용자의 추천인 관계를 삭제합니다. deleted_at을 현재 시간으로 업데이트하여 Soft Delete를 수행합니다. 데이터는 보존되며 복구 가능합니다.
       tags: [Referral]
       security:
         - BearerAuth: []
