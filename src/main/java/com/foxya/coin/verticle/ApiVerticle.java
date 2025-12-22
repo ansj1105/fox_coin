@@ -60,6 +60,9 @@ import com.foxya.coin.mining.MiningService;
 import com.foxya.coin.notice.NoticeHandler;
 import com.foxya.coin.notice.NoticeRepository;
 import com.foxya.coin.notice.NoticeService;
+import com.foxya.coin.notification.NotificationHandler;
+import com.foxya.coin.notification.NotificationRepository;
+import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.payment.PaymentDepositHandler;
 import com.foxya.coin.payment.PaymentDepositRepository;
 import com.foxya.coin.payment.PaymentDepositService;
@@ -118,6 +121,7 @@ public class ApiVerticle extends AbstractVerticle {
         BonusRepository bonusRepository = new BonusRepository();
         MiningRepository miningRepository = new MiningRepository();
         NoticeRepository noticeRepository = new NoticeRepository();
+        NotificationRepository notificationRepository = new NotificationRepository();
         SocialLinkRepository socialLinkRepository = new SocialLinkRepository();
         PhoneVerificationRepository phoneVerificationRepository = new PhoneVerificationRepository();
         EmailVerificationRepository emailVerificationRepository = new EmailVerificationRepository();
@@ -156,6 +160,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, userRepository, miningRepository);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
+        NotificationService notificationService = new NotificationService(
+            pool, notificationRepository);
         SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
         ReviewService reviewService = new ReviewService(
@@ -195,6 +201,7 @@ public class ApiVerticle extends AbstractVerticle {
         MiningHandler miningHandler = new MiningHandler(vertx, miningService, jwtAuth);
         LevelHandler levelHandler = new LevelHandler(vertx, levelService, jwtAuth);
         NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
+        NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -240,6 +247,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 공지사항 API
         mainRouter.mountSubRouter("/api/v1/notices", noticeHandler.getRouter());
+        
+        // 알림 API
+        mainRouter.mountSubRouter("/api/v1/notifications", notificationHandler.getRouter());
         
         // 구독 API
         mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());

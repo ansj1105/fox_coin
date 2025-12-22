@@ -201,6 +201,20 @@ public class HandlerTestBase {
     }
     
     /**
+     * PATCH 요청
+     */
+    protected HttpRequest<Buffer> reqPatch(String url) {
+        return webClient.patch(port, "localhost", url);
+    }
+    
+    /**
+     * 성공 응답 검증
+     */
+    protected void expectSuccess(HttpResponse<Buffer> res) {
+        assertEquals(HttpResponseStatus.OK.code(), res.statusCode());
+    }
+    
+    /**
      * 성공 응답 검증 및 데이터 추출
      */
     protected <T> T expectSuccessAndGetResponse(HttpResponse<Buffer> res, TypeReference<ApiResponse<T>> typeRef) {

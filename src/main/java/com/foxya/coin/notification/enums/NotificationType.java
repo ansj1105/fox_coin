@@ -1,0 +1,19 @@
+package com.foxya.coin.notification.enums;
+
+public enum NotificationType {
+    DEPOSIT_SUCCESS,
+    DEPOSIT_FAILED,
+    WITHDRAW_SUCCESS,
+    WITHDRAW_FAILED,
+    EXCHANGE_SUCCESS,
+    EXCHANGE_FAILED,
+    SWAP_SUCCESS,
+    SWAP_FAILED,
+    NOTICE,
+    INQUIRY_SUCCESS,
+    MINING_LIMIT_REACHED,
+    LEVEL_UP,
+    MISSION_ACTIVATED
+}
+
+
