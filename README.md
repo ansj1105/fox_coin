@@ -2,7 +2,7 @@
 
 Vert.x 기반의 고성능 암호화폐 지갑 & 코인 관리 시스템
 
-## 🏗️ 프로젝트 구조
+## ️ 프로젝트 구조
 ```
 src/main/java/com/foxya/coin/
 ├── MainVerticle.java              # 메인 진입점
@@ -39,9 +39,8 @@ src/main/java/com/foxya/coin/
 └── currency/                     # 통화 도메인
 ```
 
-## ✨ 주요 특징
+##  주요 특징
 
-- **evcloud 아키텍처 기반**: 검증된 실무 구조
 - **Lombok 적극 활용**: @Data, @Builder, @Getter 등
 - **QueryBuilder 패턴**: #{param} 방식의 동적 쿼리
 - **RowMapper 패턴**: 타입 안전한 Row 매핑
@@ -64,7 +63,7 @@ gradle wrapper --gradle-version 8.5
 ./gradlew run
 ```
 
-## 📚 사용 예시
+##  사용 예시
 
 ### Entity (Lombok 사용)
 ```java
@@ -146,7 +145,7 @@ public class UserHandler extends BaseHandler {
 }
 ```
 
-## 🛠️ 기술 스택
+## ️ 기술 스택
 
 - **Vert.x**: 고성능 비동기 서버
 - **PostgreSQL**: 메인 데이터베이스
@@ -155,6 +154,6 @@ public class UserHandler extends BaseHandler {
 - **Log4j2**: 로깅
 - **JWT**: 인증
 
-## 📝 라이센스
+##  라이센스
 
 MIT
