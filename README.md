@@ -46,7 +46,7 @@ src/main/java/com/foxya/coin/
 - **RowMapper 패턴**: 타입 안전한 Row 매핑
 - **ParametersMapped**: DTO의 toMap() 인터페이스
 
-## 🚀 시작하기
+##  시작하기
 
 ### 1. Gradle Wrapper 생성
 ```bash
