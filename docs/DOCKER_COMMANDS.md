@@ -7,7 +7,7 @@
 cd /var/www/foxya_coin_service
 docker-compose -f docker-compose.prod.yml down
 ```
-
+z
 ### 2. 모든 서비스 중지 (컨테이너는 유지)
 ```bash
 docker-compose -f docker-compose.prod.yml stop
