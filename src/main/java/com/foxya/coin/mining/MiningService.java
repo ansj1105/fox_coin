@@ -281,7 +281,8 @@ public class MiningService extends BaseService {
                 
                 // current_count 증가 및 is_active 설정
                 Integer newCount = currentCount + 1;
-                Boolean isActive = newCount <= maxCount;
+                // 광고 시청 후 보너스 활성화 (24시간 동안 유효)
+                Boolean isActive = true;
                 
                 return bonusRepository.createOrUpdateUserBonus(
                     pool, 

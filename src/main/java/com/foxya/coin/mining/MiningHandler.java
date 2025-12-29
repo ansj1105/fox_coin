@@ -96,7 +96,7 @@ public class MiningHandler extends BaseHandler {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("Watching ad for user: {}", userId);
         response(ctx, miningService.watchAd(userId)
-            .map(success -> new com.foxya.coin.common.dto.ApiResponse<>("OK", "광고 시청이 완료되었습니다.", null)));
+            .map(success -> null)); // 성공 시 null 반환 (success 메서드가 ApiResponse 생성)
     }
 }
 

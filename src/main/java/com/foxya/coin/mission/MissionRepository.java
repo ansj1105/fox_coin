@@ -163,7 +163,7 @@ public class MissionRepository extends BaseRepository {
         String sql = QueryBuilder
             .insert("user_missions", "user_id", "mission_id", "mission_date", "current_count", "reset_at")
             .onConflict("user_id, mission_id, mission_date")
-            .doUpdateCustom("current_count = user_missions.current_count + 1, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
+            .doUpdateCustom("current_count = COALESCE(user_missions.current_count, 0) + 1, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
             .returningColumns("id")
             .build();
         

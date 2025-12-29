@@ -626,8 +626,8 @@ public abstract class QueryBuilder {
          * @return RETURNING 절이 추가된 INSERT QueryBuilder
          */
         public InsertQueryBuilder returningColumns(String columns) {
-            append("RETURNING");
-            appendNotSpace(columns);
+            append("RETURNING ");
+            append(columns);
             return this;
         }
     }
