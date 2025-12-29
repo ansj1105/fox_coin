@@ -53,32 +53,23 @@ public class BonusRepository extends BaseRepository {
     public Future<UserBonus> createOrUpdateUserBonus(SqlClient client, Long userId, String bonusType, 
                                                       Boolean isActive, LocalDateTime expiresAt, 
                                                       Integer currentCount, Integer maxCount, String metadata) {
-        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
-        String sql = """
-            INSERT INTO user_bonuses (user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata)
-            VALUES (#{userId}, #{bonusType}, #{isActive}, #{expiresAt}, #{currentCount}, #{maxCount}, #{metadata})
-            ON CONFLICT (user_id, bonus_type)
-            DO UPDATE SET
-                is_active = EXCLUDED.is_active,
-                expires_at = EXCLUDED.expires_at,
-                current_count = EXCLUDED.current_count,
-                max_count = EXCLUDED.max_count,
-                metadata = EXCLUDED.metadata,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING id, user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata, created_at, updated_at
-            """;
+        String sql = QueryBuilder
+            .insert("user_bonuses", "user_id", "bonus_type", "is_active", "expires_at", "current_count", "max_count", "metadata")
+            .onConflict("user_id, bonus_type")
+            .doUpdateCustom("is_active = EXCLUDED.is_active, expires_at = EXCLUDED.expires_at, current_count = EXCLUDED.current_count, max_count = EXCLUDED.max_count, metadata = EXCLUDED.metadata, updated_at = CURRENT_TIMESTAMP")
+            .returningColumns("id, user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata, created_at, updated_at")
+            .build();
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
-        params.put("bonusType", bonusType);
-        params.put("isActive", isActive);
-        params.put("expiresAt", expiresAt);
-        params.put("currentCount", currentCount);
-        params.put("maxCount", maxCount);
+        params.put("user_id", userId);
+        params.put("bonus_type", bonusType);
+        params.put("is_active", isActive);
+        params.put("expires_at", expiresAt);
+        params.put("current_count", currentCount);
+        params.put("max_count", maxCount);
         params.put("metadata", metadata);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return BONUS_MAPPER.map(rows.iterator().next());

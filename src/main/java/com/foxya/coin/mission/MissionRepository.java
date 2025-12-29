@@ -135,7 +135,8 @@ public class MissionRepository extends BaseRepository {
             .insert("user_missions", "user_id", "mission_id", "mission_date", "current_count", "reset_at")
             .onConflict("user_id, mission_id, mission_date")
             .doUpdateCustom("current_count = EXCLUDED.current_count, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
-            .returning("id, user_id, mission_id, mission_date, current_count, reset_at, created_at, updated_at");
+            .returningColumns("id, user_id, mission_id, mission_date, current_count, reset_at, created_at, updated_at")
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
@@ -163,7 +164,8 @@ public class MissionRepository extends BaseRepository {
             .insert("user_missions", "user_id", "mission_id", "mission_date", "current_count", "reset_at")
             .onConflict("user_id, mission_id, mission_date")
             .doUpdateCustom("current_count = user_missions.current_count + 1, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
-            .returning("id");
+            .returningColumns("id")
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);

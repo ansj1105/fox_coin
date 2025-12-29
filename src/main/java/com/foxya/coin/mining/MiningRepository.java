@@ -106,26 +106,20 @@ public class MiningRepository extends BaseRepository {
     
     public Future<DailyMining> createOrUpdateDailyMining(SqlClient client, Long userId, LocalDate date, 
                                                           BigDecimal amount, LocalDateTime resetAt) {
-        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
-        String sql = """
-            INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at)
-            VALUES (#{userId}, #{date}, #{amount}, #{resetAt})
-            ON CONFLICT (user_id, mining_date)
-            DO UPDATE SET
-                mining_amount = EXCLUDED.mining_amount,
-                reset_at = EXCLUDED.reset_at,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING id, user_id, mining_date, mining_amount, reset_at, created_at, updated_at
-            """;
+        String sql = QueryBuilder
+            .insert("daily_mining", "user_id", "mining_date", "mining_amount", "reset_at")
+            .onConflict("user_id, mining_date")
+            .doUpdateCustom("mining_amount = EXCLUDED.mining_amount, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
+            .returningColumns("id, user_id, mining_date, mining_amount, reset_at, created_at, updated_at")
+            .build();
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
-        params.put("date", date);
-        params.put("amount", amount);
-        params.put("resetAt", resetAt);
+        params.put("user_id", userId);
+        params.put("mining_date", date);
+        params.put("mining_amount", amount);
+        params.put("reset_at", resetAt);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return DAILY_MINING_MAPPER.map(rows.iterator().next());

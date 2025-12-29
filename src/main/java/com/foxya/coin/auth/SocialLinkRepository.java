@@ -33,21 +33,19 @@ public class SocialLinkRepository extends BaseRepository {
     
     public Future<Boolean> createSocialLink(SqlClient client, Long userId, String provider, 
                                           String providerUserId, String email) {
-        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
-        String sql = """
-            INSERT INTO social_links (user_id, provider, provider_user_id, email)
-            VALUES (#{userId}, #{provider}, #{providerUserId}, #{email})
-            ON CONFLICT (user_id, provider) DO NOTHING
-            """;
+        String sql = QueryBuilder
+            .insert("social_links", "user_id", "provider", "provider_user_id", "email")
+            .onConflict("user_id, provider")
+            .doNothing()
+            .build();
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
+        params.put("user_id", userId);
         params.put("provider", provider);
-        params.put("providerUserId", providerUserId);
+        params.put("provider_user_id", providerUserId);
         params.put("email", email);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0);
     }
 }

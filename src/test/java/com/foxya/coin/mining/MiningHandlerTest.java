@@ -6,6 +6,7 @@ import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.mining.dto.DailyLimitResponseDto;
 import com.foxya.coin.mining.dto.LevelInfoResponseDto;
 import com.foxya.coin.mining.dto.MiningHistoryResponseDto;
+import com.foxya.coin.mining.dto.MiningInfoResponseDto;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class MiningHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<DailyLimitResponseDto>> refDailyLimit = new TypeReference<>() {};
     private final TypeReference<ApiResponse<LevelInfoResponseDto>> refLevelInfo = new TypeReference<>() {};
     private final TypeReference<ApiResponse<MiningHistoryResponseDto>> refMiningHistory = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<MiningInfoResponseDto>> refMiningInfo = new TypeReference<>() {};
     
     public MiningHandlerTest() {
         super("/api/v1/mining");
@@ -220,6 +222,99 @@ public class MiningHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/history"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("채굴 정보 조회 테스트")
+    class GetMiningInfoTest {
+        
+        @Test
+        @Order(10)
+        @DisplayName("성공 - 채굴 정보 조회")
+        void successGetMiningInfo(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get mining info response: {}", res.bodyAsJsonObject());
+                    MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
+                    
+                    assertThat(response).isNotNull();
+                    assertThat(response.getTodayMiningAmount()).isNotNull();
+                    assertThat(response.getTotalBalance()).isNotNull();
+                    assertThat(response.getBonusEfficiency()).isNotNull();
+                    assertThat(response.getRemainingTime()).isNotNull();
+                    assertThat(response.getRemainingTime()).matches("\\d{2}:\\d{2}:\\d{2}"); // HH:MM:SS 형식
+                    assertThat(response.getIsActive()).isNotNull();
+                    assertThat(response.getDailyMaxMining()).isNotNull();
+                    assertThat(response.getCurrentLevel()).isNotNull();
+                    assertThat(response.getNextLevelRequired()).isNotNull();
+                    assertThat(response.getAdWatchCount()).isNotNull();
+                    assertThat(response.getMaxAdWatchCount()).isNotNull();
+                    
+                    // 값 검증
+                    assertThat(response.getTodayMiningAmount()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+                    assertThat(response.getTotalBalance()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+                    assertThat(response.getBonusEfficiency()).isGreaterThanOrEqualTo(0);
+                    assertThat(response.getCurrentLevel()).isGreaterThanOrEqualTo(1);
+                    assertThat(response.getAdWatchCount()).isGreaterThanOrEqualTo(0);
+                    assertThat(response.getMaxAdWatchCount()).isGreaterThan(0);
+                    assertThat(response.getAdWatchCount()).isLessThanOrEqualTo(response.getMaxAdWatchCount());
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(11)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/info"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("광고 시청 테스트")
+    class WatchAdTest {
+        
+        @Test
+        @Order(12)
+        @DisplayName("성공 - 광고 시청")
+        void successWatchAd(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqPost(getUrl("/watch-ad"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Watch ad response: {}", res.bodyAsJsonObject());
+                    expectSuccess(res);
+                    
+                    // 광고 시청 후 채굴 정보 조회하여 adWatchCount 증가 확인
+                    reqGet(getUrl("/info"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(infoRes -> tc.verify(() -> {
+                            MiningInfoResponseDto info = expectSuccessAndGetResponse(infoRes, refMiningInfo);
+                            assertThat(info.getAdWatchCount()).isGreaterThanOrEqualTo(1);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+        
+        @Test
+        @Order(13)
+        @DisplayName("실패 - 인증 없이 광고 시청")
+        void failNoAuth(VertxTestContext tc) {
+            reqPost(getUrl("/watch-ad"))
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();

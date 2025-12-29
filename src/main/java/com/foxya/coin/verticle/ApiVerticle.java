@@ -163,7 +163,7 @@ public class ApiVerticle extends AbstractVerticle {
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository, 
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
         MiningService miningService = new MiningService(
-            pool, miningRepository, userRepository);
+            pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository);
         LevelService levelService = new LevelService(
             pool, userRepository, miningRepository);
         NoticeService noticeService = new NoticeService(

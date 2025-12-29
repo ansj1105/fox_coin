@@ -44,6 +44,18 @@ public class MiningHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getMiningHistory);
         
+        // 채굴 정보 조회
+        router.get("/info")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getMiningInfo);
+        
+        // 광고 시청
+        router.post("/watch-ad")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::watchAd);
+        
         return router;
     }
     
@@ -72,6 +84,19 @@ public class MiningHandler extends BaseHandler {
             userId, period, limit, offset);
         
         response(ctx, miningService.getMiningHistory(userId, period, limit, offset));
+    }
+    
+    private void getMiningInfo(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting mining info for user: {}", userId);
+        response(ctx, miningService.getMiningInfo(userId));
+    }
+    
+    private void watchAd(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Watching ad for user: {}", userId);
+        response(ctx, miningService.watchAd(userId)
+            .map(success -> new com.foxya.coin.common.dto.ApiResponse<>("OK", "광고 시청이 완료되었습니다.", null)));
     }
 }
 

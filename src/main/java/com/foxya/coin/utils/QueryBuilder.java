@@ -569,7 +569,7 @@ public abstract class QueryBuilder {
             }
 
             append("DO UPDATE SET");
-            appendNotSpace(String.join(", ", sets));
+            append(String.join(", ", sets));
             return this;
         }
 
@@ -585,7 +585,7 @@ public abstract class QueryBuilder {
             }
 
             append("DO UPDATE SET");
-            appendNotSpace(incrementColumn + " = " + incrementColumn + " + 1");
+            append(incrementColumn + " = " + incrementColumn + " + 1");
             return this;
         }
 
@@ -601,7 +601,33 @@ public abstract class QueryBuilder {
             }
 
             append("DO UPDATE SET");
-            appendNotSpace(updateExpression);
+            append(updateExpression);
+            return this;
+        }
+
+        /**
+         * DO NOTHING 절을 추가합니다.
+         *
+         * @return DO NOTHING 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder doNothing() {
+            if (!hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT must be specified before DO NOTHING");
+            }
+
+            append("DO NOTHING");
+            return this;
+        }
+
+        /**
+         * RETURNING 절을 추가합니다.
+         *
+         * @param columns 반환할 컬럼 (예: "id, user_id, mission_id")
+         * @return RETURNING 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder returningColumns(String columns) {
+            append("RETURNING");
+            appendNotSpace(columns);
             return this;
         }
     }

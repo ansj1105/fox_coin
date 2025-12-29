@@ -32,28 +32,24 @@ public class PhoneVerificationRepository extends BaseRepository {
     }
     
     public Future<Boolean> verifyPhone(SqlClient client, Long userId, String phoneNumber, String verificationCode) {
-        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
-        String sql = """
-            INSERT INTO phone_verifications (user_id, phone_number, verification_code, is_verified, verified_at, expires_at)
-            VALUES (#{userId}, #{phoneNumber}, #{verificationCode}, true, CURRENT_TIMESTAMP, #{expiresAt})
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                phone_number = EXCLUDED.phone_number,
-                verification_code = EXCLUDED.verification_code,
-                is_verified = true,
-                verified_at = CURRENT_TIMESTAMP,
-                expires_at = EXCLUDED.expires_at,
-                updated_at = CURRENT_TIMESTAMP
-            """;
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(10);
+        LocalDateTime verifiedAt = LocalDateTime.now();
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String sql = QueryBuilder
+            .insert("phone_verifications", "user_id", "phone_number", "verification_code", "is_verified", "verified_at", "expires_at")
+            .onConflict("user_id")
+            .doUpdateCustom("phone_number = EXCLUDED.phone_number, verification_code = EXCLUDED.verification_code, is_verified = true, verified_at = CURRENT_TIMESTAMP, expires_at = EXCLUDED.expires_at, updated_at = CURRENT_TIMESTAMP")
+            .build();
+        
         Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
-        params.put("phoneNumber", phoneNumber);
-        params.put("verificationCode", verificationCode);
-        params.put("expiresAt", LocalDateTime.now().plusMinutes(10));
+        params.put("user_id", userId);
+        params.put("phone_number", phoneNumber);
+        params.put("verification_code", verificationCode);
+        params.put("is_verified", true);
+        params.put("verified_at", verifiedAt);
+        params.put("expires_at", expiresAt);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0);
     }
 }

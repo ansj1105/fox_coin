@@ -712,6 +712,45 @@ components:
           type: integer
           description: 시작 위치
 
+    MiningInfoResponse:
+      type: object
+      properties:
+        todayMiningAmount:
+          type: number
+          format: decimal
+          description: 오늘 채굴한 금액
+        totalBalance:
+          type: number
+          format: decimal
+          description: 총 잔액
+        bonusEfficiency:
+          type: integer
+          description: 채굴효율 (%)
+        remainingTime:
+          type: string
+          description: 남은 시간 (HH:MM:SS 형식) - 매일 00:00:00(자정) 기준으로 다음 자정까지의 남은 시간
+          example: "08:30:00"
+        isActive:
+          type: boolean
+          description: 채굴 활성화 여부
+        dailyMaxMining:
+          type: number
+          format: decimal
+          description: 일일 최대 채굴량
+        currentLevel:
+          type: integer
+          description: 현재 레벨
+        nextLevelRequired:
+          type: number
+          format: decimal
+          description: 다음 레벨까지 필요한 경험치
+        adWatchCount:
+          type: integer
+          description: 오늘 광고 시청 횟수
+        maxAdWatchCount:
+          type: integer
+          description: 일일 최대 광고 시청 횟수
+
     MiningHistoryItem:
       type: object
       properties:
@@ -2821,6 +2860,47 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/LevelInfoResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/mining/info:
+    get:
+      summary: 채굴 정보 조회
+      description: 오늘의 채굴량, 총 잔액, 채굴효율, 남은 시간 등 채굴 정보를 조회합니다.
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MiningInfoResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/mining/watch-ad:
+    post:
+      summary: 광고 시청 후 채굴효율 증가
+      description: 광고 시청 후 채굴효율이 증가합니다.
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 광고 시청 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 일일 최대 광고 시청 횟수 초과
         '401':
           description: 인증 실패
 

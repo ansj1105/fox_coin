@@ -63,27 +63,21 @@ public class EmailVerificationRepository extends BaseRepository {
      * 이메일 인증 코드 저장/갱신
      */
     public Future<Boolean> upsertVerification(SqlClient client, Long userId, String email, String code, LocalDateTime expiresAt) {
-        String sql = """
-            INSERT INTO email_verifications (user_id, email, verification_code, is_verified, verified_at, expires_at)
-            VALUES (#{user_id}, #{email}, #{verification_code}, false, NULL, #{expires_at})
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                email = EXCLUDED.email,
-                verification_code = EXCLUDED.verification_code,
-                is_verified = false,
-                verified_at = NULL,
-                expires_at = EXCLUDED.expires_at,
-                updated_at = CURRENT_TIMESTAMP
-            """;
-
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String sql = QueryBuilder
+            .insert("email_verifications", "user_id", "email", "verification_code", "is_verified", "verified_at", "expires_at")
+            .onConflict("user_id")
+            .doUpdateCustom("email = EXCLUDED.email, verification_code = EXCLUDED.verification_code, is_verified = false, verified_at = NULL, expires_at = EXCLUDED.expires_at, updated_at = CURRENT_TIMESTAMP")
+            .build();
+        
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("email", email);
         params.put("verification_code", code);
+        params.put("is_verified", false);
+        params.put("verified_at", null);
         params.put("expires_at", expiresAt);
 
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0)
             .onFailure(throwable -> log.error("이메일 인증 코드 저장 실패 - userId: {}, email: {}", userId, email, throwable));
     }

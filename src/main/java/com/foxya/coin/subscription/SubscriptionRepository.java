@@ -51,27 +51,21 @@ public class SubscriptionRepository extends BaseRepository {
     
     public Future<Subscription> createSubscription(SqlClient client, Long userId, String packageType, 
                                                   LocalDateTime expiresAt) {
-        // ON CONFLICT는 PostgreSQL 특화 기능으로 QueryBuilder에서 직접 지원하지 않으므로 selectStringQuery 사용
-        String sql = """
-            INSERT INTO subscriptions (user_id, package_type, is_active, started_at, expires_at)
-            VALUES (#{userId}, #{packageType}, true, CURRENT_TIMESTAMP, #{expiresAt})
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                package_type = EXCLUDED.package_type,
-                is_active = true,
-                started_at = CURRENT_TIMESTAMP,
-                expires_at = EXCLUDED.expires_at,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING id, user_id, package_type, is_active, started_at, expires_at, created_at, updated_at
-            """;
+        String sql = QueryBuilder
+            .insert("subscriptions", "user_id", "package_type", "is_active", "started_at", "expires_at")
+            .onConflict("user_id")
+            .doUpdateCustom("package_type = EXCLUDED.package_type, is_active = true, started_at = CURRENT_TIMESTAMP, expires_at = EXCLUDED.expires_at, updated_at = CURRENT_TIMESTAMP")
+            .returningColumns("id, user_id, package_type, is_active, started_at, expires_at, created_at, updated_at")
+            .build();
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
         Map<String, Object> params = new HashMap<>();
-        params.put("userId", userId);
-        params.put("packageType", packageType);
-        params.put("expiresAt", expiresAt);
+        params.put("user_id", userId);
+        params.put("package_type", packageType);
+        params.put("is_active", true);
+        params.put("started_at", java.time.LocalDateTime.now());
+        params.put("expires_at", expiresAt);
         
-        return query(client, query, params)
+        return query(client, sql, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
                     return SUBSCRIPTION_MAPPER.map(rows.iterator().next());
