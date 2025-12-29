@@ -127,7 +127,7 @@
       "port": 8080
     },
     "frontend": {
-      "baseUrl": "https://korion.io.kr"
+      "baseUrl": "http://localhost"
     },
     "database": {
       "host": "postgres",

@@ -82,6 +82,9 @@ import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.security.SecurityHandler;
+import com.foxya.coin.inquiry.InquiryHandler;
+import com.foxya.coin.inquiry.InquiryRepository;
+import com.foxya.coin.inquiry.InquiryService;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -128,6 +131,7 @@ public class ApiVerticle extends AbstractVerticle {
         SubscriptionRepository subscriptionRepository = new SubscriptionRepository();
         ReviewRepository reviewRepository = new ReviewRepository();
         AgencyRepository agencyRepository = new AgencyRepository();
+        InquiryRepository inquiryRepository = new InquiryRepository();
         
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
@@ -190,6 +194,8 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository);
+        InquiryService inquiryService = new InquiryService(
+            pool, inquiryRepository, userService);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -213,6 +219,7 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositHandler tokenDepositHandler = new TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
         CurrencyHandler currencyHandler = new CurrencyHandler(vertx, currencyService, jwtAuth);
         SecurityHandler securityHandler = new SecurityHandler(vertx, userService, jwtAuth);
+        InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -250,6 +257,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 알림 API
         mainRouter.mountSubRouter("/api/v1/notifications", notificationHandler.getRouter());
+        
+        // 문의하기 API
+        mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());
         
         // 구독 API
         mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());

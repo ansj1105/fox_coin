@@ -33,6 +33,8 @@ tags:
     description: 공지사항 관련 API
   - name: Notification
     description: 알림 관련 API
+  - name: Inquiry
+    description: 문의하기 관련 API
   - name: Subscription
     description: 프리미엄 구독 관련 API
   - name: Review
@@ -890,6 +892,55 @@ components:
         count:
           type: integer
           description: 읽지 않은 알림 개수
+
+    # Inquiry 관련 스키마
+    InquiryStatus:
+      type: string
+      enum: [PENDING, PROCESSING, COMPLETED]
+      description: 문의 상태
+
+    CreateInquiryRequest:
+      type: object
+      required:
+        - subject
+        - content
+      properties:
+        subject:
+          type: string
+          maxLength: 20
+          description: 문의 제목 (최대 20자)
+        content:
+          type: string
+          maxLength: 200
+          description: 문의 내용 (최대 200자)
+        email:
+          type: string
+          format: email
+          description: 사용자 이메일 주소 (이메일 설정에서 가져온 값)
+
+    InquiryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 문의 ID
+        subject:
+          type: string
+          description: 문의 제목
+        content:
+          type: string
+          description: 문의 내용
+        email:
+          type: string
+          format: email
+          description: 사용자 이메일 주소
+        status:
+          $ref: '#/components/schemas/InquiryStatus'
+        createdAt:
+          type: string
+          format: date-time
+          description: 생성 시간
 
     # Subscription 관련 스키마
     SubscriptionStatusResponse:
@@ -3234,6 +3285,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 인증 실패
+
+  # ==================== Inquiry ====================
+  /api/v1/inquiries:
+    post:
+      summary: 문의 제출
+      description: 문의를 제출합니다.
+      tags: [Inquiry]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInquiryRequest'
+      responses:
+        '200':
+          description: 문의 제출 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InquiryResponse'
+        '400':
+          description: 잘못된 요청 (필수 항목 누락, 길이 제한 초과 등)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                status: ERROR
+                message: 필수 항목을 모두 입력해주세요.
         '401':
           description: 인증 실패
 

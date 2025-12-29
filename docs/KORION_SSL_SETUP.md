@@ -7,9 +7,31 @@
 - `dev.korion.io.kr` (개발 서브도메인)
 
 ## 사전 요구사항
-1. 모든 도메인이 서버 IP로 DNS A 레코드가 설정되어 있어야 합니다
+1. **모든 도메인이 서버 IP로 DNS A 레코드가 설정되어 있어야 합니다** ⚠️ 중요!
 2. 80번 포트가 열려 있어야 합니다 (Let's Encrypt 인증)
 3. Certbot이 설치되어 있어야 합니다
+
+### DNS 설정 확인 방법
+
+인증서 발급 전에 반드시 DNS 설정이 완료되었는지 확인하세요:
+
+```bash
+# 각 도메인의 DNS 레코드 확인
+dig korion.io.kr +short
+dig www.korion.io.kr +short
+dig api.korion.io.kr +short
+dig dev.korion.io.kr +short
+
+# 또는 nslookup 사용
+nslookup korion.io.kr
+nslookup www.korion.io.kr
+nslookup api.korion.io.kr
+nslookup dev.korion.io.kr
+```
+
+**모든 도메인이 서버 IP 주소로 올바르게 설정되어 있어야 합니다.**
+
+DNS 전파는 보통 몇 분에서 최대 48시간까지 걸릴 수 있습니다.
 
 ## SSL 인증서 발급 방법
 
@@ -17,7 +39,7 @@
 
 ```bash
 # 프로젝트 디렉토리로 이동
-cd /var/www/foxya_coin_service
+cd /var/www/fox_coin
 
 # Nginx 중지
 docker-compose -f docker-compose.prod.yml stop nginx
@@ -27,20 +49,21 @@ sudo apt-get update
 sudo apt-get install certbot
 
 # 인증서 발급 (모든 도메인 포함)
+# ⚠️ 주의: your-email@example.com을 실제 이메일 주소로 변경하세요!
 sudo certbot certonly --standalone \
   -d korion.io.kr \
   -d www.korion.io.kr \
   -d api.korion.io.kr \
   -d dev.korion.io.kr \
-  --email your-email@example.com \
+  --email Dianainteen@gmail.com \
   --agree-tos \
   --non-interactive
 
 # 인증서 복사
-sudo mkdir -p /var/www/foxya_coin_service/nginx/ssl
-sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo chown -R $USER:$USER /var/www/foxya_coin_service/nginx/ssl/
+sudo mkdir -p /var/www/fox_coin/nginx/ssl
+sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/fox_coin/nginx/ssl/
+sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/fox_coin/nginx/ssl/
+sudo chown -R $USER:$USER /var/www/fox_coin/nginx/ssl/
 
 # Nginx 재시작
 docker-compose -f docker-compose.prod.yml start nginx
@@ -50,7 +73,7 @@ docker-compose -f docker-compose.prod.yml start nginx
 
 ```bash
 # 프로젝트 디렉토리로 이동
-cd /var/www/foxya_coin_service
+cd /var/www/fox_coin
 
 # certbot 디렉토리 생성 (이미 있다면 생략)
 mkdir -p certbot/www
@@ -62,7 +85,7 @@ sudo apt-get install certbot
 
 # 인증서 발급 (모든 도메인 포함)
 sudo certbot certonly --webroot \
-  -w /var/www/foxya_coin_service/certbot/www \
+  -w /var/www/fox_coin/certbot/www \
   -d korion.io.kr \
   -d www.korion.io.kr \
   -d api.korion.io.kr \
@@ -72,10 +95,10 @@ sudo certbot certonly --webroot \
   --non-interactive
 
 # 인증서 복사
-sudo mkdir -p /var/www/foxya_coin_service/nginx/ssl
-sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo chown -R $USER:$USER /var/www/foxya_coin_service/nginx/ssl/
+sudo mkdir -p /var/www/fox_coin/nginx/ssl
+sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/fox_coin/nginx/ssl/
+sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/fox_coin/nginx/ssl/
+sudo chown -R $USER:$USER /var/www/fox_coin/nginx/ssl/
 ```
 
 ### 방법 3: Nginx 플러그인 사용 (가장 간단)
@@ -96,9 +119,9 @@ sudo certbot --nginx \
   --non-interactive
 
 # 인증서 복사 (Docker 볼륨에)
-sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/foxya_coin_service/nginx/ssl/
-sudo chown -R $USER:$USER /var/www/foxya_coin_service/nginx/ssl/
+sudo cp /etc/letsencrypt/live/korion.io.kr/fullchain.pem /var/www/fox_coin/nginx/ssl/
+sudo cp /etc/letsencrypt/live/korion.io.kr/privkey.pem /var/www/fox_coin/nginx/ssl/
+sudo chown -R $USER:$USER /var/www/fox_coin/nginx/ssl/
 ```
 
 ## Nginx 설정 업데이트
@@ -136,7 +159,7 @@ Let's Encrypt 인증서는 90일마다 갱신해야 합니다.
 sudo crontab -e
 
 # 다음 줄 추가 (매일 새벽 3시에 갱신 시도)
-0 3 * * * certbot renew --quiet --deploy-hook "docker-compose -f /var/www/foxya_coin_service/docker-compose.prod.yml restart nginx"
+0 3 * * * certbot renew --quiet --deploy-hook "docker-compose -f /var/www/fox_coin/docker-compose.prod.yml restart nginx"
 ```
 
 ### Systemd Timer 사용
@@ -154,7 +177,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "docker-compose -f /var/www/foxya_coin_service/docker-compose.prod.yml restart nginx"
+ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "docker-compose -f /var/www/fox_coin/docker-compose.prod.yml restart nginx"
 ```
 
 ```bash
@@ -238,15 +261,15 @@ curl -vI https://korion.io.kr
 
 ```bash
 # 인증서 파일 권한 확인 및 수정
-chmod 644 /var/www/foxya_coin_service/nginx/ssl/*.pem
-chmod 600 /var/www/foxya_coin_service/nginx/ssl/*.key
+chmod 644 /var/www/fox_coin/nginx/ssl/*.pem
+chmod 600 /var/www/fox_coin/nginx/ssl/*.key
 ```
 
 ### Nginx가 SSL 인증서를 찾을 수 없음
 
 ```bash
 # 인증서 파일 존재 확인
-ls -la /var/www/foxya_coin_service/nginx/ssl/
+ls -la /var/www/fox_coin/nginx/ssl/
 
 # Docker 볼륨 마운트 확인
 docker inspect foxya-nginx | grep -A 10 Mounts
