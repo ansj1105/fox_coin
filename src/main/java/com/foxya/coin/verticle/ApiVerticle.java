@@ -85,6 +85,9 @@ import com.foxya.coin.security.SecurityHandler;
 import com.foxya.coin.inquiry.InquiryHandler;
 import com.foxya.coin.inquiry.InquiryRepository;
 import com.foxya.coin.inquiry.InquiryService;
+import com.foxya.coin.mission.MissionHandler;
+import com.foxya.coin.mission.MissionRepository;
+import com.foxya.coin.mission.MissionService;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -132,6 +135,7 @@ public class ApiVerticle extends AbstractVerticle {
         ReviewRepository reviewRepository = new ReviewRepository();
         AgencyRepository agencyRepository = new AgencyRepository();
         InquiryRepository inquiryRepository = new InquiryRepository();
+        MissionRepository missionRepository = new MissionRepository();
         
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
@@ -196,6 +200,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, tokenDepositRepository, currencyRepository, transferRepository);
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
+        MissionService missionService = new MissionService(
+            pool, missionRepository);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -220,6 +226,7 @@ public class ApiVerticle extends AbstractVerticle {
         CurrencyHandler currencyHandler = new CurrencyHandler(vertx, currencyService, jwtAuth);
         SecurityHandler securityHandler = new SecurityHandler(vertx, userService, jwtAuth);
         InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
+        MissionHandler missionHandler = new MissionHandler(vertx, missionService, jwtAuth);
         
         // Router 생성
         Router mainRouter = Router.router(vertx);
@@ -260,6 +267,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 문의하기 API
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());
+        
+        // 미션 API
+        mainRouter.mountSubRouter("/api/v1/missions", missionHandler.getRouter());
         
         // 구독 API
         mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());

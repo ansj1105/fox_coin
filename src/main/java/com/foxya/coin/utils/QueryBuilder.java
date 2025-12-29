@@ -178,6 +178,17 @@ public abstract class QueryBuilder {
     }
 
     /**
+     * INSERT 문을 생성합니다.
+     *
+     * @param tableName INSERT 를 실행할 테이블명
+     * @param columns   INSERT 할 컬럼
+     * @return INSERT QueryBuilder
+     */
+    public static InsertQueryBuilder insert(String tableName, String... columns) {
+        return new InsertQueryBuilder(tableName, columns);
+    }
+
+    /**
      * UPDATE 문을 생성합니다.
      *
      * @param tableName UPDATE 를 실행할 테이블명
@@ -491,6 +502,108 @@ public abstract class QueryBuilder {
             return this;
         }
 
+    }
+
+    /**
+     * INSERT QueryBuilder 클래스입니다.
+     */
+    public static class InsertQueryBuilder extends BaseQueryBuilder<InsertQueryBuilder> {
+
+        private int columnCount = 0;
+        private boolean hasOnConflict = false;
+
+        /**
+         * INSERT QueryBuilder 를 생성합니다.
+         *
+         * @param tableName INSERT 를 실행할 테이블명
+         * @param columns   INSERT 할 컬럼
+         */
+        InsertQueryBuilder(String tableName, String[] columns) {
+            super();
+
+            append("INSERT INTO ").append(tableName);
+
+            String columnsStr = String.join(", ", columns);
+            String[] valueList = Arrays.stream(columns)
+                .map(col -> "#{" + col + "}")
+                .toArray(String[]::new);
+            String valuesStr = String.join(", ", valueList);
+
+            columnCount = columns.length;
+
+            appendNotSpace("(").append(columnsStr).append(")");
+            append("VALUES");
+            appendNotSpace("(").append(valuesStr).append(")");
+        }
+
+        /**
+         * ON CONFLICT 절을 추가합니다.
+         *
+         * @param conflictColumns 충돌 컬럼 (예: "user_id, mission_id, mission_date")
+         * @return ON CONFLICT 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder onConflict(String conflictColumns) {
+            if (hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT is already specified");
+            }
+            append("ON CONFLICT");
+            appendNotSpace("(").append(conflictColumns).append(")");
+            hasOnConflict = true;
+            return this;
+        }
+
+        /**
+         * DO UPDATE SET 절을 추가합니다.
+         *
+         * @param updateColumns 업데이트할 컬럼 (예: "current_count", "reset_at")
+         * @return DO UPDATE SET 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder doUpdate(String... updateColumns) {
+            if (!hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT must be specified before DO UPDATE");
+            }
+
+            List<String> sets = new ArrayList<>();
+            for (String column : updateColumns) {
+                sets.add(column + " = EXCLUDED." + column);
+            }
+
+            append("DO UPDATE SET");
+            appendNotSpace(String.join(", ", sets));
+            return this;
+        }
+
+        /**
+         * DO UPDATE SET 절을 추가합니다 (컬럼 증가용).
+         *
+         * @param incrementColumn 증가시킬 컬럼 (예: "current_count")
+         * @return DO UPDATE SET 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder doUpdateIncrement(String incrementColumn) {
+            if (!hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT must be specified before DO UPDATE");
+            }
+
+            append("DO UPDATE SET");
+            appendNotSpace(incrementColumn + " = " + incrementColumn + " + 1");
+            return this;
+        }
+
+        /**
+         * DO UPDATE SET 절을 추가합니다 (커스텀 업데이트).
+         *
+         * @param updateExpression 업데이트 표현식 (예: "current_count = EXCLUDED.current_count, reset_at = EXCLUDED.reset_at")
+         * @return DO UPDATE SET 절이 추가된 INSERT QueryBuilder
+         */
+        public InsertQueryBuilder doUpdateCustom(String updateExpression) {
+            if (!hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT must be specified before DO UPDATE");
+            }
+
+            append("DO UPDATE SET");
+            appendNotSpace(updateExpression);
+            return this;
+        }
     }
 
     /**
