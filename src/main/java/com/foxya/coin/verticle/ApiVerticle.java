@@ -88,8 +88,10 @@ import com.foxya.coin.inquiry.InquiryService;
 import com.foxya.coin.mission.MissionHandler;
 import com.foxya.coin.mission.MissionRepository;
 import com.foxya.coin.mission.MissionService;
+import com.foxya.coin.monitoring.MonitoringHandler;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
+import com.foxya.coin.common.metrics.MetricsCollector;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -101,9 +103,14 @@ public class ApiVerticle extends AbstractVerticle {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
     
+    private MetricsCollector metricsCollector;
+    
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
         log.info("Starting ApiVerticle...");
+        
+        // 메트릭 수집기 초기화
+        metricsCollector = new MetricsCollector();
         
         JsonObject httpConfig = config().getJsonObject("http", new JsonObject());
         JsonObject databaseConfig = config().getJsonObject("database", new JsonObject());
@@ -228,6 +235,13 @@ public class ApiVerticle extends AbstractVerticle {
         InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
         MissionHandler missionHandler = new MissionHandler(vertx, missionService, jwtAuth);
         
+        // 모니터링 API 키 (환경 변수 또는 config에서 가져오기)
+        String monitoringApiKey = System.getenv("MONITORING_API_KEY");
+        if (monitoringApiKey == null || monitoringApiKey.isEmpty()) {
+            monitoringApiKey = config().getString("monitoring.apiKey", "default-monitoring-key-change-in-production");
+        }
+        MonitoringHandler monitoringHandler = new MonitoringHandler(vertx, monitoringApiKey);
+        
         // Router 생성
         Router mainRouter = Router.router(vertx);
         
@@ -304,6 +318,9 @@ public class ApiVerticle extends AbstractVerticle {
         // 통화 API (환율 조회는 공개 API)
         mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());
         
+        // 모니터링 페이지 (role 2, 3만 접근 가능)
+        mainRouter.mountSubRouter("/", monitoringHandler.getRouter());
+        
         // JWT 인증이 필요한 API
         Router protectedRouter = Router.router(vertx);
         protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
@@ -373,15 +390,42 @@ public class ApiVerticle extends AbstractVerticle {
         // Body Handler
         router.route().handler(BodyHandler.create());
         
-        // Request 로깅
+        // Request 로깅 및 메트릭 수집
         router.route().handler(ctx -> {
-            log.info("[REQUEST] {} {} from {}", 
-                ctx.request().method(), ctx.request().path(), ctx.request().remoteAddress());
+            long startTime = System.currentTimeMillis();
+            String method = ctx.request().method().toString();
+            String path = ctx.request().path();
+            
+            log.info("[REQUEST] {} {} from {}", method, path, ctx.request().remoteAddress());
+            
+            // 시작 시간을 컨텍스트에 저장 (failure handler에서 사용)
+            ctx.put("startTime", startTime);
+            
+            // 응답 완료 시 메트릭 기록
+            ctx.response().endHandler(v -> {
+                long duration = System.currentTimeMillis() - startTime;
+                int statusCode = ctx.response().getStatusCode();
+                metricsCollector.recordRequest(method, path, statusCode, duration);
+            });
+            
             ctx.next();
         });
         
-        // Failure Handler
-        router.route().failureHandler(ErrorHandler::handle);
+        // Failure Handler (에러 발생 시 메트릭 기록)
+        router.route().failureHandler(ctx -> {
+            Long startTime = ctx.get("startTime");
+            if (startTime == null) {
+                startTime = System.currentTimeMillis();
+            }
+            
+            String method = ctx.request().method().toString();
+            String path = ctx.request().path();
+            int statusCode = ctx.statusCode() > 0 ? ctx.statusCode() : 500;
+            long duration = System.currentTimeMillis() - startTime;
+            
+            metricsCollector.recordRequest(method, path, statusCode, duration);
+            ErrorHandler.handle(ctx);
+        });
         
         // Health check
         router.get("/health").handler(ctx -> {
@@ -391,6 +435,9 @@ public class ApiVerticle extends AbstractVerticle {
                     .put("status", "UP")
                     .put("timestamp", System.currentTimeMillis())));
         });
+        
+        // Prometheus metrics endpoint
+        setupMetricsEndpoint(router);
         
         // Swagger UI
         router.get("/api-docs").handler(ctx -> {
@@ -415,6 +462,23 @@ public class ApiVerticle extends AbstractVerticle {
                         .setStatusCode(404)
                         .end("OpenAPI spec not found");
                 });
+        });
+    }
+    
+    private void setupMetricsEndpoint(Router router) {
+        // Prometheus 메트릭 엔드포인트
+        router.get("/metrics").handler(ctx -> {
+            try {
+                String prometheusMetrics = metricsCollector.scrape();
+                ctx.response()
+                    .putHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                    .end(prometheusMetrics);
+            } catch (Exception e) {
+                log.error("Failed to generate metrics", e);
+                ctx.response()
+                    .setStatusCode(500)
+                    .end("Failed to generate metrics: " + e.getMessage());
+            }
         });
     }
     

@@ -66,6 +66,10 @@ dependencies {
     // Vert.x Mail Client (SMTP)
     implementation("io.vertx:vertx-mail-client")
     
+    // Vert.x Micrometer Metrics
+    implementation("io.vertx:vertx-micrometer-metrics")
+    implementation("io.micrometer:micrometer-registry-prometheus:1.12.0")
+    
     // PostgreSQL JDBC (Flyway용)
     implementation("org.postgresql:postgresql:$postgresqlVersion")
     

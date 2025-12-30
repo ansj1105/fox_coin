@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'foxya-coin-service'
+
+# Alertmanager 설정 (선택사항)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# 스크랩 설정
+scrape_configs:
+  # API 서버 메트릭
+  - job_name: 'foxya-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['app:8080']
+        labels:
+          service: 'api'
+          environment: 'production'
+
+  # Prometheus 자체 메트릭
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
