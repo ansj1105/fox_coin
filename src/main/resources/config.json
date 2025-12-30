@@ -56,6 +56,9 @@
       "starttls": "REQUIRED",
       "login": "LOGIN",
       "authMethods": "PLAIN"
+    },
+    "monitoring": {
+      "apiKey": "your-secret-monitoring-key-here"
     }
   },
   "local-cluster": {
@@ -120,6 +123,9 @@
       "starttls": "REQUIRED",
       "login": "LOGIN",
       "authMethods": "PLAIN"
+    },
+    "monitoring": {
+      "apiKey": "your-secret-monitoring-key-here"
     }
   },
   "prod": {
@@ -178,6 +184,9 @@
       "starttls": "REQUIRED",
       "login": "LOGIN",
       "authMethods": "PLAIN"
+    },
+    "monitoring": {
+      "apiKey": "your-secret-monitoring-key-here"
     }
   },
   "prod-sentinel": {
@@ -240,6 +249,9 @@
       "starttls": "REQUIRED",
       "login": "LOGIN",
       "authMethods": "PLAIN"
+    },
+    "monitoring": {
+      "apiKey": "your-secret-monitoring-key-here"
     }
   }
 }

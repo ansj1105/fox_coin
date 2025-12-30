@@ -83,6 +83,11 @@ ETHERSCAN_API_KEY=your_etherscan_api_key
 TRON_SERVICE_PATH=/var/www/coin_publish
 ```
 
+### Monitoring API Key
+```bash
+MONITORING_API_KEY=your-secret-monitoring-key-here
+```
+
 ### JVM Options
 ```bash
 JAVA_OPTS=-Xmx1024m -Xms512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
@@ -98,6 +103,7 @@ JAVA_OPTS=-Xmx1024m -Xms512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
 - [x] TRON 설정
 - [x] BTC 설정 (추가됨)
 - [x] ETH 설정 (추가됨)
+- [x] Monitoring API Key 설정 (추가됨)
 
 ### TRON 서비스 (.env)
 - [ ] Database 설정 (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
