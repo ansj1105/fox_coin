@@ -2,7 +2,7 @@
 
 ## 📋 개요
 
-모니터링 페이지(Grafana, Prometheus)는 `/sys9x2k8m4p5` 경로를 통해 접근할 수 있으며, API 키 인증이 필요합니다.
+모니터링 페이지(Grafana, Prometheus)는 `/6s9ex74204` 경로를 통해 접근할 수 있으며, API 키 인증이 필요합니다.
 
 ## 🔑 API 키 설정
 
@@ -45,20 +45,20 @@ API 키는 다음 3가지 방법으로 전달할 수 있습니다:
 
 ```bash
 curl -H "X-API-Key: your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5/grafana/
+  http://localhost:8080/6s9ex74204/grafana/
 ```
 
 ### 2. 헤더: `Authorization: Bearer`
 
 ```bash
 curl -H "Authorization: Bearer your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5/grafana/
+  http://localhost:8080/6s9ex74204/grafana/
 ```
 
 ### 3. 쿼리 파라미터: `apiKey`
 
 ```bash
-curl "http://localhost:8080/sys9x2k8m4p5/grafana/?apiKey=your-secret-key"
+curl "http://localhost:8080/6s9ex74204/grafana/?apiKey=your-secret-key"
 ```
 
 ## 🌐 접속 방법
@@ -69,23 +69,23 @@ curl "http://localhost:8080/sys9x2k8m4p5/grafana/?apiKey=your-secret-key"
 
 1. **직접 URL 접속** (쿼리 파라미터 사용)
    ```
-   http://your-domain/sys9x2k8m4p5/grafana/?apiKey=your-secret-key
+   http://your-domain/6s9ex74204/grafana/?apiKey=your-secret-key
    ```
 
 2. **브라우저 확장 프로그램 사용**
    - ModHeader 같은 확장 프로그램으로 `X-API-Key` 헤더 추가
-   - URL: `http://your-domain/sys9x2k8m4p5/grafana/`
+   - URL: `http://your-domain/6s9ex74204/grafana/`
 
 #### cURL로 접속
 
 ```bash
 # 기본 접속
 curl -H "X-API-Key: your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5/grafana/
+  http://localhost:8080/6s9ex74204/grafana/
 
 # 특정 경로 접속
 curl -H "X-API-Key: your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5/grafana/api/dashboards/home
+  http://localhost:8080/6s9ex74204/grafana/api/dashboards/home
 ```
 
 ### 2. Prometheus 접속
@@ -93,7 +93,7 @@ curl -H "X-API-Key: your-secret-key" \
 #### 브라우저에서 접속
 
 ```
-http://your-domain/sys9x2k8m4p5/prometheus/?apiKey=your-secret-key
+http://your-domain/6s9ex74204/prometheus/?apiKey=your-secret-key
 ```
 
 #### cURL로 접속
@@ -101,20 +101,20 @@ http://your-domain/sys9x2k8m4p5/prometheus/?apiKey=your-secret-key
 ```bash
 # Prometheus 메인 페이지
 curl -H "X-API-Key: your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5/prometheus/
+  http://localhost:8080/6s9ex74204/prometheus/
 
 # 메트릭 쿼리
 curl -H "X-API-Key: your-secret-key" \
-  "http://localhost:8080/sys9x2k8m4p5/prometheus/api/v1/query?query=up"
+  "http://localhost:8080/6s9ex74204/prometheus/api/v1/query?query=up"
 ```
 
 ### 3. 루트 경로 접속
 
-`/sys9x2k8m4p5` 경로로 접속하면 자동으로 Grafana로 리다이렉트됩니다.
+`/6s9ex74204` 경로로 접속하면 자동으로 Grafana로 리다이렉트됩니다.
 
 ```bash
 curl -H "X-API-Key: your-secret-key" \
-  http://localhost:8080/sys9x2k8m4p5
+  http://localhost:8080/6s9ex74204
 ```
 
 ## 📝 사용 예시
@@ -123,7 +123,7 @@ curl -H "X-API-Key: your-secret-key" \
 
 ```javascript
 // Grafana 접속
-fetch('http://your-domain/sys9x2k8m4p5/grafana/', {
+fetch('http://your-domain/6s9ex74204/grafana/', {
   headers: {
     'X-API-Key': 'your-secret-key'
   }
@@ -132,7 +132,7 @@ fetch('http://your-domain/sys9x2k8m4p5/grafana/', {
   .then(html => console.log(html));
 
 // Prometheus 쿼리
-fetch('http://your-domain/sys9x2k8m4p5/prometheus/api/v1/query?query=up', {
+fetch('http://your-domain/6s9ex74204/prometheus/api/v1/query?query=up', {
   headers: {
     'X-API-Key': 'your-secret-key'
   }
@@ -149,14 +149,14 @@ import requests
 # Grafana 접속
 headers = {'X-API-Key': 'your-secret-key'}
 response = requests.get(
-    'http://your-domain/sys9x2k8m4p5/grafana/',
+    'http://your-domain/6s9ex74204/grafana/',
     headers=headers
 )
 print(response.text)
 
 # Prometheus 쿼리
 response = requests.get(
-    'http://your-domain/sys9x2k8m4p5/prometheus/api/v1/query',
+    'http://your-domain/6s9ex74204/prometheus/api/v1/query',
     params={'query': 'up'},
     headers=headers
 )
@@ -171,7 +171,7 @@ print(response.json())
 
 2. **URL 입력**:
    ```
-   GET http://your-domain/sys9x2k8m4p5/grafana/
+   GET http://your-domain/6s9ex74204/grafana/
    ```
 
 ## 🚨 에러 응답
@@ -226,14 +226,14 @@ Prometheus 서버에 연결할 수 없습니다.
 ## 📊 접근 가능한 경로
 
 ### Grafana
-- `/sys9x2k8m4p5/grafana/` - Grafana 메인 페이지
-- `/sys9x2k8m4p5/grafana/api/*` - Grafana API
-- `/sys9x2k8m4p5/grafana/public/*` - 공개 리소스
+- `/6s9ex74204/grafana/` - Grafana 메인 페이지
+- `/6s9ex74204/grafana/api/*` - Grafana API
+- `/6s9ex74204/grafana/public/*` - 공개 리소스
 
 ### Prometheus
-- `/sys9x2k8m4p5/prometheus/` - Prometheus 메인 페이지
-- `/sys9x2k8m4p5/prometheus/api/*` - Prometheus API
-- `/sys9x2k8m4p5/prometheus/graph` - Prometheus Graph UI
+- `/6s9ex74204/prometheus/` - Prometheus 메인 페이지
+- `/6s9ex74204/prometheus/api/*` - Prometheus API
+- `/6s9ex74204/prometheus/graph` - Prometheus Graph UI
 
 ## 🔍 문제 해결
 
@@ -258,7 +258,7 @@ Prometheus 서버에 연결할 수 없습니다.
 
 1. **쿼리 파라미터 사용**
    ```
-   http://your-domain/sys9x2k8m4p5/grafana/?apiKey=your-secret-key
+   http://your-domain/6s9ex74204/grafana/?apiKey=your-secret-key
    ```
 
 2. **브라우저 확장 프로그램 사용**
@@ -266,7 +266,7 @@ Prometheus 서버에 연결할 수 없습니다.
    - Header Editor (Firefox)
 
 3. **Nginx 설정 확인**
-   - `/sys9x2k8m4p5` 경로가 프록시되고 있는지 확인
+   - `/6s9ex74204` 경로가 프록시되고 있는지 확인
 
 ## 📚 관련 문서
 

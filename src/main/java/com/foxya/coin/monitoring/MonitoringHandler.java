@@ -28,24 +28,24 @@ public class MonitoringHandler extends BaseHandler {
     public Router getRouter() {
         Router router = Router.router(getVertx());
         
-        // 모든 /sys9x2k8m4p5 경로에 대해 API 키 확인
-        router.route("/sys9x2k8m4p5/*").handler(this::checkApiKey);
+        // 모든 /6s9ex74204 경로에 대해 API 키 확인
+        router.route("/6s9ex74204/*").handler(this::checkApiKey);
         
         // Grafana 프록시
-        router.get("/sys9x2k8m4p5/grafana/*").handler(this::proxyToGrafana);
-        router.post("/sys9x2k8m4p5/grafana/*").handler(this::proxyToGrafana);
-        router.put("/sys9x2k8m4p5/grafana/*").handler(this::proxyToGrafana);
-        router.delete("/sys9x2k8m4p5/grafana/*").handler(this::proxyToGrafana);
+        router.get("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
+        router.post("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
+        router.put("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
+        router.delete("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
         
         // Prometheus 프록시
-        router.get("/sys9x2k8m4p5/prometheus/*").handler(this::proxyToPrometheus);
-        router.post("/sys9x2k8m4p5/prometheus/*").handler(this::proxyToPrometheus);
+        router.get("/6s9ex74204/prometheus/*").handler(this::proxyToPrometheus);
+        router.post("/6s9ex74204/prometheus/*").handler(this::proxyToPrometheus);
         
         // 루트 경로는 Grafana로 리다이렉트
-        router.get("/sys9x2k8m4p5").handler(ctx -> {
+        router.get("/6s9ex74204").handler(ctx -> {
             ctx.response()
                 .setStatusCode(302)
-                .putHeader("Location", "/sys9x2k8m4p5/grafana/")
+                .putHeader("Location", "/6s9ex74204/grafana/")
                 .end();
         });
         
@@ -90,7 +90,7 @@ public class MonitoringHandler extends BaseHandler {
      * Grafana로 프록시
      */
     private void proxyToGrafana(RoutingContext ctx) {
-        String path = ctx.request().path().replace("/sys9x2k8m4p5/grafana", "");
+        String path = ctx.request().path().replace("/6s9ex74204/grafana", "");
         if (path.isEmpty() || path.equals("/")) {
             path = "/";
         }
@@ -123,7 +123,7 @@ public class MonitoringHandler extends BaseHandler {
                         
                         // Location 헤더 수정
                         if (key.equalsIgnoreCase("Location") && value.startsWith("/")) {
-                            ctx.response().putHeader("Location", "/sys9x2k8m4p5/grafana" + value);
+                            ctx.response().putHeader("Location", "/6s9ex74204/grafana" + value);
                         } else {
                             ctx.response().putHeader(key, value);
                         }
@@ -149,7 +149,7 @@ public class MonitoringHandler extends BaseHandler {
                         
                         // Location 헤더 수정
                         if (key.equalsIgnoreCase("Location") && value.startsWith("/")) {
-                            ctx.response().putHeader("Location", "/sys9x2k8m4p5/grafana" + value);
+                            ctx.response().putHeader("Location", "/6s9ex74204/grafana" + value);
                         } else {
                             ctx.response().putHeader(key, value);
                         }
@@ -172,7 +172,7 @@ public class MonitoringHandler extends BaseHandler {
      * Prometheus로 프록시
      */
     private void proxyToPrometheus(RoutingContext ctx) {
-        String path = ctx.request().path().replace("/sys9x2k8m4p5/prometheus", "");
+        String path = ctx.request().path().replace("/6s9ex74204/prometheus", "");
         if (path.isEmpty() || path.equals("/")) {
             path = "/";
         }
