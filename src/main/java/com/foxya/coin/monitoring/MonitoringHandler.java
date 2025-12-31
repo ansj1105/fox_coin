@@ -72,7 +72,8 @@ public class MonitoringHandler extends BaseHandler {
         
         // API 키 확인
         if (apiKeyHeader == null || !apiKeyHeader.equals(apiKey)) {
-            log.warn("Invalid API key attempt from {}", ctx.request().remoteAddress());
+            log.warn("Invalid API key attempt from {} - Expected: '{}', Received: '{}'", 
+                ctx.request().remoteAddress(), apiKey, apiKeyHeader);
             ctx.response()
                 .setStatusCode(401)
                 .putHeader("Content-Type", "application/json")

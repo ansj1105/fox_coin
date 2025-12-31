@@ -239,6 +239,9 @@ public class ApiVerticle extends AbstractVerticle {
         String monitoringApiKey = System.getenv("MONITORING_API_KEY");
         if (monitoringApiKey == null || monitoringApiKey.isEmpty()) {
             monitoringApiKey = config().getString("monitoring.apiKey", "default-monitoring-key-change-in-production");
+            log.info("Monitoring API key loaded from config.json: {}", monitoringApiKey);
+        } else {
+            log.info("Monitoring API key loaded from environment variable MONITORING_API_KEY");
         }
         MonitoringHandler monitoringHandler = new MonitoringHandler(vertx, monitoringApiKey);
         
