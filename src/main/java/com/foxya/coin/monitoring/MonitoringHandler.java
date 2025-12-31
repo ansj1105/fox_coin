@@ -5,6 +5,7 @@ import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.ext.web.client.WebClientOptions;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,7 +19,13 @@ public class MonitoringHandler extends BaseHandler {
     
     public MonitoringHandler(Vertx vertx, String apiKey) {
         super(vertx);
-        this.webClient = WebClient.create(vertx);
+        // WebClient 옵션 설정 (타임아웃 증가)
+        WebClientOptions options = new WebClientOptions()
+            .setConnectTimeout(30000)  // 30초
+            .setIdleTimeout(300)       // 5분
+            .setKeepAlive(true)
+            .setMaxPoolSize(10);
+        this.webClient = WebClient.create(vertx, options);
         // API 키는 더 이상 사용하지 않지만 호환성을 위해 파라미터 유지
     }
     
@@ -97,10 +104,11 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana", err);
+                    log.error("Failed to proxy to Grafana: {} - {}", targetUrl, err.getMessage(), err);
                     ctx.response()
                         .setStatusCode(502)
-                        .end("Grafana 서버에 연결할 수 없습니다.");
+                        .putHeader("Content-Type", "text/plain")
+                        .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
                 });
         } else {
             request.send()
@@ -123,10 +131,11 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana", err);
+                    log.error("Failed to proxy to Grafana: {} - {}", targetUrl, err.getMessage(), err);
                     ctx.response()
                         .setStatusCode(502)
-                        .end("Grafana 서버에 연결할 수 없습니다.");
+                        .putHeader("Content-Type", "text/plain")
+                        .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
                 });
         }
     }
