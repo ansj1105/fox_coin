@@ -114,7 +114,7 @@ public class MonitoringHandler extends BaseHandler {
         
         // Body 전송
         if (ctx.body() != null && ctx.body().length() > 0) {
-            request.sendBuffer(ctx.body())
+            request.sendBuffer(ctx.body().buffer())
                 .onSuccess(response -> {
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
@@ -196,7 +196,7 @@ public class MonitoringHandler extends BaseHandler {
         
         // Body 전송
         if (ctx.body() != null && ctx.body().length() > 0) {
-            request.sendBuffer(ctx.body())
+            request.sendBuffer(ctx.body().buffer())
                 .onSuccess(response -> {
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
