@@ -2,7 +2,6 @@ package com.foxya.coin.monitoring;
 
 import com.foxya.coin.common.BaseHandler;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.client.WebClient;
@@ -10,26 +9,24 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 모니터링 페이지 접근 핸들러
- * API 키로 인증
+ * API 키 인증 없이 접근 가능
  */
 @Slf4j
 public class MonitoringHandler extends BaseHandler {
     
     private final WebClient webClient;
-    private final String apiKey;
     
     public MonitoringHandler(Vertx vertx, String apiKey) {
         super(vertx);
         this.webClient = WebClient.create(vertx);
-        this.apiKey = apiKey;
+        // API 키는 더 이상 사용하지 않지만 호환성을 위해 파라미터 유지
     }
     
     @Override
     public Router getRouter() {
         Router router = Router.router(getVertx());
         
-        // 모든 /6s9ex74204 경로에 대해 API 키 확인
-        router.route("/6s9ex74204/*").handler(this::checkApiKey);
+        // API 키 확인 제거 - 모든 요청 허용
         
         // Grafana 프록시
         router.get("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
@@ -50,41 +47,6 @@ public class MonitoringHandler extends BaseHandler {
         });
         
         return router;
-    }
-    
-    /**
-     * API 키 확인
-     */
-    private void checkApiKey(RoutingContext ctx) {
-        // 헤더에서 API 키 확인 (X-API-Key 또는 Authorization)
-        String apiKeyHeader = ctx.request().getHeader("X-API-Key");
-        if (apiKeyHeader == null || apiKeyHeader.isEmpty()) {
-            apiKeyHeader = ctx.request().getHeader("Authorization");
-            if (apiKeyHeader != null && apiKeyHeader.startsWith("Bearer ")) {
-                apiKeyHeader = apiKeyHeader.substring(7);
-            }
-        }
-        
-        // 쿼리 파라미터에서도 확인
-        if (apiKeyHeader == null || apiKeyHeader.isEmpty()) {
-            apiKeyHeader = ctx.request().getParam("apiKey");
-        }
-        
-        // API 키 확인
-        if (apiKeyHeader == null || !apiKeyHeader.equals(apiKey)) {
-            log.warn("Invalid API key attempt from {} - Expected: '{}', Received: '{}'", 
-                ctx.request().remoteAddress(), apiKey, apiKeyHeader);
-            ctx.response()
-                .setStatusCode(401)
-                .putHeader("Content-Type", "application/json")
-                .end(new JsonObject()
-                    .put("error", "Unauthorized")
-                    .put("message", "유효한 API 키가 필요합니다.")
-                    .encode());
-            return;
-        }
-        
-        ctx.next();
     }
     
     /**
