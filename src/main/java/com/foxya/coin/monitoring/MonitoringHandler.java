@@ -65,10 +65,9 @@ public class MonitoringHandler extends BaseHandler {
             path = "/";
         }
         
-        String targetUrl = "http://grafana:3000" + path;
-        if (ctx.request().query() != null && !ctx.request().query().isEmpty()) {
-            targetUrl += "?" + ctx.request().query();
-        }
+        final String queryString = ctx.request().query() != null && !ctx.request().query().isEmpty() 
+            ? "?" + ctx.request().query() : "";
+        final String targetUrl = "http://grafana:3000" + path + queryString;
         
         log.debug("Proxying to Grafana: {} {}", ctx.request().method(), targetUrl);
         
