@@ -19,12 +19,14 @@ public class MonitoringHandler extends BaseHandler {
     
     public MonitoringHandler(Vertx vertx, String apiKey) {
         super(vertx);
-        // WebClient 옵션 설정 (타임아웃 증가)
+        // WebClient 옵션 설정 (타임아웃 증가, 리다이렉트 자동 따라가기)
         WebClientOptions options = new WebClientOptions()
             .setConnectTimeout(30000)  // 30초
             .setIdleTimeout(300)       // 5분
             .setKeepAlive(true)
-            .setMaxPoolSize(10);
+            .setMaxPoolSize(10)
+            .setFollowRedirects(true)  // 리다이렉트 자동 따라가기
+            .setMaxRedirects(5);       // 최대 5번까지 리다이렉트 따라가기
         this.webClient = WebClient.create(vertx, options);
         // API 키는 더 이상 사용하지 않지만 호환성을 위해 파라미터 유지
     }
