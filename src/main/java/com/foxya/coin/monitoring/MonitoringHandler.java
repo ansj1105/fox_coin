@@ -21,12 +21,17 @@ public class MonitoringHandler extends BaseHandler {
         super(vertx);
         // WebClient 옵션 설정 (타임아웃 증가, 리다이렉트 자동 따라가기)
         WebClientOptions options = new WebClientOptions()
-            .setConnectTimeout(30000)  // 30초
-            .setIdleTimeout(300)       // 5분
+            .setConnectTimeout(10000)  // 10초 (연결 타임아웃)
+            .setIdleTimeout(60)        // 1분 (유휴 타임아웃)
             .setKeepAlive(true)
+            .setKeepAliveTimeout(30)   // Keep-Alive 타임아웃 30초
             .setMaxPoolSize(10)
-            .setFollowRedirects(true)  // 리다이렉트 자동 따라가기
-            .setMaxRedirects(5);       // 최대 5번까지 리다이렉트 따라가기
+            .setMaxWaitQueueSize(20)   // 대기 큐 크기
+            .setReuseAddress(true)     // 주소 재사용
+            .setReusePort(true)        // 포트 재사용
+            .setTcpKeepAlive(true)      // TCP Keep-Alive
+            .setFollowRedirects(true)   // 리다이렉트 자동 따라가기
+            .setMaxRedirects(5);        // 최대 5번까지 리다이렉트 따라가기
         this.webClient = WebClient.create(vertx, options);
         // API 키는 더 이상 사용하지 않지만 호환성을 위해 파라미터 유지
     }
@@ -99,8 +104,8 @@ public class MonitoringHandler extends BaseHandler {
         
         var request = webClient.request(ctx.request().method(), 3000, "grafana", path);
         
-        // 타임아웃 설정 (10초로 단축하여 빠른 실패)
-        request.timeout(10000);
+        // 타임아웃 설정 (15초로 설정하여 빠른 실패)
+        request.timeout(15000);
         
         // 헤더 복사 (Host 제외)
         ctx.request().headers().forEach(entry -> {
