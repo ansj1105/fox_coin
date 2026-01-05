@@ -71,10 +71,12 @@ public class MonitoringHandler extends BaseHandler {
         
         log.info("Proxying to Grafana: {} {} (path: {})", ctx.request().method(), targetUrl, path);
         
+        long startTime = System.currentTimeMillis();
+        
         var request = webClient.request(ctx.request().method(), 3000, "grafana", path);
         
-        // 타임아웃 설정 (30초)
-        request.timeout(30000);
+        // 타임아웃 설정 (10초로 단축하여 빠른 실패)
+        request.timeout(10000);
         
         // 헤더 복사 (Host 제외)
         ctx.request().headers().forEach(entry -> {
@@ -88,7 +90,8 @@ public class MonitoringHandler extends BaseHandler {
         if (ctx.body() != null && ctx.body().length() > 0) {
             request.sendBuffer(ctx.body().buffer())
                 .onSuccess(response -> {
-                    log.info("Grafana response received: status={}", response.statusCode());
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.info("Grafana response received: status={}, duration={}ms", response.statusCode(), duration);
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
@@ -107,8 +110,9 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}", 
-                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), err);
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}, Duration: {}ms", 
+                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), duration, err);
                     if (!ctx.response().ended()) {
                         ctx.response()
                             .setStatusCode(502)
@@ -119,7 +123,8 @@ public class MonitoringHandler extends BaseHandler {
         } else {
             request.send()
                 .onSuccess(response -> {
-                    log.info("Grafana response received: status={}", response.statusCode());
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.info("Grafana response received: status={}, duration={}ms", response.statusCode(), duration);
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
@@ -138,8 +143,9 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}", 
-                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), err);
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}, Duration: {}ms", 
+                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), duration, err);
                     if (!ctx.response().ended()) {
                         ctx.response()
                             .setStatusCode(502)
