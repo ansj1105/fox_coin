@@ -19,19 +19,18 @@ public class MonitoringHandler extends BaseHandler {
     
     public MonitoringHandler(Vertx vertx, String apiKey) {
         super(vertx);
-        // WebClient 옵션 설정 (타임아웃 증가, 리다이렉트 자동 따라가기)
+        // WebClient 옵션 설정 (타임아웃 증가, 리다이렉트는 수동 처리)
         WebClientOptions options = new WebClientOptions()
             .setConnectTimeout(10000)  // 10초 (연결 타임아웃)
-            .setIdleTimeout(60)        // 1분 (유휴 타임아웃)
+            .setIdleTimeout(120)      // 2분 (유휴 타임아웃 - Grafana 응답 대기)
             .setKeepAlive(true)
             .setKeepAliveTimeout(30)   // Keep-Alive 타임아웃 30초
             .setMaxPoolSize(10)
             .setMaxWaitQueueSize(20)   // 대기 큐 크기
             .setReuseAddress(true)     // 주소 재사용
             .setReusePort(true)        // 포트 재사용
-            .setTcpKeepAlive(true)      // TCP Keep-Alive
-            .setFollowRedirects(true)   // 리다이렉트 자동 따라가기
-            .setMaxRedirects(5);        // 최대 5번까지 리다이렉트 따라가기
+            .setTcpKeepAlive(true)     // TCP Keep-Alive
+            .setFollowRedirects(false); // 리다이렉트는 수동 처리 (무한 루프 방지)
         this.webClient = WebClient.create(vertx, options);
         // API 키는 더 이상 사용하지 않지만 호환성을 위해 파라미터 유지
     }
@@ -154,27 +153,12 @@ public class MonitoringHandler extends BaseHandler {
                     if (response.statusCode() == 301 || response.statusCode() == 302) {
                         String location = response.getHeader("Location");
                         if (location != null && !location.isEmpty()) {
-                            log.info("Grafana redirect detected: {}", location);
-                            // 리다이렉트를 루트로 변경 (Grafana가 subpath로 리다이렉트하는 경우)
-                            if (location.contains("/6s9ex74204/grafana")) {
-                                // 이미 subpath가 포함되어 있으면 그대로 사용
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", location)
-                                    .end();
-                            } else if (location.startsWith("/")) {
-                                // 상대 경로인 경우 subpath 추가
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", "/6s9ex74204/grafana" + location)
-                                    .end();
-                            } else {
-                                // 절대 URL인 경우 그대로 사용
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", location)
-                                    .end();
-                            }
+                            String newLocation = convertGrafanaRedirectLocation(location);
+                            log.info("Grafana redirect detected: {} -> {}", location, newLocation);
+                            ctx.response()
+                                .setStatusCode(response.statusCode())
+                                .putHeader("Location", newLocation)
+                                .end();
                             return;
                         }
                     }
