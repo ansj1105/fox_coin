@@ -77,6 +77,31 @@ public class MonitoringHandler extends BaseHandler {
     }
     
     /**
+     * Grafana 리다이렉트 Location 헤더를 내부 경로로 변환
+     */
+    private String convertGrafanaRedirectLocation(String location) {
+        if (location == null || location.isEmpty()) {
+            return location;
+        }
+        
+        // 외부 URL을 내부 경로로 변환
+        if (location.contains("https://korion.io.kr/6s9ex74204/grafana")) {
+            return location.replace("https://korion.io.kr", "");
+        } else if (location.contains("http://korion.io.kr/6s9ex74204/grafana")) {
+            return location.replace("http://korion.io.kr", "");
+        } else if (location.contains("/6s9ex74204/grafana")) {
+            // 이미 subpath가 포함되어 있으면 그대로 사용
+            return location;
+        } else if (location.startsWith("/")) {
+            // 상대 경로인 경우 subpath 추가
+            return "/6s9ex74204/grafana" + location;
+        }
+        
+        // 절대 URL이지만 위 패턴에 맞지 않는 경우 그대로 반환
+        return location;
+    }
+    
+    /**
      * Grafana로 프록시
      */
     private void proxyToGrafana(RoutingContext ctx) {
@@ -189,27 +214,12 @@ public class MonitoringHandler extends BaseHandler {
                     if (response.statusCode() == 301 || response.statusCode() == 302) {
                         String location = response.getHeader("Location");
                         if (location != null && !location.isEmpty()) {
-                            log.info("Grafana redirect detected: {}", location);
-                            // 리다이렉트를 루트로 변경 (Grafana가 subpath로 리다이렉트하는 경우)
-                            if (location.contains("/6s9ex74204/grafana")) {
-                                // 이미 subpath가 포함되어 있으면 그대로 사용
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", location)
-                                    .end();
-                            } else if (location.startsWith("/")) {
-                                // 상대 경로인 경우 subpath 추가
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", "/6s9ex74204/grafana" + location)
-                                    .end();
-                            } else {
-                                // 절대 URL인 경우 그대로 사용
-                                ctx.response()
-                                    .setStatusCode(response.statusCode())
-                                    .putHeader("Location", location)
-                                    .end();
-                            }
+                            String newLocation = convertGrafanaRedirectLocation(location);
+                            log.info("Grafana redirect detected: {} -> {}", location, newLocation);
+                            ctx.response()
+                                .setStatusCode(response.statusCode())
+                                .putHeader("Location", newLocation)
+                                .end();
                             return;
                         }
                     }
@@ -220,8 +230,9 @@ public class MonitoringHandler extends BaseHandler {
                         String value = entry.getValue();
                         
                         // Location 헤더 수정
-                        if (key.equalsIgnoreCase("Location") && value.startsWith("/")) {
-                            ctx.response().putHeader("Location", "/6s9ex74204/grafana" + value);
+                        if (key.equalsIgnoreCase("Location")) {
+                            String newLocation = convertGrafanaRedirectLocation(value);
+                            ctx.response().putHeader("Location", newLocation);
                         } else {
                             ctx.response().putHeader(key, value);
                         }
