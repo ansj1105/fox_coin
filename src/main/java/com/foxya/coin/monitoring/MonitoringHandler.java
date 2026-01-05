@@ -84,11 +84,14 @@ public class MonitoringHandler extends BaseHandler {
             return location;
         }
         
-        // 외부 URL을 내부 경로로 변환
+        // 외부 URL 또는 내부 URL을 내부 경로로 변환
         if (location.contains("https://korion.io.kr/6s9ex74204/grafana")) {
             return location.replace("https://korion.io.kr", "");
         } else if (location.contains("http://korion.io.kr/6s9ex74204/grafana")) {
             return location.replace("http://korion.io.kr", "");
+        } else if (location.contains("http://localhost:8080/6s9ex74204/grafana")) {
+            // 내부 경로로 설정된 경우도 변환
+            return location.replace("http://localhost:8080", "");
         } else if (location.contains("/6s9ex74204/grafana")) {
             // 이미 subpath가 포함되어 있으면 그대로 사용
             return location;

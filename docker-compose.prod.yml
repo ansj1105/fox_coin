@@ -173,8 +173,9 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      # GF_SERVER_ROOT_URL 제거 - 백엔드 프록시를 통해 접근하므로 내부에서는 루트 경로 사용
-      # 외부 접근 시 nginx와 백엔드가 경로를 처리하므로 Grafana는 리다이렉트하지 않도록 설정
+      # 내부 경로로 설정하여 정적 파일 경로를 올바르게 생성하도록 함
+      # 백엔드 프록시가 경로를 처리하므로 내부 경로 사용
+      - GF_SERVER_ROOT_URL=http://localhost:8080/6s9ex74204/grafana
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
