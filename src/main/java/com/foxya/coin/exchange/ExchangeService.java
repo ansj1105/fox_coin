@@ -8,6 +8,7 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.exchange.dto.ExchangeRequestDto;
 import com.foxya.coin.exchange.dto.ExchangeResponseDto;
+import com.foxya.coin.exchange.dto.ExchangeInfoDto;
 import com.foxya.coin.exchange.entities.Exchange;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -17,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -172,6 +175,25 @@ public class ExchangeService extends BaseService {
                                 .createdAt(exchange.getCreatedAt())
                                 .build()));
             });
+    }
+    
+    /**
+     * 환전 정보 조회
+     */
+    public Future<ExchangeInfoDto> getExchangeInfo(String currencyCode) {
+        Map<String, BigDecimal> minExchangeAmountByCurrency = new HashMap<>();
+        if (currencyCode != null && "KRWT".equals(currencyCode)) {
+            minExchangeAmountByCurrency.put("KRWT", MIN_EXCHANGE_AMOUNT);
+        }
+        
+        return Future.succeededFuture(ExchangeInfoDto.builder()
+            .exchangeRate(EXCHANGE_RATE)
+            .minExchangeAmount(MIN_EXCHANGE_AMOUNT)
+            .minExchangeAmountByCurrency(minExchangeAmountByCurrency.isEmpty() ? null : minExchangeAmountByCurrency)
+            .fromCurrency("KRWT")
+            .toCurrency("BLUEDIA")
+            .note("환전 비율: 1 KRWT = " + EXCHANGE_RATE + " BLUEDIA")
+            .build());
     }
 }
 

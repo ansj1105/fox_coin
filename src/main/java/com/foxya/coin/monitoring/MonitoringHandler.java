@@ -69,9 +69,12 @@ public class MonitoringHandler extends BaseHandler {
             ? "?" + ctx.request().query() : "";
         final String targetUrl = "http://grafana:3000" + path + queryString;
         
-        log.debug("Proxying to Grafana: {} {}", ctx.request().method(), targetUrl);
+        log.info("Proxying to Grafana: {} {} (path: {})", ctx.request().method(), targetUrl, path);
         
         var request = webClient.request(ctx.request().method(), 3000, "grafana", path);
+        
+        // 타임아웃 설정 (30초)
+        request.timeout(30000);
         
         // 헤더 복사 (Host 제외)
         ctx.request().headers().forEach(entry -> {
@@ -85,6 +88,7 @@ public class MonitoringHandler extends BaseHandler {
         if (ctx.body() != null && ctx.body().length() > 0) {
             request.sendBuffer(ctx.body().buffer())
                 .onSuccess(response -> {
+                    log.info("Grafana response received: status={}", response.statusCode());
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
@@ -103,15 +107,19 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana: {} - {}", targetUrl, err.getMessage(), err);
-                    ctx.response()
-                        .setStatusCode(502)
-                        .putHeader("Content-Type", "text/plain")
-                        .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
+                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}", 
+                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), err);
+                    if (!ctx.response().ended()) {
+                        ctx.response()
+                            .setStatusCode(502)
+                            .putHeader("Content-Type", "text/plain")
+                            .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
+                    }
                 });
         } else {
             request.send()
                 .onSuccess(response -> {
+                    log.info("Grafana response received: status={}", response.statusCode());
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
@@ -130,11 +138,14 @@ public class MonitoringHandler extends BaseHandler {
                         .end(response.body());
                 })
                 .onFailure(err -> {
-                    log.error("Failed to proxy to Grafana: {} - {}", targetUrl, err.getMessage(), err);
-                    ctx.response()
-                        .setStatusCode(502)
-                        .putHeader("Content-Type", "text/plain")
-                        .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
+                    log.error("Failed to proxy to Grafana: {} - Error: {}, Class: {}", 
+                        targetUrl, err.getMessage(), err.getClass().getSimpleName(), err);
+                    if (!ctx.response().ended()) {
+                        ctx.response()
+                            .setStatusCode(502)
+                            .putHeader("Content-Type", "text/plain")
+                            .end("Grafana 서버에 연결할 수 없습니다: " + err.getMessage());
+                    }
                 });
         }
     }

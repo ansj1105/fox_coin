@@ -46,6 +46,11 @@ public class ExchangeHandler extends BaseHandler {
             .handler(exchangeValidation(parser))
             .handler(this::executeExchange);
         
+        // 환전 정보 조회
+        router.get("/info")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getExchangeInfo);
+        
         // 환전 상세 조회
         router.get("/:exchangeId")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -84,6 +89,17 @@ public class ExchangeHandler extends BaseHandler {
         log.info("환전 실행 요청 - userId: {}, fromAmount: {}", userId, dto.getFromAmount());
         
         response(ctx, exchangeService.executeExchange(userId, dto, requestIp));
+    }
+    
+    /**
+     * 환전 정보 조회
+     */
+    private void getExchangeInfo(RoutingContext ctx) {
+        String currencyCode = ctx.queryParams().get("currencyCode");
+        
+        log.info("환전 정보 조회 - currencyCode: {}", currencyCode);
+        
+        response(ctx, exchangeService.getExchangeInfo(currencyCode));
     }
     
     /**
