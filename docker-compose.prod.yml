@@ -173,8 +173,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      # nginx에서 직접 프록시하므로 리다이렉트 방지
-      - GF_SERVER_ROOT_URL=http://localhost:3001/6s9ex74204/grafana
+      # nginx에서 직접 프록시하므로 외부 URL로 설정 (리다이렉트 방지)
+      - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana
       # 리다이렉트 방지 설정
       - GF_SERVER_ENABLE_GZIP=true
     volumes:
