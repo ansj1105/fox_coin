@@ -92,6 +92,36 @@ public class MonitoringHandler extends BaseHandler {
                 .onSuccess(response -> {
                     long duration = System.currentTimeMillis() - startTime;
                     log.info("Grafana response received: status={}, duration={}ms", response.statusCode(), duration);
+                    
+                    // 301/302 리다이렉트 처리
+                    if (response.statusCode() == 301 || response.statusCode() == 302) {
+                        String location = response.getHeader("Location");
+                        if (location != null && !location.isEmpty()) {
+                            log.info("Grafana redirect detected: {}", location);
+                            // 리다이렉트를 루트로 변경 (Grafana가 subpath로 리다이렉트하는 경우)
+                            if (location.contains("/6s9ex74204/grafana")) {
+                                // 이미 subpath가 포함되어 있으면 그대로 사용
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", location)
+                                    .end();
+                            } else if (location.startsWith("/")) {
+                                // 상대 경로인 경우 subpath 추가
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", "/6s9ex74204/grafana" + location)
+                                    .end();
+                            } else {
+                                // 절대 URL인 경우 그대로 사용
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", location)
+                                    .end();
+                            }
+                            return;
+                        }
+                    }
+                    
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
@@ -125,6 +155,36 @@ public class MonitoringHandler extends BaseHandler {
                 .onSuccess(response -> {
                     long duration = System.currentTimeMillis() - startTime;
                     log.info("Grafana response received: status={}, duration={}ms", response.statusCode(), duration);
+                    
+                    // 301/302 리다이렉트 처리
+                    if (response.statusCode() == 301 || response.statusCode() == 302) {
+                        String location = response.getHeader("Location");
+                        if (location != null && !location.isEmpty()) {
+                            log.info("Grafana redirect detected: {}", location);
+                            // 리다이렉트를 루트로 변경 (Grafana가 subpath로 리다이렉트하는 경우)
+                            if (location.contains("/6s9ex74204/grafana")) {
+                                // 이미 subpath가 포함되어 있으면 그대로 사용
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", location)
+                                    .end();
+                            } else if (location.startsWith("/")) {
+                                // 상대 경로인 경우 subpath 추가
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", "/6s9ex74204/grafana" + location)
+                                    .end();
+                            } else {
+                                // 절대 URL인 경우 그대로 사용
+                                ctx.response()
+                                    .setStatusCode(response.statusCode())
+                                    .putHeader("Location", location)
+                                    .end();
+                            }
+                            return;
+                        }
+                    }
+                    
                     // 응답 헤더 복사
                     response.headers().forEach(entry -> {
                         String key = entry.getKey();
