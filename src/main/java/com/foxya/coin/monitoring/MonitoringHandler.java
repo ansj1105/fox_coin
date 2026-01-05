@@ -43,6 +43,19 @@ public class MonitoringHandler extends BaseHandler {
         router.put("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
         router.delete("/6s9ex74204/grafana/*").handler(this::proxyToGrafana);
         
+        // Grafana 정적 파일 프록시 (Grafana가 /public/... 경로로 요청하는 경우)
+        // Referer 헤더를 확인하여 Grafana에서 온 요청만 처리 (프론트엔드 보호)
+        router.get("/public/*").handler(ctx -> {
+            String referer = ctx.request().getHeader("Referer");
+            // Grafana에서 온 요청인지 확인 (referer에 /6s9ex74204/grafana 포함)
+            if (referer != null && referer.contains("/6s9ex74204/grafana")) {
+                proxyToGrafana(ctx);
+            } else {
+                // 프론트엔드 요청이면 다음 핸들러로 전달 (404 반환)
+                ctx.response().setStatusCode(404).end();
+            }
+        });
+        
         // Prometheus 프록시
         router.get("/6s9ex74204/prometheus/*").handler(this::proxyToPrometheus);
         router.post("/6s9ex74204/prometheus/*").handler(this::proxyToPrometheus);
@@ -62,9 +75,18 @@ public class MonitoringHandler extends BaseHandler {
      * Grafana로 프록시
      */
     private void proxyToGrafana(RoutingContext ctx) {
-        String path = ctx.request().path().replace("/6s9ex74204/grafana", "");
-        if (path.isEmpty() || path.equals("/")) {
-            path = "/";
+        String requestPath = ctx.request().path();
+        String path;
+        
+        // /public/... 또는 /api/... 경로인 경우 (Grafana 정적 파일/API 요청)
+        if (requestPath.startsWith("/public/") || requestPath.startsWith("/api/")) {
+            path = requestPath;  // 경로 그대로 사용
+        } else {
+            // /6s9ex74204/grafana/... 경로인 경우
+            path = requestPath.replace("/6s9ex74204/grafana", "");
+            if (path.isEmpty() || path.equals("/")) {
+                path = "/";
+            }
         }
         
         final String queryString = ctx.request().query() != null && !ctx.request().query().isEmpty() 
