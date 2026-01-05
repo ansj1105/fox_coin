@@ -178,8 +178,6 @@ services:
       # 쿠키 설정 (subpath에서 인증 문제 해결)
       - GF_SERVER_COOKIE_SAMESITE=none
       - GF_SERVER_COOKIE_SECURE=true
-      # 쿠키 경로를 subpath로 설정 (인증 문제 해결)
-      - GF_AUTH_ANONYMOUS_ENABLED=false
       # 리다이렉트 방지
       - GF_SERVER_ENABLE_GZIP=true
     volumes:
