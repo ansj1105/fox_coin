@@ -88,6 +88,9 @@ import com.foxya.coin.inquiry.InquiryService;
 import com.foxya.coin.mission.MissionHandler;
 import com.foxya.coin.mission.MissionRepository;
 import com.foxya.coin.mission.MissionService;
+import com.foxya.coin.airdrop.AirdropHandler;
+import com.foxya.coin.airdrop.AirdropRepository;
+import com.foxya.coin.airdrop.AirdropService;
 import com.foxya.coin.monitoring.MonitoringHandler;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
@@ -143,6 +146,7 @@ public class ApiVerticle extends AbstractVerticle {
         AgencyRepository agencyRepository = new AgencyRepository();
         InquiryRepository inquiryRepository = new InquiryRepository();
         MissionRepository missionRepository = new MissionRepository();
+        AirdropRepository airdropRepository = new AirdropRepository();
         
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
@@ -209,6 +213,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, inquiryRepository, userService);
         MissionService missionService = new MissionService(
             pool, missionRepository);
+        AirdropService airdropService = new AirdropService(
+            pool, airdropRepository, currencyRepository, transferRepository);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -234,6 +240,7 @@ public class ApiVerticle extends AbstractVerticle {
         SecurityHandler securityHandler = new SecurityHandler(vertx, userService, jwtAuth);
         InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
         MissionHandler missionHandler = new MissionHandler(vertx, missionService, jwtAuth);
+        AirdropHandler airdropHandler = new AirdropHandler(vertx, airdropService, jwtAuth);
         
         // 모니터링 API 키 (환경 변수 또는 config에서 가져오기)
         String monitoringApiKey = System.getenv("MONITORING_API_KEY");
@@ -314,6 +321,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 토큰 입금 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
+        
+        // 에어드랍 API
+        mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
         
         // 보안 API (거래 비밀번호 등)
         mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
