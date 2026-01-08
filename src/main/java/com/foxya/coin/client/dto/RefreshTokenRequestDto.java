@@ -1,15 +1,13 @@
-package com.foxya.coin.airdrop.dto;
+package com.foxya.coin.client.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
-public class AirdropTransferRequestDto {
-    private BigDecimal amount;
+public class RefreshTokenRequestDto {
+    private String refreshToken;
 }
 

@@ -1,39 +1,23 @@
 package com.foxya.coin.airdrop.dto;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * 에어드랍 Phase DTO
- */
-@Data
-@Builder
+@Getter
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder
 public class AirdropPhaseDto {
-    
-    @JsonProperty("id")
     private Long id;
-    
-    @JsonProperty("phase")
     private Integer phase;
-    
-    @JsonProperty("status")
-    private String status;              // RELEASED, PROCESSING
-    
-    @JsonProperty("amount")
+    private String status;
     private BigDecimal amount;
-    
-    @JsonProperty("unlockDate")
     private LocalDateTime unlockDate;
-    
-    @JsonProperty("daysRemaining")
     private Integer daysRemaining;
 }
 

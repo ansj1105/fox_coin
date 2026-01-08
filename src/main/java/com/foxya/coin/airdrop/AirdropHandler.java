@@ -1,11 +1,5 @@
 package com.foxya.coin.airdrop;
 
-import com.foxya.coin.airdrop.dto.AirdropTransferRequestDto;
-import com.foxya.coin.common.BaseHandler;
-import com.foxya.coin.common.enums.UserRole;
-import com.foxya.coin.common.utils.AuthUtils;
-import com.foxya.coin.common.utils.Utils;
-import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
@@ -13,6 +7,11 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
+import com.foxya.coin.airdrop.dto.AirdropTransferRequestDto;
+import com.foxya.coin.common.BaseHandler;
+import com.foxya.coin.common.enums.UserRole;
+import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.common.utils.Utils;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -37,17 +36,16 @@ public class AirdropHandler extends BaseHandler {
         
         SchemaParser parser = createSchemaParser();
         
-        // 모든 에어드랍 API에 JWT 인증 적용
+        // 모든 API에 JWT 인증 적용
         router.route().handler(JWTAuthHandler.create(jwtAuth));
+        router.route().handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN));
         
         // 에어드랍 상태 조회
         router.get("/status")
-            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getAirdropStatus);
         
         // 에어드랍 전송
         router.post("/transfer")
-            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(transferValidation(parser))
             .handler(this::transferAirdrop);
         
@@ -55,9 +53,9 @@ public class AirdropHandler extends BaseHandler {
     }
     
     /**
-     * 에어드랍 전송 Validation
+     * 전송 Validation
      */
-    private Handler<RoutingContext> transferValidation(SchemaParser parser) {
+    private ValidationHandler transferValidation(SchemaParser parser) {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
@@ -72,9 +70,7 @@ public class AirdropHandler extends BaseHandler {
      */
     private void getAirdropStatus(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
-        
-        log.info("에어드랍 상태 조회 - userId: {}", userId);
-        
+        log.info("에어드랍 상태 조회 요청 - userId: {}", userId);
         response(ctx, airdropService.getAirdropStatus(userId));
     }
     
@@ -83,14 +79,12 @@ public class AirdropHandler extends BaseHandler {
      */
     private void transferAirdrop(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
-        
         AirdropTransferRequestDto dto = getObjectMapper().convertValue(
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             AirdropTransferRequestDto.class
         );
         
         log.info("에어드랍 전송 요청 - userId: {}, amount: {}", userId, dto.getAmount());
-        
         response(ctx, airdropService.transferAirdrop(userId, dto));
     }
 }

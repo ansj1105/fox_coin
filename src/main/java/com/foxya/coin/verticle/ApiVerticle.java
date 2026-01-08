@@ -91,6 +91,9 @@ import com.foxya.coin.mission.MissionService;
 import com.foxya.coin.airdrop.AirdropHandler;
 import com.foxya.coin.airdrop.AirdropRepository;
 import com.foxya.coin.airdrop.AirdropService;
+import com.foxya.coin.client.ClientHandler;
+import com.foxya.coin.client.ClientRepository;
+import com.foxya.coin.client.ClientService;
 import com.foxya.coin.monitoring.MonitoringHandler;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
@@ -215,6 +218,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, missionRepository);
         AirdropService airdropService = new AirdropService(
             pool, airdropRepository, currencyRepository, transferRepository);
+        ClientRepository clientRepository = new ClientRepository();
+        ClientService clientService = new ClientService(pool, clientRepository, jwtAuth);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -241,6 +246,7 @@ public class ApiVerticle extends AbstractVerticle {
         InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
         MissionHandler missionHandler = new MissionHandler(vertx, missionService, jwtAuth);
         AirdropHandler airdropHandler = new AirdropHandler(vertx, airdropService, jwtAuth);
+        ClientHandler clientHandler = new ClientHandler(vertx, clientService, jwtAuth);
         
         // 모니터링 API 키 (환경 변수 또는 config에서 가져오기)
         String monitoringApiKey = System.getenv("MONITORING_API_KEY");
@@ -324,6 +330,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 에어드랍 API
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
+        
+        // 클라이언트 API (API Key 기반 토큰 발급 및 유저 데이터 수신)
+        mainRouter.mountSubRouter("/api/v1/client", clientHandler.getRouter());
         
         // 보안 API (거래 비밀번호 등)
         mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
