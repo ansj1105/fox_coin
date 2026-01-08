@@ -921,7 +921,7 @@ components:
           type: integer
           format: int64
           nullable: true
-          description: 관련 ID (예: 입금 ID, 출금 ID 등)
+          description: "관련 ID (예: 입금 ID, 출금 ID 등)"
         metadata:
           type: object
           nullable: true
