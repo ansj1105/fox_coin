@@ -394,6 +394,7 @@ public class ApiVerticle extends AbstractVerticle {
     private void setupGlobalHandlers(Router router) {
         // CORS
         router.route().handler(CorsHandler.create()
+            .addOrigin("https://app.korion.io.kr")
             .addRelativeOrigin(".*")
             .allowedMethod(HttpMethod.GET)
             .allowedMethod(HttpMethod.POST)

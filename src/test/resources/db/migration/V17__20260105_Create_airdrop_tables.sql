@@ -68,3 +68,4 @@ CREATE INDEX IDX_airdrop_transfers_user_id ON airdrop_transfers(user_id);
 CREATE INDEX IDX_airdrop_transfers_transfer_id ON airdrop_transfers(transfer_id);
 CREATE INDEX IDX_airdrop_transfers_status ON airdrop_transfers(status);
 
+
