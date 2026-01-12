@@ -62,7 +62,8 @@
                                  },
                   "google":  {
                                  "clientSecret":  "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",
-                                 "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com"
+                                 "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
+                                 "redirectUri":  "http://localhost:3000/auth/google/callback"
                              }
               },
     "local-cluster":  {
@@ -133,7 +134,8 @@
                                          },
                           "google":  {
                                          "clientSecret":  "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",
-                                         "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com"
+                                         "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
+                                         "redirectUri":  "http://localhost:3000/auth/google/callback"
                                      }
                       },
     "prod":  {
@@ -198,7 +200,8 @@
                                 },
                  "google":  {
                                 "clientSecret":  "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",
-                                "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com"
+                                "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
+                                "redirectUri":  "https://korion.io.kr/auth/google/callback"
                             }
              },
     "prod-sentinel":  {
@@ -267,7 +270,8 @@
                                          },
                           "google":  {
                                          "clientSecret":  "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",
-                                         "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com"
+                                         "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
+                                         "redirectUri":  "https://korion.io.kr/auth/google/callback"
                                      }
                       }
 }
