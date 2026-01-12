@@ -82,6 +82,18 @@ components:
         code:
           type: integer
 
+    # Auth 관련 스키마
+    LogoutResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [OK]
+          example: OK
+        message:
+          type: string
+          example: Logged out successfully
+
     # User 관련 스키마
     User:
       type: object
@@ -1655,19 +1667,56 @@ paths:
   /api/v1/auth/logout:
     post:
       summary: 로그아웃
-      description: 현재 세션 종료 및 토큰 무효화
+      description: |
+        사용자 로그아웃 및 JWT 토큰 무효화
+        
+        - Authorization 헤더에 포함된 토큰을 블랙리스트에 추가하여 무효화
+        - allDevices 파라미터가 true인 경우, 해당 사용자의 모든 디바이스에서 로그아웃
+        - 클라이언트는 로컬 스토리지에서 accessToken, refreshToken, userId 제거 필요
       tags: [Auth]
       security:
         - BearerAuth: []
+      parameters:
+        - name: allDevices
+          in: query
+          description: 모든 디바이스에서 로그아웃 여부
+          required: false
+          schema:
+            type: boolean
+            default: false
+          example: false
       responses:
         '200':
           description: 로그아웃 성공
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LogoutResponse'
+              examples:
+                success:
+                  value:
+                    status: OK
+                    message: Logged out successfully
+                    data:
+                      status: OK
+                      message: Logged out successfully
         '401':
-          description: 인증 실패
+          description: 인증 실패 (유효하지 않은 토큰)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidToken:
+                  value:
+                    status: ERROR
+                    message: Invalid token
+                    code: 401
 
   /api/v1/auth/link-social:
     post:

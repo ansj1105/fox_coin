@@ -221,8 +221,18 @@ public class AuthHandler extends BaseHandler {
     private void logout(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         
-        log.info("Logout request from user: {}", userId);
-        response(ctx, authService.logout(userId));
+        // Authorization 헤더에서 토큰 추출
+        String authHeader = ctx.request().getHeader("Authorization");
+        String token = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        }
+        
+        // 모든 디바이스 로그아웃 여부 확인 (쿼리 파라미터)
+        boolean allDevices = Boolean.parseBoolean(ctx.request().getParam("allDevices", "false"));
+        
+        log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
+        response(ctx, authService.logout(userId, token, allDevices));
     }
     
     /**

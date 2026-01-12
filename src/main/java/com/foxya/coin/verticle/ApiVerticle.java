@@ -98,6 +98,12 @@ import com.foxya.coin.monitoring.MonitoringHandler;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import com.foxya.coin.common.metrics.MetricsCollector;
+import io.vertx.redis.client.Redis;
+import io.vertx.redis.client.RedisAPI;
+import io.vertx.redis.client.RedisClientType;
+import io.vertx.redis.client.RedisOptions;
+import io.vertx.redis.client.RedisReplicas;
+import io.vertx.core.json.JsonArray;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -154,13 +160,17 @@ public class ApiVerticle extends AbstractVerticle {
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
 
+        // Redis 초기화 (토큰 블랙리스트용)
+        JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
+        RedisAPI redisApi = initializeRedis(redisConfig);
+        
         // UserService를 먼저 생성 (AuthService에서 사용)
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
         
         // Service 초기화
         AuthService authService = new AuthService(
-            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository);
+            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository, redisApi);
         
         // WebClient 초기화 (외부 API 호출용)
         WebClient webClient = WebClient.create(vertx);
@@ -543,6 +553,99 @@ public class ApiVerticle extends AbstractVerticle {
             </body>
             </html>
             """;
+    }
+    
+    /**
+     * Redis 초기화 (토큰 블랙리스트용)
+     * Redis가 없어도 서비스는 동작하도록 null을 반환할 수 있음
+     */
+    private RedisAPI initializeRedis(JsonObject redisConfig) {
+        try {
+            String mode = redisConfig.getString("mode", "standalone");
+            RedisOptions options = createRedisOptions(redisConfig, mode);
+            Redis redisClient = Redis.createClient(vertx, options);
+            
+            // 비동기 연결은 나중에 처리되므로, 연결 실패해도 서비스는 계속 동작
+            redisClient.connect()
+                .onSuccess(conn -> {
+                    log.info("Redis connected successfully for token blacklist (mode: {})", mode);
+                })
+                .onFailure(throwable -> {
+                    log.warn("Failed to connect to Redis for token blacklist. Logout will work but tokens won't be blacklisted: {}", throwable.getMessage());
+                });
+            
+            // RedisAPI는 연결이 완료되기 전에도 생성 가능 (연결 실패 시 null 반환)
+            return RedisAPI.api(redisClient);
+        } catch (Exception e) {
+            log.warn("Failed to initialize Redis for token blacklist: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Redis 모드에 따른 옵션 생성 (EventVerticle과 동일한 로직)
+     */
+    private RedisOptions createRedisOptions(JsonObject redisConfig, String mode) {
+        RedisOptions options = new RedisOptions();
+        
+        String password = redisConfig.getString("password");
+        if (password != null && !password.isEmpty()) {
+            options.setPassword(password);
+        }
+        
+        switch (mode) {
+            case "cluster" -> {
+                options.setType(RedisClientType.CLUSTER);
+                options.setUseReplicas(RedisReplicas.SHARE);
+                
+                JsonArray nodes = redisConfig.getJsonArray("nodes", new JsonArray());
+                if (nodes.isEmpty()) {
+                    options.addConnectionString("redis://localhost:7001");
+                    options.addConnectionString("redis://localhost:7002");
+                    options.addConnectionString("redis://localhost:7003");
+                    options.addConnectionString("redis://localhost:7004");
+                    options.addConnectionString("redis://localhost:7005");
+                    options.addConnectionString("redis://localhost:7006");
+                } else {
+                    for (int i = 0; i < nodes.size(); i++) {
+                        options.addConnectionString(nodes.getString(i));
+                    }
+                }
+                log.info("Redis Cluster mode configured with {} nodes", 
+                    nodes.isEmpty() ? 6 : nodes.size());
+            }
+            
+            case "sentinel" -> {
+                options.setType(RedisClientType.SENTINEL);
+                options.setMasterName(redisConfig.getString("masterName", "mymaster"));
+                options.setRole(io.vertx.redis.client.RedisRole.MASTER);
+                
+                JsonArray sentinels = redisConfig.getJsonArray("sentinels", new JsonArray());
+                if (sentinels.isEmpty()) {
+                    options.addConnectionString("redis://localhost:26379");
+                } else {
+                    for (int i = 0; i < sentinels.size(); i++) {
+                        options.addConnectionString(sentinels.getString(i));
+                    }
+                }
+                log.info("Redis Sentinel mode configured with master: {}", 
+                    redisConfig.getString("masterName", "mymaster"));
+            }
+            
+            default -> {
+                options.setType(RedisClientType.STANDALONE);
+                String host = redisConfig.getString("host", "localhost");
+                int port = redisConfig.getInteger("port", 6379);
+                options.setConnectionString("redis://" + host + ":" + port);
+                log.info("Redis Standalone mode configured: {}:{}", host, port);
+            }
+        }
+        
+        options.setMaxPoolSize(redisConfig.getInteger("maxPoolSize", 8));
+        options.setMaxPoolWaiting(redisConfig.getInteger("maxPoolWaiting", 32));
+        options.setPoolRecycleTimeout(redisConfig.getInteger("poolRecycleTimeout", 15000));
+        
+        return options;
     }
 }
 

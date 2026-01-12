@@ -9,6 +9,7 @@ import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.auth.dto.LoginResponseDto;
 import com.foxya.coin.auth.dto.TokenResponseDto;
+import com.foxya.coin.auth.dto.LogoutResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +23,7 @@ public class AuthHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<LoginResponseDto>> refLoginResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<TokenResponseDto>> refTokenResponse = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<LogoutResponseDto>> refLogoutResponse = new TypeReference<>() {};
     
     public AuthHandlerTest() {
         super("/api/v1/auth");
@@ -235,6 +237,71 @@ public class AuthHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/verify-phone"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("로그아웃 테스트")
+    class LogoutTest {
+        
+        @Test
+        @Order(12)
+        @DisplayName("성공 - 정상 로그아웃")
+        void success(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqPost(getUrl("/logout"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Logout response: {}", res.bodyAsJsonObject());
+                    LogoutResponseDto dto = expectSuccessAndGetResponse(res, refLogoutResponse);
+                    
+                    assertThat(dto.getStatus()).isEqualTo("OK");
+                    assertThat(dto.getMessage()).isEqualTo("Logged out successfully");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(13)
+        @DisplayName("성공 - 모든 디바이스 로그아웃")
+        void successAllDevices(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            reqPost(getUrl("/logout?allDevices=true"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Logout all devices response: {}", res.bodyAsJsonObject());
+                    LogoutResponseDto dto = expectSuccessAndGetResponse(res, refLogoutResponse);
+                    
+                    assertThat(dto.getStatus()).isEqualTo("OK");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(14)
+        @DisplayName("실패 - 인증 토큰 없음")
+        void failNoToken(VertxTestContext tc) {
+            reqPost(getUrl("/logout"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(15)
+        @DisplayName("실패 - 유효하지 않은 토큰")
+        void failInvalidToken(VertxTestContext tc) {
+            reqPost(getUrl("/logout"))
+                .putHeader("Authorization", "Bearer invalid_token_here")
+                .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
                 })));
