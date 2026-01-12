@@ -35,7 +35,12 @@ public class ConfigLoader {
                 return vertx.fileSystem().readFile(DEV_CONFIG_PATH);
             })
             .map(buffer -> {
-                JsonObject fullConfig = new JsonObject(buffer.toString());
+                // BOM(Byte Order Mark) 제거
+                String jsonString = buffer.toString();
+                if (jsonString.startsWith("\uFEFF")) {
+                    jsonString = jsonString.substring(1);
+                }
+                JsonObject fullConfig = new JsonObject(jsonString);
                 
                 // 환경 결정: 환경변수 > config.env > 기본값(local)
                 String env = System.getenv("APP_ENV");
@@ -71,7 +76,12 @@ public class ConfigLoader {
         return vertx.fileSystem()
             .readFile(configPath)
             .map(buffer -> {
-                JsonObject fullConfig = new JsonObject(buffer.toString());
+                // BOM(Byte Order Mark) 제거
+                String jsonString = buffer.toString();
+                if (jsonString.startsWith("\uFEFF")) {
+                    jsonString = jsonString.substring(1);
+                }
+                JsonObject fullConfig = new JsonObject(jsonString);
                 
                 log.info("Loading config for environment: {} from {}", env, configPath);
                 
