@@ -13,6 +13,7 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.common.utils.GoogleOAuthUtil;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.dto.CreateUserDto;
@@ -427,125 +428,85 @@ public class AuthService extends BaseService {
         String clientSecret = googleConfig.getString("clientSecret");
         String redirectUri = googleConfig.getString("redirectUri");
         
-        if (clientId == null || clientSecret == null || redirectUri == null) {
+        if (clientId == null || clientSecret == null) {
             log.error("Google OAuth configuration is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
         
-        // 1. Authorization Code를 Access Token으로 교환
-        JsonObject tokenRequest = new JsonObject()
-            .put("code", dto.getCode())
-            .put("client_id", clientId)
-            .put("client_secret", clientSecret)
-            .put("redirect_uri", redirectUri)
-            .put("grant_type", "authorization_code");
-        
-        return webClient.postAbs("https://oauth2.googleapis.com/token")
-            .sendJsonObject(tokenRequest)
-            .compose(response -> {
-                if (response.statusCode() != 200) {
-                    log.error("Failed to exchange Google authorization code. Status: {}, Body: {}", 
-                        response.statusCode(), response.bodyAsString());
-                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
-                }
+        // 1. Google OAuth 인증 (토큰 교환 + 사용자 정보 조회)
+        return GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+            .compose(userInfo -> {
+                String googleId = userInfo.getString("id");
+                String email = userInfo.getString("email");
+                String name = userInfo.getString("name");
+                String picture = userInfo.getString("picture");
                 
-                JsonObject tokenResponse = response.bodyAsJsonObject();
-                String accessToken = tokenResponse.getString("access_token");
-                String idToken = tokenResponse.getString("id_token");
-                
-                if (accessToken == null) {
-                    log.error("Access token not found in Google response");
-                    return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
-                }
-                
-                // 2. Access Token으로 사용자 정보 조회
-                return webClient.getAbs("https://www.googleapis.com/oauth2/v2/userinfo")
-                    .putHeader("Authorization", "Bearer " + accessToken)
-                    .send()
-                    .compose(userInfoResponse -> {
-                        if (userInfoResponse.statusCode() != 200) {
-                            log.error("Failed to get Google user info. Status: {}, Body: {}", 
-                                userInfoResponse.statusCode(), userInfoResponse.bodyAsString());
-                            return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
-                        }
-                        
-                        JsonObject userInfo = userInfoResponse.bodyAsJsonObject();
-                        String googleId = userInfo.getString("id");
-                        String email = userInfo.getString("email");
-                        String name = userInfo.getString("name");
-                        String picture = userInfo.getString("picture");
-                        
-                        if (email == null || googleId == null) {
-                            log.error("Email or Google ID not found in user info");
-                            return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
-                        }
-                        
-                        // 3. 기존 계정 확인 (이메일로)
-                        return userRepository.getUserByLoginId(pool, email)
-                            .compose(existingUser -> {
-                                boolean isNewUser = (existingUser == null);
-                                
-                                if (existingUser != null) {
-                                    // 기존 사용자: 소셜 링크 연동 및 로그인
-                                    log.info("Existing user found: {}", email);
-                                    return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "GOOGLE", googleId, email)
+                // 2. 기존 계정 확인 (이메일로)
+                return userRepository.getUserByLoginId(pool, email)
+                    .compose(existingUser -> {
+                        if (existingUser != null) {
+                            // 기존 사용자: 소셜 링크 연동 및 로그인
+                            log.info("Existing user found: {}", email);
+                            return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "GOOGLE", googleId, email)
+                                .compose(linked -> {
+                                    if (!linked) {
+                                        log.warn("Failed to link Google account, but continuing login");
+                                    }
+                                    
+                                    // JWT 토큰 생성
+                                    String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                    String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                    
+                                    return Future.succeededFuture(
+                                        GoogleLoginResponseDto.builder()
+                                            .accessToken(jwtAccessToken)
+                                            .refreshToken(jwtRefreshToken)
+                                            .userId(existingUser.getId())
+                                            .loginId(existingUser.getLoginId())
+                                            .isNewUser(false)
+                                            .build()
+                                    );
+                                });
+                        } else {
+                            // 신규 사용자: 계정 생성
+                            log.info("New user registration via Google: {}", email);
+                            CreateUserDto createUserDto = CreateUserDto.builder()
+                                .loginId(email)
+                                .password(UUID.randomUUID().toString()) // 임시 비밀번호 (소셜 로그인은 비밀번호 불필요)
+                                .build();
+                            
+                            return userService.createUser(createUserDto)
+                                .compose(newUser -> {
+                                    // 소셜 링크 연동
+                                    return socialLinkRepository.createSocialLink(pool, newUser.getId(), "GOOGLE", googleId, email)
                                         .compose(linked -> {
-                                            if (!linked) {
-                                                log.warn("Failed to link Google account, but continuing login");
-                                            }
-                                            
                                             // JWT 토큰 생성
-                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, newUser.getId(), UserRole.USER);
+                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, newUser.getId(), UserRole.USER);
                                             
                                             return Future.succeededFuture(
                                                 GoogleLoginResponseDto.builder()
                                                     .accessToken(jwtAccessToken)
                                                     .refreshToken(jwtRefreshToken)
-                                                    .userId(existingUser.getId())
-                                                    .loginId(existingUser.getLoginId())
-                                                    .isNewUser(false)
+                                                    .userId(newUser.getId())
+                                                    .loginId(newUser.getLoginId())
+                                                    .isNewUser(true)
                                                     .build()
                                             );
                                         });
-                                } else {
-                                    // 신규 사용자: 계정 생성
-                                    log.info("New user registration via Google: {}", email);
-                                    CreateUserDto createUserDto = CreateUserDto.builder()
-                                        .loginId(email)
-                                        .password(UUID.randomUUID().toString()) // 임시 비밀번호 (소셜 로그인은 비밀번호 불필요)
-                                        .build();
-                                    
-                                    return userService.createUser(createUserDto)
-                                        .compose(newUser -> {
-                                            // 소셜 링크 연동
-                                            return socialLinkRepository.createSocialLink(pool, newUser.getId(), "GOOGLE", googleId, email)
-                                                .compose(linked -> {
-                                                    // JWT 토큰 생성
-                                                    String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, newUser.getId(), UserRole.USER);
-                                                    String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, newUser.getId(), UserRole.USER);
-                                                    
-                                                    return Future.succeededFuture(
-                                                        GoogleLoginResponseDto.builder()
-                                                            .accessToken(jwtAccessToken)
-                                                            .refreshToken(jwtRefreshToken)
-                                                            .userId(newUser.getId())
-                                                            .loginId(newUser.getLoginId())
-                                                            .isNewUser(true)
-                                                            .build()
-                                                    );
-                                                });
-                                        });
-                                }
-                            });
+                                });
+                        }
                     });
             })
             .recover(throwable -> {
-                if (throwable instanceof UnauthorizedException || throwable instanceof BadRequestException) {
-                    return Future.failedFuture(throwable);
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.<GoogleLoginResponseDto>failedFuture((UnauthorizedException) throwable);
+                }
+                if (throwable instanceof BadRequestException) {
+                    return Future.<GoogleLoginResponseDto>failedFuture((BadRequestException) throwable);
                 }
                 log.error("Google login failed", throwable);
-                return Future.failedFuture(new BadRequestException("Google login failed: " + throwable.getMessage()));
+                return Future.<GoogleLoginResponseDto>failedFuture(new BadRequestException("Google login failed: " + throwable.getMessage()));
             });
     }
     
