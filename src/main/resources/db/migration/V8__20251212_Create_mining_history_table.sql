@@ -29,7 +29,5 @@ CREATE INDEX IDX_mining_history_user_created ON mining_history(user_id, created_
 CREATE INDEX IDX_mining_history_type ON mining_history(type);
 CREATE INDEX IDX_mining_history_status ON mining_history(status);
 
--- updated_at 트리거 (필요시 사용)
-CREATE TRIGGER update_mining_history_updated_at BEFORE UPDATE ON mining_history
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Note: mining_history 테이블에는 updated_at 컬럼이 없으므로 트리거를 생성하지 않습니다.
 

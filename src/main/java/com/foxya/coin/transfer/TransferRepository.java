@@ -287,6 +287,7 @@ public class TransferRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("external_transfers")
             .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("created_at", Sort.DESC)
             .limitRefactoring()
             .offsetRefactoring()
@@ -309,6 +310,7 @@ public class TransferRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("external_transfers")
             .where("transfer_id", Op.Equal, "transfer_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("transfer_id", transferId))
@@ -353,6 +355,7 @@ public class TransferRepository extends BaseRepository {
             .select("user_wallets")
             .where("address", Op.Equal, "address")
             .andWhere("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -371,6 +374,7 @@ public class TransferRepository extends BaseRepository {
             .select("user_wallets")
             .where("user_id", Op.Equal, "user_id")
             .andWhere("currency_id", Op.Equal, "currency_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -379,6 +383,48 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows));
+    }
+    
+    /**
+     * 사용자의 모든 전송 내역 Soft Delete
+     */
+    public Future<Void> softDeleteTransfersByUserId(SqlClient client, Long userId) {
+        // 내부 전송 Soft Delete (updated_at 컬럼이 없으므로 제외)
+        // QueryBuilder는 복잡한 OR 조건을 지원하지 않으므로 직접 SQL 작성
+        String internalSql = """
+            UPDATE internal_transfers
+            SET deleted_at = #{deleted_at}
+            WHERE (sender_id = #{user_id} OR receiver_id = #{user_id})
+              AND deleted_at IS NULL
+            """;
+        
+        Map<String, Object> internalParams = new HashMap<>();
+        internalParams.put("user_id", userId);
+        internalParams.put("deleted_at", DateUtils.now());
+        
+        Future<Void> internalDelete = query(client, internalSql, internalParams)
+            .<Void>map(rows -> null);
+        
+        // 외부 전송 Soft Delete (updated_at 컬럼이 없으므로 제외)
+        String externalSql = QueryBuilder
+            .update("external_transfers", "deleted_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> externalParams = new HashMap<>();
+        externalParams.put("user_id", userId);
+        externalParams.put("deleted_at", DateUtils.now());
+        
+        Future<Void> externalDelete = query(client, externalSql, externalParams)
+            .<Void>map(rows -> null);
+        
+        return Future.all(internalDelete, externalDelete)
+            .<Void>map(v -> {
+                log.info("User transfers soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("전송 내역 Soft Delete 실패 - userId: {}", userId, throwable));
     }
     
     /**
@@ -474,6 +520,20 @@ public class TransferRepository extends BaseRepository {
         return query(client, query, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(e -> log.error("잔액 잠금 해제 실패 - walletId: {}, amount: {}, refund: {}", walletId, amount, refund));
+    }
+    
+    /**
+     * 삭제되지 않은 내부 전송 조회 (not_deleted 전용)
+     */
+    public Future<List<InternalTransfer>> getInternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
+        return getInternalTransfersByUserId(client, userId, limit, offset);
+    }
+    
+    /**
+     * 삭제되지 않은 외부 전송 조회 (not_deleted 전용)
+     */
+    public Future<List<ExternalTransfer>> getExternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
+        return getExternalTransfersByUserId(client, userId, limit, offset);
     }
 }
 

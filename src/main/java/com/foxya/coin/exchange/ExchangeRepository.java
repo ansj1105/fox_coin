@@ -60,6 +60,7 @@ public class ExchangeRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("exchanges")
             .where("exchange_id", Op.Equal, "exchange_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("exchange_id", exchangeId))
@@ -104,6 +105,28 @@ public class ExchangeRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(exchangeMapper, rows))
             .onFailure(e -> log.error("환전 실패 처리 실패 - exchangeId: {}", exchangeId));
+    }
+    
+    /**
+     * 사용자의 모든 환전 Soft Delete
+     */
+    public Future<Void> softDeleteExchangesByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("exchanges", "deleted_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Exchanges soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("환전 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

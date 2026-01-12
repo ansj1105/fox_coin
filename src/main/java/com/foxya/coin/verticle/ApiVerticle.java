@@ -168,10 +168,6 @@ public class ApiVerticle extends AbstractVerticle {
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
         
-        // Service 초기화
-        AuthService authService = new AuthService(
-            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository, redisApi);
-        
         // WebClient 초기화 (외부 API 호출용)
         WebClient webClient = WebClient.create(vertx);
         
@@ -222,12 +218,24 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository);
+        
+        // Google OAuth 설정
+        JsonObject googleConfig = config().getJsonObject("google", new JsonObject());
+        
+        // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
+        AuthService authService = new AuthService(
+            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository, 
+            redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
+            notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
+            swapRepository, exchangeRepository, paymentDepositRepository, 
+            tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
+            referralRepository, webClient, googleConfig);
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
         MissionService missionService = new MissionService(
             pool, missionRepository);
         AirdropService airdropService = new AirdropService(
-            pool, airdropRepository, currencyRepository, transferRepository);
+            pool, airdropRepository, currencyRepository, transferRepository, walletRepository);
         ClientRepository clientRepository = new ClientRepository();
         ClientService clientService = new ClientService(pool, clientRepository, jwtAuth);
         

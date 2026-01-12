@@ -42,6 +42,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
         router.post("/register").handler(this.registerValidation(parser)).handler(this::register);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
+        router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
         
         // 인증 필요 API
         router.get("/access-token")
@@ -56,6 +57,10 @@ public class AuthHandler extends BaseHandler {
         router.post("/logout")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(this::logout);
+        router.delete("/account")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(this.deleteAccountValidation(parser))
+            .handler(this::deleteAccount);
         
         // 소셜 연동
         router.post("/link-social")
@@ -138,6 +143,32 @@ public class AuthHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("phoneNumber", stringSchema().with(minLength(10), maxLength(20)))
                     .requiredProperty("verificationCode", stringSchema().with(minLength(4), maxLength(10)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+    
+    /**
+     * 회원 탈퇴 Validation
+     */
+    private Handler<RoutingContext> deleteAccountValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("password", stringSchema().with(minLength(8), maxLength(20)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+    
+    /**
+     * Google 로그인 Validation
+     */
+    private Handler<RoutingContext> googleLoginValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("code", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -261,6 +292,33 @@ public class AuthHandler extends BaseHandler {
         
         log.info("Phone verification request from user: {}", userId);
         response(ctx, authService.verifyPhone(userId, dto.getPhoneNumber(), dto.getVerificationCode()));
+    }
+    
+    /**
+     * Google 로그인
+     */
+    private void googleLogin(RoutingContext ctx) {
+        com.foxya.coin.auth.dto.GoogleLoginRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.GoogleLoginRequestDto.class
+        );
+        
+        log.info("Google login attempt");
+        response(ctx, authService.googleLogin(dto));
+    }
+    
+    /**
+     * 회원 탈퇴
+     */
+    private void deleteAccount(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        com.foxya.coin.auth.dto.DeleteAccountRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.DeleteAccountRequestDto.class
+        );
+        
+        log.info("Account deletion request from user: {}", userId);
+        response(ctx, authService.deleteAccount(userId, dto.getPassword()));
     }
 }
 

@@ -25,6 +25,7 @@ public class UserRepository extends BaseRepository {
         .level(getIntegerColumnValue(row, "level"))
         .exp(getBigDecimalColumnValue(row, "exp"))
         .countryCode(getStringColumnValue(row, "country_code"))
+        .deletedAt(getLocalDateTimeColumnValue(row, "deleted_at"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
@@ -40,6 +41,7 @@ public class UserRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("users")
             .where("login_id", Op.Equal, "login_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("login_id", loginId))
@@ -51,11 +53,62 @@ public class UserRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("users")
             .whereById()
+            .andWhere("deleted_at", Op.IsNull)
             .build();
 
         return query(client, sql, Collections.singletonMap("id", id))
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 조회 실패 - id: {}", id));
+    }
+    
+    /**
+     * 삭제되지 않은 사용자 조회 (not_deleted 전용)
+     */
+    public Future<User> getUserByIdNotDeleted(SqlClient client, Long id) {
+        return getUserById(client, id);
+    }
+    
+    /**
+     * 삭제되지 않은 사용자 조회 (loginId로)
+     */
+    public Future<User> getUserByLoginIdNotDeleted(SqlClient client, String loginId) {
+        return getUserByLoginId(client, loginId);
+    }
+    
+    /**
+     * 삭제되지 않은 사용자 조회 (레퍼럴 코드로)
+     */
+    public Future<User> getUserByReferralCodeNotDeleted(SqlClient client, String referralCode) {
+        String sql = QueryBuilder
+            .select("users")
+            .where("referral_code", Op.Equal, "referral_code")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        return query(client, sql, Collections.singletonMap("referral_code", referralCode))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 조회 실패 - referralCode: {}", referralCode));
+    }
+    
+    /**
+     * 사용자 Soft Delete (회원 탈퇴)
+     */
+    public Future<User> softDeleteUser(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("users", "deleted_at", "updated_at", "status")
+            .whereById()
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("deleted_at", DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+        params.put("status", "DELETED");
+        
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 Soft Delete 실패 - userId: {}", userId));
     }
     
     /**

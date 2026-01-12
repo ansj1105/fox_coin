@@ -13,6 +13,7 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.entities.InternalTransfer;
+import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
@@ -32,6 +33,7 @@ public class AirdropService extends BaseService {
     private final AirdropRepository airdropRepository;
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
+    private final WalletRepository walletRepository;
     
     // KORI 통화 코드
     private static final String KORI_CURRENCY_CODE = "KORI";
@@ -43,11 +45,13 @@ public class AirdropService extends BaseService {
     public AirdropService(PgPool pool,
                           AirdropRepository airdropRepository,
                           CurrencyRepository currencyRepository,
-                          TransferRepository transferRepository) {
+                          TransferRepository transferRepository,
+                          WalletRepository walletRepository) {
         super(pool);
         this.airdropRepository = airdropRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
+        this.walletRepository = walletRepository;
     }
     
     /**
@@ -161,6 +165,23 @@ public class AirdropService extends BaseService {
                         
                         // 4. 사용자 지갑 조회 (없으면 생성)
                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                            .compose(wallet -> {
+                                if (wallet == null) {
+                                    // 지갑이 없으면 자동 생성 (KORI는 내부 통화이므로 더미 주소 사용)
+                                    log.info("지갑이 없어 자동 생성 - userId: {}, currencyId: {}", userId, currency.getId());
+                                    String dummyAddress = "KORI_" + userId + "_" + currency.getId();
+                                    return walletRepository.createWallet(pool, userId, currency.getId(), dummyAddress)
+                                        .recover(throwable -> {
+                                            // 중복 키 오류 발생 시 기존 지갑 조회
+                                            if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                                                log.warn("지갑 생성 중 중복 감지, 기존 지갑 조회 - userId: {}, currencyId: {}", userId, currency.getId());
+                                                return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId());
+                                            }
+                                            return Future.failedFuture(throwable);
+                                        });
+                                }
+                                return Future.succeededFuture(wallet);
+                            })
                             .compose(wallet -> {
                                 if (wallet == null) {
                                     return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));

@@ -1,5 +1,24 @@
 # 🐳 Docker 명령어 가이드
 
+## 🪟 Windows 사용자용 빠른 시작
+
+### Redis만 실행하기 (Windows)
+```powershell
+# PowerShell에서 실행
+cd C:\Users\msi\IdeaProjects\fox_coin
+docker-compose up -d redis
+
+# 또는 Docker 명령어로 직접 실행
+docker run -d --name foxya-coin-redis -p 6379:6379 redis:7-alpine
+
+# Redis 연결 확인
+docker exec -it foxya-coin-redis redis-cli ping
+```
+
+자세한 내용은 [WINDOWS_REDIS_SETUP.md](./WINDOWS_REDIS_SETUP.md) 참고
+
+---
+
 ## 📋 Docker Compose 기본 명령어
 
 ### 1. 모든 서비스 중지 및 제거
@@ -7,7 +26,6 @@
 cd /var/www/foxya_coin_service
 docker-compose -f docker-compose.prod.yml down
 ```
-z
 ### 2. 모든 서비스 중지 (컨테이너는 유지)
 ```bash
 docker-compose -f docker-compose.prod.yml stop

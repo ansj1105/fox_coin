@@ -31,6 +31,7 @@ public class AgencyRepository extends BaseRepository {
         String sql = QueryBuilder
             .count("agency_memberships")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
@@ -44,11 +45,35 @@ public class AgencyRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("agency_memberships", "id", "user_id", "agency_id", "agency_name", "joined_at", "created_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchOne(agencyMapper, rows))
             .onFailure(e -> log.error("에이전시 멤버십 조회 실패 - userId: {}", userId));
+    }
+    
+    /**
+     * 사용자의 에이전시 멤버십 Soft Delete
+     */
+    public Future<Void> softDeleteAgencyMembershipByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("agency_memberships", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Agency membership soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("에이전시 멤버십 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

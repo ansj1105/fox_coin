@@ -34,6 +34,7 @@ public class SubscriptionRepository extends BaseRepository {
             .select("subscriptions", "id", "user_id", "package_type", "is_active", "started_at", "expires_at", "created_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
             .andWhere("is_active", Op.Equal, "is_active")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -72,6 +73,29 @@ public class SubscriptionRepository extends BaseRepository {
                 }
                 return null;
             });
+    }
+    
+    /**
+     * 사용자의 구독 Soft Delete
+     */
+    public Future<Void> softDeleteSubscriptionByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("subscriptions", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Subscription soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("구독 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

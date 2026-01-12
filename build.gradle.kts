@@ -119,8 +119,23 @@ tasks.withType<ShadowJar> {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    
+    // Windows에서 한글 인코딩 문제 해결
+    systemProperty("file.encoding", "UTF-8")
+    systemProperty("user.language", "ko")
+    systemProperty("user.country", "KR")
+    
+    // JVM 옵션 설정
+    jvmArgs = listOf(
+        "-Dfile.encoding=UTF-8",
+        "-Duser.language=ko",
+        "-Duser.country=KR"
+    )
+    
     testLogging {
         events("passed", "skipped", "failed")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
 

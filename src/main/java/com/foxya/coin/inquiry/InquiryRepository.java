@@ -4,6 +4,7 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.inquiry.entities.Inquiry;
 import com.foxya.coin.inquiry.enums.InquiryStatus;
+import com.foxya.coin.utils.QueryBuilder;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
@@ -58,6 +59,29 @@ public class InquiryRepository extends BaseRepository {
                 return null;
             })
             .onFailure(throwable -> log.error("문의 생성 실패: {}", throwable.getMessage()));
+    }
+    
+    /**
+     * 사용자의 모든 문의 Soft Delete
+     */
+    public Future<Void> softDeleteInquiriesByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("inquiries", "deleted_at", "updated_at")
+            .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Inquiries soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("문의 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

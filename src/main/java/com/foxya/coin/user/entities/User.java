@@ -24,6 +24,7 @@ public class User {
     private BigDecimal exp;
     private String transactionPasswordHash;
     private String countryCode;
+    private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

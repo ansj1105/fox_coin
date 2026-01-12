@@ -10,6 +10,9 @@ import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.auth.dto.LoginResponseDto;
 import com.foxya.coin.auth.dto.TokenResponseDto;
 import com.foxya.coin.auth.dto.LogoutResponseDto;
+import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
+import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
+import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +27,8 @@ public class AuthHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<LoginResponseDto>> refLoginResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<TokenResponseDto>> refTokenResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<LogoutResponseDto>> refLogoutResponse = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<DeleteAccountResponseDto>> refDeleteAccountResponse = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<GoogleLoginResponseDto>> refGoogleLoginResponse = new TypeReference<>() {};
     
     public AuthHandlerTest() {
         super("/api/v1/auth");
@@ -304,6 +309,93 @@ public class AuthHandlerTest extends HandlerTestBase {
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
+                })));
+        }
+    }
+    
+    @Nested
+    @DisplayName("회원 탈퇴 테스트")
+    class DeleteAccountTest {
+        
+        @Test
+        @Order(16)
+        @DisplayName("실패 - 잘못된 비밀번호")
+        void failInvalidPassword(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            JsonObject data = new JsonObject()
+                .put("password", "WrongPassword123!");
+            
+            reqDelete(getUrl("/account"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(17)
+        @DisplayName("실패 - 인증 토큰 없음")
+        void failNoToken(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("password", "Test1234!@");
+            
+            reqDelete(getUrl("/account"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(18)
+        @DisplayName("성공 - 정상 탈퇴")
+        void success(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            
+            JsonObject data = new JsonObject()
+                .put("password", "Test1234!@");
+            
+            reqDelete(getUrl("/account"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Delete account response: {}", res.bodyAsJsonObject());
+                    DeleteAccountResponseDto dto = expectSuccessAndGetResponse(res, refDeleteAccountResponse);
+                    
+                    assertThat(dto.getStatus()).isEqualTo("OK");
+                    assertThat(dto.getMessage()).isEqualTo("Account deleted successfully");
+                    
+                    tc.completeNow();
+                })));
+        }
+        
+        @Test
+        @Order(19)
+        @DisplayName("성공 - 탈퇴 후 로그인 불가")
+        void successCannotLoginAfterDeletion(VertxTestContext tc) {
+            // 먼저 사용자를 삭제
+            String accessToken = getAccessTokenOfUser(1L);
+            JsonObject deleteData = new JsonObject()
+                .put("password", "Test1234!@");
+            
+            reqDelete(getUrl("/account"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(deleteData, tc.succeeding(deleteRes -> tc.verify(() -> {
+                    // 삭제 성공 확인
+                    assertThat(deleteRes.statusCode()).isEqualTo(200);
+                    
+                    // 삭제된 사용자로 로그인 시도
+                    JsonObject loginData = new JsonObject()
+                        .put("loginId", "testuser")
+                        .put("password", "Test1234!@");
+                    
+                    reqPost(getUrl("/login"))
+                        .sendJson(loginData, tc.succeeding(loginRes -> tc.verify(() -> {
+                            // 탈퇴된 사용자는 로그인 불가
+                            expectError(loginRes, 401);
+                            tc.completeNow();
+                        })));
                 })));
         }
     }

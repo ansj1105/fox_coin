@@ -19,6 +19,7 @@ public class SocialLinkRepository extends BaseRepository {
         String sql = QueryBuilder
             .count("social_links")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
@@ -47,6 +48,29 @@ public class SocialLinkRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0);
+    }
+    
+    /**
+     * 사용자의 모든 소셜 링크 Soft Delete
+     */
+    public Future<Void> softDeleteSocialLinksByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("social_links", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Social links soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("소셜 링크 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

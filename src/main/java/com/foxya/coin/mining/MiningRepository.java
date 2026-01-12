@@ -89,6 +89,7 @@ public class MiningRepository extends BaseRepository {
             .select("daily_mining", "id", "user_id", "mining_date", "mining_amount", "reset_at", "created_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
             .andWhere("mining_date", Op.Equal, "date")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -143,7 +144,8 @@ public class MiningRepository extends BaseRepository {
             .selectAlias("mining_history", "mh", 
                 "mh.id", "mh.user_id", "mh.level", "mh.amount", "mh.type", "mh.status", "mh.created_at")
             .where("mh.user_id", Op.Equal, "userId")
-            .andWhere("mh.status", Op.Equal, "status");
+            .andWhere("mh.status", Op.Equal, "status")
+            .andWhere("mh.deleted_at", Op.IsNull);
         
         // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -183,7 +185,8 @@ public class MiningRepository extends BaseRepository {
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
             .count("mining_history", "mh", "total")
             .where("mh.user_id", Op.Equal, "userId")
-            .andWhere("mh.status", Op.Equal, "status");
+            .andWhere("mh.status", Op.Equal, "status")
+            .andWhere("mh.deleted_at", Op.IsNull);
         
         // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -217,7 +220,8 @@ public class MiningRepository extends BaseRepository {
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
             .selectAlias("mining_history", "mh", "COALESCE(SUM(mh.amount), 0) as total_amount")
             .where("mh.user_id", Op.Equal, "userId")
-            .andWhere("mh.status", Op.Equal, "status");
+            .andWhere("mh.status", Op.Equal, "status")
+            .andWhere("mh.deleted_at", Op.IsNull);
         
         // 날짜 조건 추가 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -256,6 +260,51 @@ public class MiningRepository extends BaseRepository {
             case "YEAR" -> now.minusYears(1);
             default -> null;
         };
+    }
+    
+    /**
+     * 사용자의 모든 일일 채굴 Soft Delete
+     */
+    public Future<Void> softDeleteDailyMiningByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("daily_mining", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Daily mining soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("일일 채굴 Soft Delete 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
+     * 사용자의 모든 채굴 내역 Soft Delete
+     */
+    public Future<Void> softDeleteMiningHistoryByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("mining_history", "deleted_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Mining history soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("채굴 내역 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

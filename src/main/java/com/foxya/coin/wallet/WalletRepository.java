@@ -43,10 +43,41 @@ public class WalletRepository extends BaseRepository {
             FROM user_wallets uw
             LEFT JOIN currency c ON uw.currency_id = c.id
             WHERE uw.user_id = #{userId}
+              AND uw.deleted_at IS NULL
             """;
 
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchAll(walletMapper, rows));
+    }
+    
+    /**
+     * 삭제되지 않은 지갑 조회 (not_deleted 전용)
+     */
+    public Future<List<Wallet>> getWalletsByUserIdNotDeleted(SqlClient client, Long userId) {
+        return getWalletsByUserId(client, userId);
+    }
+    
+    /**
+     * 사용자의 모든 지갑 Soft Delete
+     */
+    public Future<Void> softDeleteWalletsByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("user_wallets", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("User wallets soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("지갑 Soft Delete 실패 - userId: {}", userId, throwable));
     }
     
     /**
@@ -57,6 +88,7 @@ public class WalletRepository extends BaseRepository {
             .count("user_wallets")
             .where("user_id", Op.Equal, "userId")
             .andWhere("currency_id", Op.Equal, "currencyId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -112,6 +144,7 @@ public class WalletRepository extends BaseRepository {
             .select("user_wallets")
             .where("user_id", Op.Equal, "userId")
             .andWhere("currency_id", Op.Equal, "currencyId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -121,5 +154,12 @@ public class WalletRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(throwable -> log.error("지갑 조회 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable));
+    }
+    
+    /**
+     * 삭제되지 않은 지갑 조회 (not_deleted 전용)
+     */
+    public Future<Wallet> getWalletByUserIdAndCurrencyIdNotDeleted(SqlClient client, Long userId, Integer currencyId) {
+        return getWalletByUserIdAndCurrencyId(client, userId, currencyId);
     }
 }

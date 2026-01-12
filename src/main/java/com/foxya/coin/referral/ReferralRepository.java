@@ -243,6 +243,30 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
+     * 사용자의 모든 레퍼럴 관계 Soft Delete (referrer_id 또는 referred_id가 userId인 경우)
+     */
+    public Future<Void> softDeleteReferralRelationsByUserId(SqlClient client, Long userId) {
+        // QueryBuilder는 복잡한 OR 조건을 지원하지 않으므로 직접 SQL 작성
+        String sql = """
+            UPDATE referral_relations
+            SET deleted_at = #{deleted_at}
+            WHERE (referrer_id = #{user_id} OR referred_id = #{user_id})
+              AND deleted_at IS NULL
+            """;
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Referral relations soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 관계 Soft Delete 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
      * 레퍼럴 관계 완전 삭제 (Hard Delete)
      */
     public Future<Void> hardDeleteReferralRelation(SqlClient client, Long referredId) {

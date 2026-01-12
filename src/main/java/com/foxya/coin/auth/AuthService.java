@@ -3,11 +3,14 @@ package com.foxya.coin.auth;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
+import io.vertx.ext.web.client.WebClient;
+import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.user.UserRepository;
@@ -19,7 +22,28 @@ import com.foxya.coin.auth.dto.LoginResponseDto;
 import com.foxya.coin.auth.dto.ApiKeyResponseDto;
 import com.foxya.coin.auth.dto.TokenResponseDto;
 import com.foxya.coin.auth.dto.LogoutResponseDto;
+import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
+import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
+import com.foxya.coin.auth.dto.GoogleLoginRequestDto;
+import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
+import com.foxya.coin.wallet.WalletRepository;
+import com.foxya.coin.transfer.TransferRepository;
+import com.foxya.coin.bonus.BonusRepository;
+import com.foxya.coin.mining.MiningRepository;
+import com.foxya.coin.mission.MissionRepository;
+import com.foxya.coin.notification.NotificationRepository;
+import com.foxya.coin.subscription.SubscriptionRepository;
+import com.foxya.coin.review.ReviewRepository;
+import com.foxya.coin.agency.AgencyRepository;
+import com.foxya.coin.swap.SwapRepository;
+import com.foxya.coin.exchange.ExchangeRepository;
+import com.foxya.coin.payment.PaymentDepositRepository;
+import com.foxya.coin.deposit.TokenDepositRepository;
+import com.foxya.coin.airdrop.AirdropRepository;
+import com.foxya.coin.inquiry.InquiryRepository;
+import com.foxya.coin.auth.EmailVerificationRepository;
+import com.foxya.coin.referral.ReferralRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -36,6 +60,25 @@ public class AuthService extends BaseService {
     private final SocialLinkRepository socialLinkRepository;
     private final PhoneVerificationRepository phoneVerificationRepository;
     private final RedisAPI redisApi;
+    private final WalletRepository walletRepository;
+    private final TransferRepository transferRepository;
+    private final BonusRepository bonusRepository;
+    private final MiningRepository miningRepository;
+    private final MissionRepository missionRepository;
+    private final NotificationRepository notificationRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final ReviewRepository reviewRepository;
+    private final AgencyRepository agencyRepository;
+    private final SwapRepository swapRepository;
+    private final ExchangeRepository exchangeRepository;
+    private final PaymentDepositRepository paymentDepositRepository;
+    private final TokenDepositRepository tokenDepositRepository;
+    private final AirdropRepository airdropRepository;
+    private final InquiryRepository inquiryRepository;
+    private final EmailVerificationRepository emailVerificationRepository;
+    private final ReferralRepository referralRepository;
+    private final WebClient webClient;
+    private final JsonObject googleConfig;
     
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
@@ -43,7 +86,14 @@ public class AuthService extends BaseService {
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
-                      RedisAPI redisApi) {
+                      RedisAPI redisApi, WalletRepository walletRepository, TransferRepository transferRepository,
+                      BonusRepository bonusRepository, MiningRepository miningRepository, MissionRepository missionRepository,
+                      NotificationRepository notificationRepository, SubscriptionRepository subscriptionRepository,
+                      ReviewRepository reviewRepository, AgencyRepository agencyRepository, SwapRepository swapRepository,
+                      ExchangeRepository exchangeRepository, PaymentDepositRepository paymentDepositRepository,
+                      TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
+                      InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
+                      ReferralRepository referralRepository, WebClient webClient, JsonObject googleConfig) {
         super(pool);
         this.userRepository = userRepository;
         this.userService = userService;
@@ -52,6 +102,25 @@ public class AuthService extends BaseService {
         this.socialLinkRepository = socialLinkRepository;
         this.phoneVerificationRepository = phoneVerificationRepository;
         this.redisApi = redisApi;
+        this.walletRepository = walletRepository;
+        this.transferRepository = transferRepository;
+        this.bonusRepository = bonusRepository;
+        this.miningRepository = miningRepository;
+        this.missionRepository = missionRepository;
+        this.notificationRepository = notificationRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.reviewRepository = reviewRepository;
+        this.agencyRepository = agencyRepository;
+        this.swapRepository = swapRepository;
+        this.exchangeRepository = exchangeRepository;
+        this.paymentDepositRepository = paymentDepositRepository;
+        this.tokenDepositRepository = tokenDepositRepository;
+        this.airdropRepository = airdropRepository;
+        this.inquiryRepository = inquiryRepository;
+        this.emailVerificationRepository = emailVerificationRepository;
+        this.referralRepository = referralRepository;
+        this.webClient = webClient;
+        this.googleConfig = googleConfig;
     }
     
     /**
@@ -344,6 +413,232 @@ public class AuthService extends BaseService {
     public Future<Boolean> verifyPhone(Long userId, String phoneNumber, String verificationCode) {
         // TODO: 인증 코드 검증 로직 추가
         return phoneVerificationRepository.verifyPhone(pool, userId, phoneNumber, verificationCode);
+    }
+    
+    /**
+     * Google 로그인
+     * @param dto Google 로그인 요청 DTO (Authorization Code 포함)
+     * @return Google 로그인 응답 DTO
+     */
+    public Future<GoogleLoginResponseDto> googleLogin(GoogleLoginRequestDto dto) {
+        log.info("Google login attempt with code");
+        
+        String clientId = googleConfig.getString("clientId");
+        String clientSecret = googleConfig.getString("clientSecret");
+        String redirectUri = googleConfig.getString("redirectUri");
+        
+        if (clientId == null || clientSecret == null || redirectUri == null) {
+            log.error("Google OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
+        }
+        
+        // 1. Authorization Code를 Access Token으로 교환
+        JsonObject tokenRequest = new JsonObject()
+            .put("code", dto.getCode())
+            .put("client_id", clientId)
+            .put("client_secret", clientSecret)
+            .put("redirect_uri", redirectUri)
+            .put("grant_type", "authorization_code");
+        
+        return webClient.postAbs("https://oauth2.googleapis.com/token")
+            .sendJsonObject(tokenRequest)
+            .compose(response -> {
+                if (response.statusCode() != 200) {
+                    log.error("Failed to exchange Google authorization code. Status: {}, Body: {}", 
+                        response.statusCode(), response.bodyAsString());
+                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+                }
+                
+                JsonObject tokenResponse = response.bodyAsJsonObject();
+                String accessToken = tokenResponse.getString("access_token");
+                String idToken = tokenResponse.getString("id_token");
+                
+                if (accessToken == null) {
+                    log.error("Access token not found in Google response");
+                    return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                }
+                
+                // 2. Access Token으로 사용자 정보 조회
+                return webClient.getAbs("https://www.googleapis.com/oauth2/v2/userinfo")
+                    .putHeader("Authorization", "Bearer " + accessToken)
+                    .send()
+                    .compose(userInfoResponse -> {
+                        if (userInfoResponse.statusCode() != 200) {
+                            log.error("Failed to get Google user info. Status: {}, Body: {}", 
+                                userInfoResponse.statusCode(), userInfoResponse.bodyAsString());
+                            return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                        }
+                        
+                        JsonObject userInfo = userInfoResponse.bodyAsJsonObject();
+                        String googleId = userInfo.getString("id");
+                        String email = userInfo.getString("email");
+                        String name = userInfo.getString("name");
+                        String picture = userInfo.getString("picture");
+                        
+                        if (email == null || googleId == null) {
+                            log.error("Email or Google ID not found in user info");
+                            return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                        }
+                        
+                        // 3. 기존 계정 확인 (이메일로)
+                        return userRepository.getUserByLoginId(pool, email)
+                            .compose(existingUser -> {
+                                boolean isNewUser = (existingUser == null);
+                                
+                                if (existingUser != null) {
+                                    // 기존 사용자: 소셜 링크 연동 및 로그인
+                                    log.info("Existing user found: {}", email);
+                                    return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "GOOGLE", googleId, email)
+                                        .compose(linked -> {
+                                            if (!linked) {
+                                                log.warn("Failed to link Google account, but continuing login");
+                                            }
+                                            
+                                            // JWT 토큰 생성
+                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            
+                                            return Future.succeededFuture(
+                                                GoogleLoginResponseDto.builder()
+                                                    .accessToken(jwtAccessToken)
+                                                    .refreshToken(jwtRefreshToken)
+                                                    .userId(existingUser.getId())
+                                                    .loginId(existingUser.getLoginId())
+                                                    .isNewUser(false)
+                                                    .build()
+                                            );
+                                        });
+                                } else {
+                                    // 신규 사용자: 계정 생성
+                                    log.info("New user registration via Google: {}", email);
+                                    CreateUserDto createUserDto = CreateUserDto.builder()
+                                        .loginId(email)
+                                        .password(UUID.randomUUID().toString()) // 임시 비밀번호 (소셜 로그인은 비밀번호 불필요)
+                                        .build();
+                                    
+                                    return userService.createUser(createUserDto)
+                                        .compose(newUser -> {
+                                            // 소셜 링크 연동
+                                            return socialLinkRepository.createSocialLink(pool, newUser.getId(), "GOOGLE", googleId, email)
+                                                .compose(linked -> {
+                                                    // JWT 토큰 생성
+                                                    String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, newUser.getId(), UserRole.USER);
+                                                    String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, newUser.getId(), UserRole.USER);
+                                                    
+                                                    return Future.succeededFuture(
+                                                        GoogleLoginResponseDto.builder()
+                                                            .accessToken(jwtAccessToken)
+                                                            .refreshToken(jwtRefreshToken)
+                                                            .userId(newUser.getId())
+                                                            .loginId(newUser.getLoginId())
+                                                            .isNewUser(true)
+                                                            .build()
+                                                    );
+                                                });
+                                        });
+                                }
+                            });
+                    });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof UnauthorizedException || throwable instanceof BadRequestException) {
+                    return Future.failedFuture(throwable);
+                }
+                log.error("Google login failed", throwable);
+                return Future.failedFuture(new BadRequestException("Google login failed: " + throwable.getMessage()));
+            });
+    }
+    
+    /**
+     * 회원 탈퇴
+     * @param userId 사용자 ID
+     * @param password 비밀번호 (확인용)
+     * @return 탈퇴 응답
+     */
+    public Future<DeleteAccountResponseDto> deleteAccount(Long userId, String password) {
+        log.info("Account deletion request from user: {}", userId);
+        
+        // 1. 사용자 조회 및 비밀번호 확인
+        return userRepository.getUserByIdNotDeleted(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                
+                // 비밀번호 검증
+                if (!BCrypt.checkpw(password, user.getPasswordHash())) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid password"));
+                }
+                
+                // 2. 트랜잭션으로 모든 관련 데이터 Soft Delete
+                return pool.withTransaction(client -> {
+                    // 2-1. 사용자 지갑 Soft Delete
+                    return walletRepository.softDeleteWalletsByUserId(client, userId)
+                        // 2-2. 전송 내역 Soft Delete
+                        .compose(v -> transferRepository.softDeleteTransfersByUserId(client, userId))
+                        // 2-3. 보너스 Soft Delete
+                        .compose(v -> bonusRepository.softDeleteBonusesByUserId(client, userId))
+                        // 2-4. 일일 채굴 Soft Delete
+                        .compose(v -> miningRepository.softDeleteDailyMiningByUserId(client, userId))
+                        // 2-5. 채굴 내역 Soft Delete
+                        .compose(v -> miningRepository.softDeleteMiningHistoryByUserId(client, userId))
+                        // 2-6. 미션 진행 상황 Soft Delete
+                        .compose(v -> missionRepository.softDeleteUserMissionsByUserId(client, userId))
+                        // 2-7. 알림 Soft Delete
+                        .compose(v -> notificationRepository.softDeleteNotificationsByUserId(client, userId))
+                        // 2-8. 구독 Soft Delete
+                        .compose(v -> subscriptionRepository.softDeleteSubscriptionByUserId(client, userId))
+                        // 2-9. 리뷰 Soft Delete
+                        .compose(v -> reviewRepository.softDeleteReviewByUserId(client, userId))
+                        // 2-10. 에이전시 멤버십 Soft Delete
+                        .compose(v -> agencyRepository.softDeleteAgencyMembershipByUserId(client, userId))
+                        // 2-11. 소셜 링크 Soft Delete
+                        .compose(v -> socialLinkRepository.softDeleteSocialLinksByUserId(client, userId))
+                        // 2-12. 전화번호 인증 Soft Delete
+                        .compose(v -> phoneVerificationRepository.softDeletePhoneVerificationByUserId(client, userId))
+                        // 2-13. 이메일 인증 Soft Delete
+                        .compose(v -> emailVerificationRepository.softDeleteEmailVerificationByUserId(client, userId))
+                        // 2-14. 스왑 Soft Delete
+                        .compose(v -> swapRepository.softDeleteSwapsByUserId(client, userId))
+                        // 2-15. 환전 Soft Delete
+                        .compose(v -> exchangeRepository.softDeleteExchangesByUserId(client, userId))
+                        // 2-16. 결제 입금 Soft Delete
+                        .compose(v -> paymentDepositRepository.softDeletePaymentDepositsByUserId(client, userId))
+                        // 2-17. 토큰 입금 Soft Delete
+                        .compose(v -> tokenDepositRepository.softDeleteTokenDepositsByUserId(client, userId))
+                        // 2-18. 에어드랍 Phase Soft Delete
+                        .compose(v -> airdropRepository.softDeleteAirdropPhasesByUserId(client, userId))
+                        // 2-19. 에어드랍 전송 Soft Delete
+                        .compose(v -> airdropRepository.softDeleteAirdropTransfersByUserId(client, userId))
+                        // 2-20. 문의 Soft Delete
+                        .compose(v -> inquiryRepository.softDeleteInquiriesByUserId(client, userId))
+                        // 2-21. 레퍼럴 관계 Soft Delete (referrer_id 또는 referred_id가 userId인 경우)
+                        .compose(v -> referralRepository.softDeleteReferralRelationsByUserId(client, userId))
+                        // 2-22. 사용자 Soft Delete (마지막)
+                        .compose(v -> userRepository.softDeleteUser(client, userId));
+                })
+                .map(deletedUser -> {
+                    log.info("Account deleted successfully - userId: {}", userId);
+                    
+                    // 3. Redis에서 사용자 토큰 제거 (모든 디바이스 로그아웃)
+                    if (redisApi != null) {
+                        logoutAllDevices(userId)
+                            .onFailure(e -> log.warn("Failed to remove user tokens from Redis: {}", e.getMessage()));
+                    }
+                    
+                    return DeleteAccountResponseDto.builder()
+                        .status("OK")
+                        .message("Account deleted successfully")
+                        .build();
+                });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.failedFuture(throwable);
+                }
+                log.error("Account deletion failed - userId: {}", userId, throwable);
+                return Future.failedFuture(new BadRequestException("Account deletion failed: " + throwable.getMessage()));
+            });
     }
 }
 

@@ -31,6 +31,7 @@ public class ReviewRepository extends BaseRepository {
         String sql = QueryBuilder
             .count("reviews")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
@@ -47,6 +48,7 @@ public class ReviewRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("reviews", "id", "user_id", "platform", "review_id", "reviewed_at", "created_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
@@ -79,6 +81,29 @@ public class ReviewRepository extends BaseRepository {
                 }
                 return null;
             });
+    }
+    
+    /**
+     * 사용자의 리뷰 Soft Delete
+     */
+    public Future<Void> softDeleteReviewByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("reviews", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Review soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("리뷰 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

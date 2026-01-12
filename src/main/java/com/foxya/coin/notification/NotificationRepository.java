@@ -49,6 +49,7 @@ public class NotificationRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("notifications", "id", "user_id", "type", "title", "message", "is_read", "related_id", "metadata", "created_at", "updated_at")
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .orderBy("created_at", Sort.DESC)
             .limitRefactoring()
             .offsetRefactoring()
@@ -77,6 +78,7 @@ public class NotificationRepository extends BaseRepository {
             .count("notifications")
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
             .andWhere("is_read", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "is_read")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -99,6 +101,7 @@ public class NotificationRepository extends BaseRepository {
         String sql = QueryBuilder
             .count("notifications")
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -121,6 +124,7 @@ public class NotificationRepository extends BaseRepository {
             .update("notifications", "is_read", "updated_at")
             .where("id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "id")
             .andWhere("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -141,6 +145,7 @@ public class NotificationRepository extends BaseRepository {
             .update("notifications", "is_read", "updated_at")
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
             .andWhere("is_read", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "is_read_condition")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -151,6 +156,29 @@ public class NotificationRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(this::successAll);
+    }
+    
+    /**
+     * 사용자의 모든 알림 Soft Delete
+     */
+    public Future<Void> softDeleteNotificationsByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("notifications", "deleted_at", "updated_at")
+            .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Notifications soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("알림 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

@@ -84,6 +84,7 @@ public class MissionRepository extends BaseRepository {
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
             .andWhere("mission_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "mission_id")
             .andWhere("mission_date", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "mission_date")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -108,6 +109,7 @@ public class MissionRepository extends BaseRepository {
             .select("user_missions", "id", "user_id", "mission_id", "mission_date", "current_count", "reset_at", "created_at", "updated_at")
             .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
             .andWhere("mission_date", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "mission_date")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -176,6 +178,29 @@ public class MissionRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> rows.iterator().hasNext());
+    }
+    
+    /**
+     * 사용자의 모든 미션 진행 상황 Soft Delete
+     */
+    public Future<Void> softDeleteUserMissionsByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("user_missions", "deleted_at", "updated_at")
+            .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("User missions soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("사용자 미션 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

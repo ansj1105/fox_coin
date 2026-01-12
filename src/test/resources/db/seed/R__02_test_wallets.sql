@@ -22,7 +22,7 @@ VALUES
     ('KRWT', 'Korean Won Token', 'INTERNAL', true, NOW(), NOW()),
     ('BLUEDIA', 'Blue Diamond', 'INTERNAL', true, NOW(), NOW()),
     ('KRC', 'Korean Coin', 'INTERNAL', true, NOW(), NOW()),
-    ('KORI', 'KORI Token', 'INTERNAL', true, NOW(), NOW())
+    ('KORI', 'Kori Token', 'INTERNAL', true, NOW(), NOW())
 ON CONFLICT (code, chain) DO NOTHING;
 
 -- 시퀀스 리셋
@@ -186,7 +186,7 @@ WHERE NOT EXISTS (
 
 -- testuser (ID:1) KORI 지갑 - 잔액 0 KORI (에어드랍 전송용)
 INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
-SELECT 
+SELECT
     (SELECT id FROM users WHERE login_id = 'testuser'),
     (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL'),
     'TADDR_TESTUSER_KORI_001',
@@ -196,7 +196,7 @@ SELECT
     NOW(),
     NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM user_wallets 
+    SELECT 1 FROM user_wallets
     WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
     AND currency_id = (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL')
 );

@@ -45,18 +45,26 @@ public class AirdropRepository extends BaseRepository {
         .build();
     
     /**
-     * 사용자별 Phase 목록 조회
+     * 사용자별 Phase 목록 조회 (삭제되지 않은 것만)
      */
     public Future<List<AirdropPhase>> getPhasesByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder
             .select("airdrop_phases")
             .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("phase", Sort.ASC)
             .build();
         
         return query(client, sql, Collections.singletonMap("user_id", userId))
             .map(rows -> fetchAll(phaseMapper, rows))
             .onFailure(throwable -> log.error("Phase 조회 실패 - userId: {}", userId));
+    }
+    
+    /**
+     * 삭제되지 않은 Phase 목록 조회 (not_deleted 전용)
+     */
+    public Future<List<AirdropPhase>> getPhasesByUserIdNotDeleted(SqlClient client, Long userId) {
+        return getPhasesByUserId(client, userId);
     }
     
     /**
@@ -96,6 +104,52 @@ public class AirdropRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(transferMapper, rows))
             .onFailure(throwable -> log.error("전송 상태 업데이트 실패 - transferId: {}", transferId));
+    }
+    
+    /**
+     * 사용자의 모든 에어드랍 Phase Soft Delete
+     */
+    public Future<Void> softDeleteAirdropPhasesByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("airdrop_phases", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Airdrop phases soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("에어드랍 Phase Soft Delete 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
+     * 사용자의 모든 에어드랍 전송 Soft Delete
+     */
+    public Future<Void> softDeleteAirdropTransfersByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("airdrop_transfers", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Airdrop transfers soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("에어드랍 전송 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

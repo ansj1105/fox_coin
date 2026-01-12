@@ -35,6 +35,7 @@ public class BonusRepository extends BaseRepository {
             .select("user_bonuses", "id", "user_id", "bonus_type", "is_active", "expires_at", "current_count", "max_count", "metadata", "created_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
             .andWhere("bonus_type", Op.Equal, "bonusType")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         Map<String, Object> params = new HashMap<>();
@@ -76,6 +77,29 @@ public class BonusRepository extends BaseRepository {
                 }
                 return null;
             });
+    }
+    
+    /**
+     * 사용자의 모든 보너스 Soft Delete
+     */
+    public Future<Void> softDeleteBonusesByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("user_bonuses", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("User bonuses soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("보너스 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

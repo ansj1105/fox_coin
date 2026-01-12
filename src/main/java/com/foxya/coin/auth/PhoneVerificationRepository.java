@@ -20,6 +20,7 @@ public class PhoneVerificationRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("phone_verifications", "is_verified")
             .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("userId", userId))
@@ -51,6 +52,29 @@ public class PhoneVerificationRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0);
+    }
+    
+    /**
+     * 사용자의 전화번호 인증 Soft Delete
+     */
+    public Future<Void> softDeletePhoneVerificationByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("phone_verifications", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Phone verification soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("전화번호 인증 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

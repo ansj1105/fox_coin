@@ -50,6 +50,7 @@ public class EmailVerificationRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("email_verifications")
             .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("created_at", Sort.DESC)
             .limit(1)
             .build();
@@ -117,6 +118,7 @@ public class EmailVerificationRepository extends BaseRepository {
             .select("email_verifications")
             .where("email", Op.Equal, "email")
             .andWhere("is_verified", Op.Equal, "is_verified")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("verified_at", Sort.DESC)
             .limit(1)
             .build();
@@ -131,6 +133,29 @@ public class EmailVerificationRepository extends BaseRepository {
                 return ev != null ? ev.userId : null;
             })
             .onFailure(throwable -> log.error("이메일 중복 확인 실패 - email: {}", email, throwable));
+    }
+    
+    /**
+     * 사용자의 이메일 인증 Soft Delete
+     */
+    public Future<Void> softDeleteEmailVerificationByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("email_verifications", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Email verification soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("이메일 인증 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 

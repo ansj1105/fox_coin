@@ -60,6 +60,7 @@ public class PaymentDepositRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("payment_deposits")
             .where("deposit_id", Op.Equal, "deposit_id")
+            .andWhere("deleted_at", Op.IsNull)
             .build();
         
         return query(client, sql, Collections.singletonMap("deposit_id", depositId))
@@ -104,6 +105,28 @@ public class PaymentDepositRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(paymentDepositMapper, rows))
             .onFailure(e -> log.error("결제 입금 실패 처리 실패 - depositId: {}", depositId));
+    }
+    
+    /**
+     * 사용자의 모든 결제 입금 Soft Delete
+     */
+    public Future<Void> softDeletePaymentDepositsByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder
+            .update("payment_deposits", "deleted_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.info("Payment deposits soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("결제 입금 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
 
