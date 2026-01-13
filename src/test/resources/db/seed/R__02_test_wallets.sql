@@ -6,7 +6,7 @@ DELETE FROM mining_history WHERE user_id IN (SELECT id FROM users WHERE login_id
 DELETE FROM internal_transfers;
 DELETE FROM external_transfers;
 DELETE FROM user_wallets WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
-DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX', 'ETH', 'KRWT', 'BLUEDIA', 'KRC');
+DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX', 'ETH', 'KRWT', 'BLUEDIA', 'KRC', 'KORI');
 -- testuser (ID:1)의 레퍼럴 관계 삭제 (테스트를 위해 레퍼럴 관계가 없어야 함)
 DELETE FROM referral_relations WHERE referred_id = (SELECT id FROM users WHERE login_id = 'testuser');
 
@@ -21,7 +21,8 @@ VALUES
     ('USDT', 'Tether USD', 'Ether', true, NOW(), NOW()),
     ('KRWT', 'Korean Won Token', 'INTERNAL', true, NOW(), NOW()),
     ('BLUEDIA', 'Blue Diamond', 'INTERNAL', true, NOW(), NOW()),
-    ('KRC', 'Korean Coin', 'INTERNAL', true, NOW(), NOW())
+    ('KRC', 'Korean Coin', 'INTERNAL', true, NOW(), NOW()),
+    ('KORI', 'KORI Token', 'INTERNAL', true, NOW(), NOW())
 ON CONFLICT (code, chain) DO NOTHING;
 
 -- 시퀀스 리셋
@@ -181,6 +182,23 @@ WHERE NOT EXISTS (
     SELECT 1 FROM user_wallets 
     WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
     AND currency_id = (SELECT id FROM currency WHERE code = 'BLUEDIA' AND chain = 'INTERNAL')
+);
+
+-- testuser (ID:1) KORI 지갑 - 잔액 0 KORI (에어드랍 전송용)
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL'),
+    'TADDR_TESTUSER_KORI_001',
+    0.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL')
 );
 
 -- 스왑 테스트용 지갑

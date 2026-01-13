@@ -183,7 +183,31 @@ public class AuthService extends BaseService {
         String providerUserId = "provider_user_id_from_token"; // 실제로는 토큰에서 추출
         String email = provider.equals("EMAIL") ? token : null; // EMAIL의 경우 token이 이메일 주소
         
-        return socialLinkRepository.createSocialLink(pool, userId, provider, providerUserId, email);
+        // 소셜 링크 저장 전에 레퍼럴 코드 확인 및 생성 (회원가입처럼)
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new BadRequestException("사용자를 찾을 수 없습니다."));
+                }
+                
+                // 레퍼럴 코드가 없으면 자동 생성 (회원가입과 동일한 로직)
+                if (user.getReferralCode() == null || user.getReferralCode().isEmpty()) {
+                    log.info("Auto-generating referral code for social link user: {}", userId);
+                    return userService.generateReferralCode(userId)
+                        .compose(referralCodeResponse -> {
+                            // 레퍼럴 코드 생성 성공 후 소셜 링크 저장
+                            return socialLinkRepository.createSocialLink(pool, userId, provider, providerUserId, email);
+                        })
+                        .recover(throwable -> {
+                            // 레퍼럴 코드 생성 실패해도 소셜 링크 저장은 진행
+                            log.warn("Failed to auto-generate referral code for user {} during social link: {}", userId, throwable.getMessage());
+                            return socialLinkRepository.createSocialLink(pool, userId, provider, providerUserId, email);
+                        });
+                } else {
+                    // 레퍼럴 코드가 이미 있으면 바로 소셜 링크 저장
+                    return socialLinkRepository.createSocialLink(pool, userId, provider, providerUserId, email);
+                }
+            });
     }
     
     /**

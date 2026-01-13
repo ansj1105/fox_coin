@@ -198,11 +198,11 @@ public class AirdropService extends BaseService {
                 .compose(createdTransfer -> {
                     // 2. 내부 전송으로 지갑에 금액 추가
                     // 에어드랍은 시스템에서 사용자 지갑으로 전송하는 것이므로
-                    // 내부 전송을 사용하되, sender는 시스템(0 또는 null)으로 처리
+                    // 내부 전송을 사용하되, sender_id는 NOT NULL이므로 receiver_id를 sender_id로도 사용 (시스템 자동 지급)
                     InternalTransfer internalTransfer = InternalTransfer.builder()
                         .transferId(UUID.randomUUID().toString())
-                        .senderId(null)  // 시스템 전송
-                        .senderWalletId(null)
+                        .senderId(userId)  // 시스템 전송: sender_id는 NOT NULL이므로 receiver_id를 사용
+                        .senderWalletId(wallet.getId())  // 시스템 전송: sender_wallet_id는 NOT NULL이므로 receiver_wallet_id를 사용
                         .receiverId(userId)
                         .receiverWalletId(wallet.getId())
                         .currencyId(currency.getId())

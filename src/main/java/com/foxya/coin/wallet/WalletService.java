@@ -11,8 +11,11 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class WalletService extends BaseService {
@@ -30,8 +33,55 @@ public class WalletService extends BaseService {
         this.tronServiceUrl = tronServiceUrl;
     }
     
+    /**
+     * 사용자 지갑 조회 (필요한 네트워크 지갑 자동 생성)
+     * TRC(TRON), BTC, ETH 네트워크의 지갑이 없으면 자동으로 생성
+     */
     public Future<List<Wallet>> getUserWallets(Long userId) {
-        return walletRepository.getWalletsByUserId(pool, userId);
+        // 1. 기존 지갑 조회
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .compose(existingWallets -> {
+                // 2. 기존 지갑의 네트워크 목록 추출
+                Set<String> existingNetworks = existingWallets.stream()
+                    .map(Wallet::getNetwork)
+                    .filter(network -> network != null)
+                    .collect(Collectors.toSet());
+                
+                // 3. 필요한 네트워크와 통화 코드 정의 (TRC는 TRON 네트워크, USDT 기준)
+                List<String> requiredCurrencies = new ArrayList<>();
+                if (!existingNetworks.contains("TRON")) {
+                    requiredCurrencies.add("USDT"); // TRC(TRON) 네트워크용
+                }
+                if (!existingNetworks.contains("BTC")) {
+                    requiredCurrencies.add("BTC");
+                }
+                if (!existingNetworks.contains("ETH")) {
+                    requiredCurrencies.add("ETH");
+                }
+                
+                // 4. 필요한 지갑이 없으면 자동 생성
+                if (requiredCurrencies.isEmpty()) {
+                    return Future.succeededFuture(existingWallets);
+                }
+                
+                // 5. 필요한 지갑들을 병렬로 생성 시도 (에러가 발생해도 기존 지갑은 반환)
+                List<Future<Wallet>> createFutures = requiredCurrencies.stream()
+                    .map(currencyCode -> {
+                        log.info("Auto-creating wallet for user {} - currency: {}", userId, currencyCode);
+                        return createWallet(userId, currencyCode)
+                            .recover(throwable -> {
+                                // 지갑 생성 실패해도 무시하고 계속 진행
+                                log.warn("Failed to auto-create wallet for user {} - currency: {} - error: {}", 
+                                    userId, currencyCode, throwable.getMessage());
+                                return Future.succeededFuture((Wallet) null);
+                            });
+                    })
+                    .collect(Collectors.toList());
+                
+                // 6. 모든 지갑 생성 완료 후 다시 조회하여 반환
+                return Future.all(createFutures)
+                    .compose(v -> walletRepository.getWalletsByUserId(pool, userId));
+            });
     }
     
     /**
