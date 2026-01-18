@@ -428,13 +428,17 @@ public class AuthService extends BaseService {
         String clientSecret = googleConfig.getString("clientSecret");
         String redirectUri = googleConfig.getString("redirectUri");
         
-        if (clientId == null || clientSecret == null) {
+        if (clientId == null) {
             log.error("Google OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
+        }
+        if (clientSecret == null && (dto.getCodeVerifier() == null || dto.getCodeVerifier().isEmpty())) {
+            log.error("Google OAuth client secret is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
         
         // 1. Google OAuth 인증 (토큰 교환 + 사용자 정보 조회)
-        return GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+        return GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier())
             .compose(userInfo -> {
                 String googleId = userInfo.getString("id");
                 String email = userInfo.getString("email");
@@ -602,4 +606,3 @@ public class AuthService extends BaseService {
             });
     }
 }
-

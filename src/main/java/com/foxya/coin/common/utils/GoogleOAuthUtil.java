@@ -34,13 +34,21 @@ public class GoogleOAuthUtil {
             String code,
             String clientId,
             String clientSecret,
-            String redirectUri) {
+            String redirectUri,
+            String codeVerifier) {
         
         JsonObject tokenRequest = new JsonObject()
             .put("code", code)
             .put("client_id", clientId)
-            .put("client_secret", clientSecret)
             .put("grant_type", "authorization_code");
+
+        if (clientSecret != null && !clientSecret.isEmpty()) {
+            tokenRequest.put("client_secret", clientSecret);
+        }
+
+        if (codeVerifier != null && !codeVerifier.isEmpty()) {
+            tokenRequest.put("code_verifier", codeVerifier);
+        }
         
         // redirectUri가 null이 아니면 추가 (popup 모드에서는 "postmessage" 사용)
         if (redirectUri != null) {
@@ -71,7 +79,7 @@ public class GoogleOAuthUtil {
                     if (response.statusCode() == 400 && body != null && body.contains("redirect_uri_mismatch")) {
                         if (!"postmessage".equals(redirectUri)) {
                             log.info("Retrying with postmessage redirect_uri for popup mode");
-                            return exchangeToken(webClient, code, clientId, clientSecret, "postmessage");
+                            return exchangeToken(webClient, code, clientId, clientSecret, "postmessage", codeVerifier);
                         }
                     }
                     
@@ -84,7 +92,7 @@ public class GoogleOAuthUtil {
                 if (errorMsg != null && errorMsg.contains("redirect_uri_mismatch")) {
                     if (!"postmessage".equals(redirectUri)) {
                         log.info("Retrying with postmessage redirect_uri for popup mode (from exception)");
-                        return exchangeToken(webClient, code, clientId, clientSecret, "postmessage");
+                        return exchangeToken(webClient, code, clientId, clientSecret, "postmessage", codeVerifier);
                     }
                 }
                 return Future.failedFuture(throwable);
@@ -140,13 +148,13 @@ public class GoogleOAuthUtil {
             String code,
             String clientId,
             String clientSecret,
-            String redirectUri) {
+            String redirectUri,
+            String codeVerifier) {
         
-        return exchangeToken(webClient, code, clientId, clientSecret, redirectUri)
+        return exchangeToken(webClient, code, clientId, clientSecret, redirectUri, codeVerifier)
             .compose(tokenResponse -> {
                 String accessToken = tokenResponse.getString("access_token");
                 return getUserInfo(webClient, accessToken);
             });
     }
 }
-

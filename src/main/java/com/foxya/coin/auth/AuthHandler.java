@@ -169,6 +169,7 @@ public class AuthHandler extends BaseHandler {
             .body(json(
                 objectSchema()
                     .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .property("code_verifier", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -321,4 +322,3 @@ public class AuthHandler extends BaseHandler {
         response(ctx, authService.deleteAccount(userId, dto.getPassword()));
     }
 }
-

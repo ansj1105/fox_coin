@@ -126,6 +126,9 @@ components:
           type: string
           description: Google OAuth 2.0 Authorization Code
           example: "4/0AeanS0X..."
+        code_verifier:
+          type: string
+          description: PKCE code_verifier (모바일 앱에서 사용 시 선택)
 
     GoogleLoginResponseData:
       type: object
@@ -151,16 +154,6 @@ components:
           type: boolean
           description: 신규 사용자 여부
           example: false
-
-    GoogleLoginRequest:
-      type: object
-      required:
-        - code
-      properties:
-        code:
-          type: string
-          description: Google OAuth 2.0 Authorization Code
-          example: "4/0AeanS0X..."
 
     GoogleLoginResponse:
       type: object
@@ -1660,6 +1653,7 @@ paths:
               $ref: '#/components/schemas/GoogleLoginRequest'
             example:
               code: "4/0AeanS0X..."
+              code_verifier: "your_pkce_code_verifier"
       responses:
         '200':
           description: 로그인 성공

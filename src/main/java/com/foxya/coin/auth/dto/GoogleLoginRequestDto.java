@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Getter
 @NoArgsConstructor
@@ -11,5 +12,6 @@ import lombok.NoArgsConstructor;
 @Builder
 public class GoogleLoginRequestDto {
     private String code;
+    @JsonProperty("code_verifier")
+    private String codeVerifier;
 }
-
