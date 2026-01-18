@@ -169,6 +169,7 @@ public class AuthHandler extends BaseHandler {
             .body(json(
                 objectSchema()
                     .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))

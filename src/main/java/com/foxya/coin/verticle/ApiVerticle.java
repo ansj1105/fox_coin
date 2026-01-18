@@ -219,8 +219,8 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository);
         
-        // Google OAuth 설정
-        JsonObject googleConfig = config().getJsonObject("google", new JsonObject());
+        // Google OAuth 설정 (환경 변수 우선)
+        JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
         AuthService authService = new AuthService(
@@ -655,5 +655,21 @@ public class ApiVerticle extends AbstractVerticle {
         
         return options;
     }
-}
 
+    private static JsonObject applyGoogleEnvOverrides(JsonObject baseConfig) {
+        JsonObject config = baseConfig.copy();
+        putIfEnvSet(config, "clientId", "GOOGLE_CLIENT_ID");
+        putIfEnvSet(config, "clientSecret", "GOOGLE_CLIENT_SECRET");
+        putIfEnvSet(config, "redirectUri", "GOOGLE_REDIRECT_URI");
+        putIfEnvSet(config, "androidClientId", "GOOGLE_ANDROID_CLIENT_ID");
+        putIfEnvSet(config, "androidRedirectUri", "GOOGLE_ANDROID_REDIRECT_URI");
+        return config;
+    }
+
+    private static void putIfEnvSet(JsonObject config, String key, String envName) {
+        String value = System.getenv(envName);
+        if (value != null && !value.isBlank()) {
+            config.put(key, value);
+        }
+    }
+}

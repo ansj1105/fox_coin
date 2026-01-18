@@ -14,4 +14,5 @@ public class GoogleLoginRequestDto {
     private String code;
     @JsonProperty("code_verifier")
     private String codeVerifier;
+    private String platform;
 }

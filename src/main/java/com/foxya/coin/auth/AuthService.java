@@ -424,9 +424,16 @@ public class AuthService extends BaseService {
     public Future<GoogleLoginResponseDto> googleLogin(GoogleLoginRequestDto dto) {
         log.info("Google login attempt with code");
         
-        String clientId = googleConfig.getString("clientId");
-        String clientSecret = googleConfig.getString("clientSecret");
-        String redirectUri = googleConfig.getString("redirectUri");
+        String platform = dto.getPlatform();
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+
+        String clientId = isAndroid
+            ? googleConfig.getString("androidClientId", googleConfig.getString("clientId"))
+            : googleConfig.getString("clientId");
+        String clientSecret = isAndroid ? null : googleConfig.getString("clientSecret");
+        String redirectUri = isAndroid
+            ? googleConfig.getString("androidRedirectUri", googleConfig.getString("redirectUri"))
+            : googleConfig.getString("redirectUri");
         
         if (clientId == null) {
             log.error("Google OAuth configuration is missing");

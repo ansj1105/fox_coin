@@ -129,6 +129,10 @@ components:
         code_verifier:
           type: string
           description: PKCE code_verifier (모바일 앱에서 사용 시 선택)
+        platform:
+          type: string
+          description: 클라이언트 플랫폼 (WEB 또는 ANDROID)
+          example: ANDROID
 
     GoogleLoginResponseData:
       type: object
