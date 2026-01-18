@@ -425,7 +425,8 @@ public class AuthService extends BaseService {
         log.info("Google login attempt with code");
         
         String platform = dto.getPlatform();
-        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+        boolean hasCodeVerifier = dto.getCodeVerifier() != null && !dto.getCodeVerifier().isEmpty();
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform) || hasCodeVerifier;
 
         String clientId = isAndroid
             ? googleConfig.getString("androidClientId", googleConfig.getString("clientId"))
