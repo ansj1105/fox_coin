@@ -201,4 +201,61 @@ public class UserRepository extends BaseRepository {
             .map(rows -> (Void) null)
             .onFailure(throwable -> log.error("로그인 비밀번호 업데이트 실패 - userId: {}", userId));
     }
+
+    /**
+     * 이메일로 회원 조회 (아이디 찾기용)
+     * - login_id = email
+     * - email_verifications.email (is_verified) 
+     * - social_links.email
+     */
+    public Future<User> getUserByEmailForFindLoginId(SqlClient client, String email) {
+        String sql = """
+            SELECT u.* FROM users u
+            WHERE u.deleted_at IS NULL
+              AND (
+                u.login_id = #{email}
+                OR EXISTS (
+                  SELECT 1 FROM email_verifications ev
+                  WHERE ev.user_id = u.id AND ev.email = #{email} AND ev.is_verified = true
+                    AND (ev.deleted_at IS NULL)
+                )
+                OR EXISTS (
+                  SELECT 1 FROM social_links sl
+                  WHERE sl.user_id = u.id AND sl.email = #{email}
+                    AND (sl.deleted_at IS NULL)
+                )
+              )
+            LIMIT 1
+            """;
+        String built = QueryBuilder.selectStringQuery(sql).build();
+        return query(client, built, Collections.singletonMap("email", email))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("이메일로 회원 조회 실패 (find-login-id) - email: {}", email, throwable));
+    }
+
+    /**
+     * 이메일로 회원 조회 (임시 비밀번호 발송용)
+     * - login_id = email 또는 email_verifications.email (is_verified) 만.
+     * - social_links 만으로 찾은 회원(소셜 전용)은 제외.
+     */
+    public Future<User> getUserByEmailForSendTempPassword(SqlClient client, String email) {
+        String sql = """
+            SELECT u.* FROM users u
+            WHERE u.deleted_at IS NULL
+              AND u.password_hash IS NOT NULL
+              AND (
+                u.login_id = #{email}
+                OR EXISTS (
+                  SELECT 1 FROM email_verifications ev
+                  WHERE ev.user_id = u.id AND ev.email = #{email} AND ev.is_verified = true
+                    AND (ev.deleted_at IS NULL)
+                )
+              )
+            LIMIT 1
+            """;
+        String built = QueryBuilder.selectStringQuery(sql).build();
+        return query(client, built, Collections.singletonMap("email", email))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("이메일로 회원 조회 실패 (send-temp-password) - email: {}", email, throwable));
+    }
 }

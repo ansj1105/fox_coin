@@ -13,6 +13,7 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
@@ -25,6 +26,7 @@ import com.foxya.coin.auth.dto.TokenResponseDto;
 import com.foxya.coin.auth.dto.LogoutResponseDto;
 import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
 import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
+import com.foxya.coin.auth.dto.FindLoginIdDataDto;
 import com.foxya.coin.auth.dto.GoogleLoginRequestDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
@@ -78,6 +80,7 @@ public class AuthService extends BaseService {
     private final InquiryRepository inquiryRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final ReferralRepository referralRepository;
+    private final EmailService emailService;
     private final WebClient webClient;
     private final JsonObject googleConfig;
     
@@ -94,7 +97,7 @@ public class AuthService extends BaseService {
                       ExchangeRepository exchangeRepository, PaymentDepositRepository paymentDepositRepository,
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
-                      ReferralRepository referralRepository, WebClient webClient, JsonObject googleConfig) {
+                      ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig) {
         super(pool);
         this.userRepository = userRepository;
         this.userService = userService;
@@ -120,6 +123,7 @@ public class AuthService extends BaseService {
         this.inquiryRepository = inquiryRepository;
         this.emailVerificationRepository = emailVerificationRepository;
         this.referralRepository = referralRepository;
+        this.emailService = emailService;
         this.webClient = webClient;
         this.googleConfig = googleConfig;
     }
@@ -154,6 +158,55 @@ public class AuthService extends BaseService {
             });
     }
     
+    /**
+     * 아이디 찾기 (가입 이메일로 로그인 아이디 조회)
+     * loginId의 3·4번째 자리 2글자를 *로 마스킹하여 반환.
+     */
+    public Future<FindLoginIdDataDto> findLoginId(String email) {
+        return userRepository.getUserByEmailForFindLoginId(pool, email)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("등록된 이메일과 일치하는 계정을 찾을 수 없습니다."));
+                }
+                String masked = maskLoginId(user.getLoginId());
+                return Future.succeededFuture(FindLoginIdDataDto.builder().maskedLoginId(masked).build());
+            });
+    }
+
+    /**
+     * loginId 3·4번째 자리(1-based) 2글자를 *로 마스킹
+     */
+    private static String maskLoginId(String loginId) {
+        if (loginId == null || loginId.length() < 3) {
+            return loginId;
+        }
+        char[] c = loginId.toCharArray();
+        if (c.length >= 3) c[2] = '*';
+        if (c.length >= 4) c[3] = '*';
+        return new String(c);
+    }
+
+    /**
+     * 비밀번호 찾기 (가입 이메일로 임시 비밀번호 발송)
+     * 일반 회원(login_id=email 또는 email_verifications 인증 이메일)만 대상. 소셜 전용·이메일 미등록은 조회에서 제외.
+     */
+    public Future<Void> sendTempPassword(String email) {
+        return userRepository.getUserByEmailForSendTempPassword(pool, email)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("등록된 이메일과 일치하는 계정을 찾을 수 없습니다."));
+                }
+                String temp = emailService.generateTemporaryPassword();
+                String hashed = BCrypt.hashpw(temp, BCrypt.gensalt(10));
+                return userRepository.updateLoginPassword(pool, user.getId(), hashed)
+                    .compose(v -> emailService.sendTemporaryPassword(email, temp))
+                    .recover(throwable -> {
+                        log.error("임시 비밀번호 이메일 발송 실패 - email: {}", email, throwable);
+                        return Future.failedFuture(new BadRequestException("임시 비밀번호 발송에 실패했습니다."));
+                    });
+            });
+    }
+
     /**
      * 회원가입
      */

@@ -152,6 +152,69 @@ public class EmailService {
         int number = 100000 + random.nextInt(900000); // 100000 ~ 999999
         return String.valueOf(number);
     }
+
+    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    private static final int TEMP_PASSWORD_LENGTH = 10;
+
+    /**
+     * 임시 비밀번호 생성 (영문+숫자, 1,I,0,O 제외)
+     */
+    public String generateTemporaryPassword() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder(TEMP_PASSWORD_LENGTH);
+        for (int i = 0; i < TEMP_PASSWORD_LENGTH; i++) {
+            sb.append(TEMP_PASSWORD_CHARS.charAt(random.nextInt(TEMP_PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 임시 비밀번호 이메일 발송
+     * SMTP 미설정 또는 발송 실패 시 Future.failedFuture 반환
+     */
+    public Future<Void> sendTemporaryPassword(String email, String tempPassword) {
+        if (!smtpEnabled || mailClient == null) {
+            log.warn("[EmailService] SMTP disabled or mailClient is null. Cannot send temporary password to: {}", email);
+            return Future.failedFuture(new IllegalStateException("임시 비밀번호 발송에 실패했습니다."));
+        }
+        MailMessage message = new MailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(email);
+        message.setSubject("[Foxya] 임시 비밀번호 안내");
+        message.setHtml(getTemporaryPasswordTemplate(tempPassword));
+        return mailClient.sendMail(message)
+            .map(ok -> (Void) null)
+            .recover(throwable -> {
+                log.error("[EmailService] Failed to send temporary password. to: {}, error: {}", email, throwable.getMessage(), throwable);
+                return Future.failedFuture(new IllegalStateException("임시 비밀번호 발송에 실패했습니다."));
+            });
+    }
+
+    private String getTemporaryPasswordTemplate(String tempPassword) {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"><style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background-color: #f9f9f9; }
+            .code-box { background-color: #fff; border: 2px dashed #4CAF50; padding: 20px; text-align: center; margin: 20px 0; }
+            .code { font-size: 24px; font-weight: bold; color: #4CAF50; letter-spacing: 3px; }
+            .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+            </style></head>
+            <body><div class="container">
+            <div class="header"><h1>Foxya 임시 비밀번호</h1></div>
+            <div class="content">
+            <p>안녕하세요,</p>
+            <p>요청하신 임시 비밀번호입니다. 로그인 후 반드시 비밀번호를 변경해주세요.</p>
+            <div class="code-box"><div class="code">%s</div></div>
+            <p>보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.</p>
+            </div>
+            <div class="footer"><p>© 2024 Foxya. All rights reserved.</p></div>
+            </div></body></html>
+            """.formatted(tempPassword);
+    }
 }
 
 

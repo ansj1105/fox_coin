@@ -19,8 +19,8 @@
     },
     "flyway": {
       "url": "jdbc:postgresql://localhost:5432/coin_system_cloud",
-      "user": "postgres",
-      "password": "postgres"
+      "user": "an",
+      "password": "1234"
     },
     "blockchain": {
       "tron": {

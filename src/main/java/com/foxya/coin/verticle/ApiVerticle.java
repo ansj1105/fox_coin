@@ -224,12 +224,12 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
         AuthService authService = new AuthService(
-            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository, 
+            pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
             redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
-            swapRepository, exchangeRepository, paymentDepositRepository, 
+            swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            referralRepository, webClient, googleConfig);
+            referralRepository, emailService, webClient, googleConfig);
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
         MissionService missionService = new MissionService(

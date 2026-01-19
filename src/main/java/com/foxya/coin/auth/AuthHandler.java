@@ -11,6 +11,7 @@ import io.vertx.json.schema.SchemaParser;
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
+import com.foxya.coin.auth.dto.EmailRequestDto;
 import com.foxya.coin.auth.dto.LoginDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,8 @@ public class AuthHandler extends BaseHandler {
         // 공개 API
         router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
         router.post("/register").handler(this.registerValidation(parser)).handler(this::register);
+        router.post("/find-login-id").handler(this.findLoginIdValidation(parser)).handler(this::findLoginId);
+        router.post("/send-temp-password").handler(this.sendTempPasswordValidation(parser)).handler(this::sendTempPassword);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
         
@@ -91,6 +94,32 @@ public class AuthHandler extends BaseHandler {
             .build();
     }
     
+    /**
+     * 아이디 찾기 Validation
+     */
+    private Handler<RoutingContext> findLoginIdValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 임시 비밀번호 발송 Validation
+     */
+    private Handler<RoutingContext> sendTempPasswordValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * 회원가입 Validation
      */
@@ -187,6 +216,30 @@ public class AuthHandler extends BaseHandler {
         
         log.info("Login attempt for user: {}", dto.getLoginId());
         response(ctx, authService.login(dto));
+    }
+
+    /**
+     * 아이디 찾기
+     */
+    private void findLoginId(RoutingContext ctx) {
+        EmailRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            EmailRequestDto.class
+        );
+        log.info("Find login ID request for email: {}", dto.getEmail());
+        response(ctx, authService.findLoginId(dto.getEmail()));
+    }
+
+    /**
+     * 임시 비밀번호 발송
+     */
+    private void sendTempPassword(RoutingContext ctx) {
+        EmailRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            EmailRequestDto.class
+        );
+        log.info("Send temp password request for email: {}", dto.getEmail());
+        response(ctx, authService.sendTempPassword(dto.getEmail()), v -> null);
     }
     
     /**

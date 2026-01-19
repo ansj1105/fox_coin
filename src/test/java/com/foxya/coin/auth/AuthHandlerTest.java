@@ -12,6 +12,7 @@ import com.foxya.coin.auth.dto.TokenResponseDto;
 import com.foxya.coin.auth.dto.LogoutResponseDto;
 import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
 import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
+import com.foxya.coin.auth.dto.FindLoginIdDataDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
@@ -29,7 +30,8 @@ public class AuthHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<LogoutResponseDto>> refLogoutResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<DeleteAccountResponseDto>> refDeleteAccountResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<GoogleLoginResponseDto>> refGoogleLoginResponse = new TypeReference<>() {};
-    
+    private final TypeReference<ApiResponse<FindLoginIdDataDto>> refFindLoginIdResponse = new TypeReference<>() {};
+
     public AuthHandlerTest() {
         super("/api/v1/auth");
     }
@@ -111,6 +113,74 @@ public class AuthHandlerTest extends HandlerTestBase {
             reqPost(getUrl("/login"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("아이디 찾기 테스트")
+    class FindLoginIdTest {
+
+        @Test
+        @Order(20)
+        @DisplayName("성공 - 이메일로 로그인 아이디 조회 (마스킹)")
+        void success(VertxTestContext tc) {
+            // testuser는 email_verifications에 testuser1@example.com (is_verified) 등록됨. loginId=testuser -> te**user
+            JsonObject data = new JsonObject().put("email", "testuser1@example.com");
+
+            reqPost(getUrl("/find-login-id"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Find login ID response: {}", res.bodyAsJsonObject());
+                    FindLoginIdDataDto dto = expectSuccessAndGetResponse(res, refFindLoginIdResponse);
+                    assertThat(dto.getMaskedLoginId()).isEqualTo("te**user");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(21)
+        @DisplayName("실패 - 등록된 이메일과 일치하는 계정 없음")
+        void failNotFound(VertxTestContext tc) {
+            JsonObject data = new JsonObject().put("email", "notfound@example.com");
+
+            reqPost(getUrl("/find-login-id"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 404);
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("비밀번호 찾기(임시 비밀번호 발송) 테스트")
+    class SendTempPasswordTest {
+
+        @Test
+        @Order(22)
+        @DisplayName("실패 - 등록된 이메일과 일치하는 계정 없음")
+        void failNotFound(VertxTestContext tc) {
+            JsonObject data = new JsonObject().put("email", "notfound@example.com");
+
+            reqPost(getUrl("/send-temp-password"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 404);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(23)
+        @DisplayName("실패 또는 성공 - 이메일 발송 (테스트 환경에선 SMTP 미설정 시 400)")
+        void sendTempPassword(VertxTestContext tc) {
+            // testuser1@example.com은 email_verifications에 등록된 testuser의 이메일.
+            // SMTP 미설정 시 "임시 비밀번호 발송에 실패했습니다."(400). SMTP 설정 시 200.
+            JsonObject data = new JsonObject().put("email", "testuser1@example.com");
+
+            reqPost(getUrl("/send-temp-password"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Send temp password response: {} {}", res.statusCode(), res.bodyAsString());
+                    assertThat(res.statusCode()).isIn(200, 400);
                     tc.completeNow();
                 })));
         }
