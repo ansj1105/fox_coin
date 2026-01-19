@@ -7,6 +7,7 @@ import io.vertx.pgclient.PgPool;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.user.dto.CreateUserDto;
@@ -288,6 +289,41 @@ public class UserService extends BaseService {
 
                 String hash = BCrypt.hashpw(newPassword, BCrypt.gensalt());
                 return userRepository.updateTransactionPassword(pool, userId, hash).mapEmpty();
+            });
+    }
+
+    /**
+     * 로그인 비밀번호 변경 (이메일 인증 코드 기반, 일반 회원 전용)
+     * 소셜 전용 계정(비밀번호 미설정)은 변경 불가.
+     */
+    public Future<Void> changeLoginPassword(Long userId, String code, String newPassword) {
+        // newPassword: 8자 이상
+        if (newPassword == null || newPassword.length() < 8) {
+            return Future.failedFuture(new BadRequestException("비밀번호는 8자 이상이어야 합니다."));
+        }
+
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                // 소셜 전용 계정(비밀번호 미설정) 거부
+                if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+                    return Future.failedFuture(new BadRequestException("소셜 전용 계정(비밀번호 미설정)입니다. 로그인 비밀번호를 변경할 수 없습니다."));
+                }
+
+                return emailVerificationRepository.getLatestByUserId(pool, userId)
+                    .compose(ev -> {
+                        if (ev == null || ev.verificationCode == null) {
+                            return Future.failedFuture(new BadRequestException("이메일 인증 정보가 없습니다."));
+                        }
+                        if (!ev.verificationCode.equals(code) || ev.expiresAt == null || ev.expiresAt.isBefore(java.time.LocalDateTime.now())) {
+                            return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+                        }
+
+                        String hash = BCrypt.hashpw(newPassword, BCrypt.gensalt());
+                        return userRepository.updateLoginPassword(pool, userId, hash).mapEmpty();
+                    });
             });
     }
 }

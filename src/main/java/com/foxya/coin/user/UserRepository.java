@@ -182,4 +182,23 @@ public class UserRepository extends BaseRepository {
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("거래 비밀번호 업데이트 실패 - userId: {}", userId));
     }
+
+    /**
+     * 로그인 비밀번호(해시) 업데이트
+     */
+    public Future<Void> updateLoginPassword(SqlClient client, Long userId, String passwordHash) {
+        String sql = QueryBuilder
+            .update("users", "password_hash", "updated_at")
+            .whereById()
+            .build();
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("password_hash", passwordHash);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("로그인 비밀번호 업데이트 실패 - userId: {}", userId));
+    }
 }

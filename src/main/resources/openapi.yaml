@@ -2296,6 +2296,55 @@ paths:
         '401':
           description: 인증 실패
 
+  /api/v1/security/login-password:
+    post:
+      summary: 로그인 비밀번호 변경
+      description: |
+        이메일 인증 코드 기반으로 로그인 비밀번호를 변경합니다. (일반 회원 전용)
+        - `POST /api/v1/users/email/send-code`로 이메일 인증 코드를 먼저 발급받아야 합니다.
+        - 소셜 전용 계정(비밀번호 미설정)은 `status: ERROR` 및 `message`로 거부됩니다.
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+                - newPassword
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  description: 이메일로 발송된 6자리 숫자 인증 코드
+                  example: "123456"
+                newPassword:
+                  type: string
+                  minLength: 8
+                  description: 새 로그인 비밀번호 (8자 이상)
+                  example: "new_password_8chars"
+      responses:
+        '200':
+          description: 변경 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+        '400':
+          description: |
+            잘못된 요청 (인증 코드 오류, 비밀번호 8자 미만, 소셜 전용 계정 등)
+            - `status: ERROR`, `message` 포함
+        '401':
+          description: 인증 실패
+
   # ==================== Referral ====================
   /api/v1/referrals/register:
     post:

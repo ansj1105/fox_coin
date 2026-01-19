@@ -96,6 +96,82 @@ public class SecurityHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+
+    @Nested
+    @DisplayName("로그인 비밀번호 변경 테스트")
+    class LoginPasswordTest {
+
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 올바른 이메일 인증 코드로 로그인 비밀번호 변경")
+        void successChangeLoginPassword(VertxTestContext tc) {
+            // testuser2(ID:2)의 이메일 인증 코드: 222222 (R__03_test_email_verifications.sql)
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject body = new JsonObject()
+                .put("code", "222222")
+                .put("newPassword", "new_password_8chars");
+
+            reqPost(getUrl("/login-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Change login password response: {}", res.bodyAsJsonObject());
+                    expectSuccessAndGetResponse(res, refVoid);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(2)
+        @DisplayName("실패 - 잘못된 코드로 로그인 비밀번호 변경")
+        void failInvalidCode(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject body = new JsonObject()
+                .put("code", "999999")
+                .put("newPassword", "new_password_8chars");
+
+            reqPost(getUrl("/login-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(3)
+        @DisplayName("실패 - 8자 미만 비밀번호")
+        void failPasswordTooShort(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject body = new JsonObject()
+                .put("code", "222222")
+                .put("newPassword", "short77");  // 7자 (8자 미만)
+
+            reqPost(getUrl("/login-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(4)
+        @DisplayName("실패 - 인증 없이 로그인 비밀번호 변경")
+        void failNoAuth(VertxTestContext tc) {
+            JsonObject body = new JsonObject()
+                .put("code", "222222")
+                .put("newPassword", "new_password_8chars");
+
+            reqPost(getUrl("/login-password"))
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
 }
 
 
