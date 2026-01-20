@@ -101,6 +101,31 @@ public class WalletRepository extends BaseRepository {
                 return count != null && count > 0;
             });
     }
+
+    /**
+     * 지갑 주소로 지갑 조회 (대소문자 무시)
+     */
+    public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            LEFT JOIN currency c ON uw.currency_id = c.id
+            WHERE LOWER(uw.address) = LOWER(#{address})
+              AND uw.status = #{status}
+              AND uw.deleted_at IS NULL
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("address", address);
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows));
+    }
     
     /**
      * 지갑 생성

@@ -91,6 +91,10 @@ dependencies {
     
     // BCrypt
     implementation("org.mindrot:jbcrypt:$jbcryptVersion")
+
+    // Crypto verification (recovery signatures)
+    implementation("org.web3j:core:4.10.3")
+    implementation("org.bitcoinj:bitcoinj-core:0.16.2")
     
     // Lombok
     compileOnly("org.projectlombok:lombok:$lombokVersion")

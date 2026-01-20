@@ -365,6 +365,23 @@ public class TransferRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows));
     }
+
+    /**
+     * 지갑 주소로 지갑 조회 (대소문자 무시)
+     */
+    public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
+        String sql = """
+            SELECT * FROM user_wallets
+            WHERE LOWER(address) = LOWER(#{address})
+              AND status = #{status}
+              AND deleted_at IS NULL
+            """;
+        Map<String, Object> params = new HashMap<>();
+        params.put("address", address);
+        params.put("status", "ACTIVE");
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows));
+    }
     
     /**
      * 사용자의 특정 통화 지갑 조회
@@ -536,4 +553,3 @@ public class TransferRepository extends BaseRepository {
         return getExternalTransfersByUserId(client, userId, limit, offset);
     }
 }
-

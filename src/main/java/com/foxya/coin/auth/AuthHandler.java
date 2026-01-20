@@ -19,6 +19,8 @@ import com.foxya.coin.auth.dto.LoginDto;
 import com.foxya.coin.auth.dto.RefreshRequestDto;
 import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
+import com.foxya.coin.auth.dto.RecoveryChallengeRequestDto;
+import com.foxya.coin.auth.dto.RecoveryResetRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -52,6 +54,8 @@ public class AuthHandler extends BaseHandler {
         router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
         router.post("/find-login-id").handler(this.findLoginIdValidation(parser)).handler(this::findLoginId);
         router.post("/send-temp-password").handler(this.sendTempPasswordValidation(parser)).handler(this::sendTempPassword);
+        router.post("/recovery/challenge").handler(this.recoveryChallengeValidation(parser)).handler(this::requestRecoveryChallenge);
+        router.post("/recovery/reset-password").handler(this.recoveryResetValidation(parser)).handler(this::resetPasswordWithRecovery);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
         router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
@@ -125,6 +129,30 @@ public class AuthHandler extends BaseHandler {
             .body(json(
                 objectSchema()
                     .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> recoveryChallengeValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("address", stringSchema().with(minLength(10), maxLength(255)))
+                    .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> recoveryResetValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("address", stringSchema().with(minLength(10), maxLength(255)))
+                    .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
+                    .requiredProperty("newPassword", passwordSchema())
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -325,6 +353,30 @@ public class AuthHandler extends BaseHandler {
         );
         log.info("Send temp password request for email: {}", dto.getEmail());
         response(ctx, authService.sendTempPassword(dto.getEmail()), v -> null);
+    }
+
+    /**
+     * 시드 기반 복구: 챌린지 발급
+     */
+    private void requestRecoveryChallenge(RoutingContext ctx) {
+        RecoveryChallengeRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            RecoveryChallengeRequestDto.class
+        );
+        log.info("Recovery challenge request - chain: {}, address: {}", dto.getChain(), dto.getAddress());
+        response(ctx, authService.requestRecoveryChallenge(dto.getAddress(), dto.getChain()));
+    }
+
+    /**
+     * 시드 기반 복구: 서명 검증 후 비밀번호 변경
+     */
+    private void resetPasswordWithRecovery(RoutingContext ctx) {
+        RecoveryResetRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            RecoveryResetRequestDto.class
+        );
+        log.info("Recovery reset request - chain: {}, address: {}", dto.getChain(), dto.getAddress());
+        response(ctx, authService.resetPasswordWithRecovery(dto.getAddress(), dto.getChain(), dto.getSignature(), dto.getNewPassword()));
     }
     
     /**

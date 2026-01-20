@@ -4,18 +4,17 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.currency.CurrencyRepository;
+import com.foxya.coin.auth.RecoverySignatureVerifier;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Slf4j
 public class WalletService extends BaseService {
@@ -24,13 +23,18 @@ public class WalletService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final WebClient webClient;
     private final String tronServiceUrl;
+    private final RedisAPI redisApi;
+
+    private static final String WALLET_RECOVERY_NONCE_PREFIX = "wallet:nonce:";
+    private static final int WALLET_RECOVERY_TTL_SECONDS = 600;
     
-    public WalletService(PgPool pool, WalletRepository walletRepository, CurrencyRepository currencyRepository, WebClient webClient, String tronServiceUrl) {
+    public WalletService(PgPool pool, WalletRepository walletRepository, CurrencyRepository currencyRepository, WebClient webClient, String tronServiceUrl, RedisAPI redisApi) {
         super(pool);
         this.walletRepository = walletRepository;
         this.currencyRepository = currencyRepository;
         this.webClient = webClient;
         this.tronServiceUrl = tronServiceUrl;
+        this.redisApi = redisApi;
     }
     
     /**
@@ -38,50 +42,7 @@ public class WalletService extends BaseService {
      * TRC(TRON), BTC, ETH 네트워크의 지갑이 없으면 자동으로 생성
      */
     public Future<List<Wallet>> getUserWallets(Long userId) {
-        // 1. 기존 지갑 조회
-        return walletRepository.getWalletsByUserId(pool, userId)
-            .compose(existingWallets -> {
-                // 2. 기존 지갑의 네트워크 목록 추출
-                Set<String> existingNetworks = existingWallets.stream()
-                    .map(Wallet::getNetwork)
-                    .filter(network -> network != null)
-                    .collect(Collectors.toSet());
-                
-                // 3. 필요한 네트워크와 통화 코드 정의 (TRC는 TRON 네트워크, USDT 기준)
-                List<String> requiredCurrencies = new ArrayList<>();
-                if (!existingNetworks.contains("TRON")) {
-                    requiredCurrencies.add("USDT"); // TRC(TRON) 네트워크용
-                }
-                if (!existingNetworks.contains("BTC")) {
-                    requiredCurrencies.add("BTC");
-                }
-                if (!existingNetworks.contains("ETH")) {
-                    requiredCurrencies.add("ETH");
-                }
-                
-                // 4. 필요한 지갑이 없으면 자동 생성
-                if (requiredCurrencies.isEmpty()) {
-                    return Future.succeededFuture(existingWallets);
-                }
-                
-                // 5. 필요한 지갑들을 병렬로 생성 시도 (에러가 발생해도 기존 지갑은 반환)
-                List<Future<Wallet>> createFutures = requiredCurrencies.stream()
-                    .map(currencyCode -> {
-                        log.info("Auto-creating wallet for user {} - currency: {}", userId, currencyCode);
-                        return createWallet(userId, currencyCode)
-                            .recover(throwable -> {
-                                // 지갑 생성 실패해도 무시하고 계속 진행
-                                log.warn("Failed to auto-create wallet for user {} - currency: {} - error: {}", 
-                                    userId, currencyCode, throwable.getMessage());
-                                return Future.succeededFuture((Wallet) null);
-                            });
-                    })
-                    .collect(Collectors.toList());
-                
-                // 6. 모든 지갑 생성 완료 후 다시 조회하여 반환
-                return Future.all(createFutures)
-                    .compose(v -> walletRepository.getWalletsByUserId(pool, userId));
-            });
+        return walletRepository.getWalletsByUserId(pool, userId);
     }
     
     /**
@@ -98,6 +59,9 @@ public class WalletService extends BaseService {
         
         // 1. 통화 조회 (체인별로 조회, 여러 체인 시도)
         String chain = determineChain(currencyCode);
+        if (isSeedBasedChain(chain)) {
+            return Future.failedFuture(new BadRequestException("시드 기반 지갑 등록이 필요합니다."));
+        }
         return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, chain)
             .compose(currency -> {
                 if (currency == null) {
@@ -187,6 +151,168 @@ public class WalletService extends BaseService {
                                 .build());
                     });
             });
+    }
+
+    public Future<String> requestWalletRegistrationChallenge(Long userId, String address, String chain) {
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("지갑 등록을 사용할 수 없습니다."));
+        }
+        String normalizedChain = normalizeChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
+        }
+        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        return walletRepository.getWalletByAddressIgnoreCase(pool, normalizedAddress)
+            .compose(existing -> {
+                if (existing != null && !existing.getUserId().equals(userId)) {
+                    return Future.failedFuture(new BadRequestException("이미 등록된 지갑 주소입니다."));
+                }
+                String nonce = UUID.randomUUID().toString().replace("-", "");
+                String key = buildWalletNonceKey(userId, normalizedChain, normalizedAddress);
+                String message = buildWalletMessage(userId, normalizedChain, normalizedAddress, nonce);
+                return redisApi.setex(key, String.valueOf(WALLET_RECOVERY_TTL_SECONDS), nonce)
+                    .map(v -> message);
+            });
+    }
+
+    public Future<Wallet> registerWalletWithSignature(Long userId, String currencyCode, String chain, String address, String signature) {
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("지갑 등록을 사용할 수 없습니다."));
+        }
+        String normalizedChain = normalizeChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
+        }
+        if (signature == null || signature.isBlank()) {
+            return Future.failedFuture(new BadRequestException("서명 값이 필요합니다."));
+        }
+        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        String key = buildWalletNonceKey(userId, normalizedChain, normalizedAddress);
+        return redisApi.get(key)
+            .compose(nonceValue -> {
+                if (nonceValue == null || nonceValue.toString() == null || nonceValue.toString().isBlank()) {
+                    return Future.failedFuture(new BadRequestException("지갑 등록 요청이 만료되었습니다."));
+                }
+                String nonce = nonceValue.toString();
+                String message = buildWalletMessage(userId, normalizedChain, normalizedAddress, nonce);
+                boolean verified = verifySignature(normalizedChain, message, signature, normalizedAddress);
+                if (!verified) {
+                    return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
+                }
+                return createWalletWithAddress(userId, currencyCode, normalizedChain, normalizedAddress)
+                    .compose(wallet -> redisApi.del(List.of(key)).map(v -> wallet));
+            });
+    }
+
+    public Future<Wallet> createWalletWithAddress(Long userId, String currencyCode, String chain, String address) {
+        if ("KRWT".equalsIgnoreCase(currencyCode)) {
+            return Future.failedFuture(new BadRequestException("KRWT 지갑 생성은 아직 구현되지 않았습니다."));
+        }
+        String normalizedChain = normalizeChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, chain)
+            .compose(currency -> {
+                if (currency == null) {
+                    if ("ETH".equalsIgnoreCase(currencyCode) && "ETH".equalsIgnoreCase(chain)) {
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, "Ether")
+                            .compose(etherCurrency -> etherCurrency != null ? Future.succeededFuture(etherCurrency) : currencyRepository.getCurrencyByCode(pool, currencyCode));
+                    }
+                    return currencyRepository.getCurrencyByCode(pool, currencyCode);
+                }
+                return Future.succeededFuture(currency);
+            })
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyCode + ". 통화를 먼저 등록해주세요."));
+                }
+                String currencyChain = normalizeChain(currency.getChain());
+                if (currencyChain == null) {
+                    currencyChain = normalizedChain;
+                }
+                if (!currencyChain.equalsIgnoreCase(normalizedChain)) {
+                    return Future.failedFuture(new BadRequestException("통화 네트워크가 일치하지 않습니다."));
+                }
+                return walletRepository.existsByUserIdAndCurrencyId(pool, userId, currency.getId())
+                    .compose(exists -> {
+                        if (exists) {
+                            return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                .compose(existingWallet -> {
+                                    if (existingWallet == null) {
+                                        return Future.failedFuture(new BadRequestException("이미 해당 통화의 지갑이 존재합니다: " + currencyCode));
+                                    }
+                                    return Future.succeededFuture(existingWallet);
+                                });
+                        }
+                        return walletRepository.createWallet(pool, userId, currency.getId(), address)
+                            .map(wallet -> Wallet.builder()
+                                .id(wallet.getId())
+                                .userId(wallet.getUserId())
+                                .currencyId(wallet.getCurrencyId())
+                                .currencyCode(currency.getCode())
+                                .currencyName(currency.getName())
+                                .currencySymbol(currency.getCode())
+                                .network(currency.getChain())
+                                .address(wallet.getAddress())
+                                .balance(wallet.getBalance())
+                                .lockedBalance(wallet.getLockedBalance())
+                                .status(wallet.getStatus())
+                                .createdAt(wallet.getCreatedAt())
+                                .updatedAt(wallet.getUpdatedAt())
+                                .build());
+                    });
+            });
+    }
+
+    private String normalizeChain(String chain) {
+        if (chain == null) {
+            return null;
+        }
+        String normalized = chain.trim().toUpperCase();
+        return switch (normalized) {
+            case "ETH", "TRON", "BTC" -> normalized;
+            default -> null;
+        };
+    }
+
+    private boolean isSeedBasedChain(String chain) {
+        if (chain == null) {
+            return false;
+        }
+        String normalized = chain.trim().toUpperCase();
+        return "ETH".equals(normalized) || "TRON".equals(normalized) || "BTC".equals(normalized) || "ETHER".equals(normalized);
+    }
+
+    private String normalizeAddress(String chain, String address) {
+        return "ETH".equals(chain) ? address.trim().toLowerCase() : address.trim();
+    }
+
+    private String buildWalletNonceKey(Long userId, String chain, String address) {
+        return WALLET_RECOVERY_NONCE_PREFIX + userId + ":" + chain + ":" + address;
+    }
+
+    private String buildWalletMessage(Long userId, String chain, String address, String nonce) {
+        return "FOXya Wallet Register\nUserId: " + userId + "\nChain: " + chain + "\nAddress: " + address + "\nNonce: " + nonce;
+    }
+
+    private boolean verifySignature(String chain, String message, String signature, String address) {
+        if ("ETH".equals(chain)) {
+            return RecoverySignatureVerifier.verifyEthSignature(message, signature, address);
+        }
+        if ("TRON".equals(chain)) {
+            return RecoverySignatureVerifier.verifyTronSignature(message, signature, address);
+        }
+        if ("BTC".equals(chain)) {
+            return RecoverySignatureVerifier.verifyBtcSignature(message, signature, address);
+        }
+        return false;
     }
     
     /**
@@ -302,4 +428,3 @@ public class WalletService extends BaseService {
         }
     }
 }
-

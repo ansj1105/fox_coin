@@ -34,6 +34,8 @@ import com.foxya.coin.auth.dto.CheckEmailResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginRequestDto;
 import com.foxya.coin.auth.dto.RefreshResponseDto;
 import com.foxya.coin.auth.dto.RegisterRequestDto;
+import com.foxya.coin.auth.dto.RecoveryChallengeResponseDto;
+import com.foxya.coin.auth.dto.RecoveryResetResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
@@ -94,6 +96,8 @@ public class AuthService extends BaseService {
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
+    private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
+    private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
@@ -223,6 +227,133 @@ public class AuthService extends BaseService {
                         return Future.failedFuture(new BadRequestException("임시 비밀번호 발송에 실패했습니다."));
                     });
             });
+    }
+
+    /**
+     * 시드 기반 계정 복구: 챌린지 발급
+     */
+    public Future<RecoveryChallengeResponseDto> requestRecoveryChallenge(String address, String chain) {
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
+        }
+        String normalizedChain = normalizeRecoveryChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        return findWalletForRecovery(normalizedChain, normalizedAddress)
+            .compose(wallet -> {
+                if (wallet == null) {
+                    return Future.failedFuture(new NotFoundException("해당 주소의 지갑을 찾을 수 없습니다."));
+                }
+                String nonce = UUID.randomUUID().toString().replace("-", "");
+                String message = buildRecoveryMessage(normalizedChain, normalizedAddress, nonce);
+                if (redisApi == null) {
+                    return Future.failedFuture(new BadRequestException("복구 기능을 사용할 수 없습니다."));
+                }
+                String key = buildRecoveryKey(normalizedChain, normalizedAddress);
+                return redisApi.setex(key, String.valueOf(RECOVERY_NONCE_TTL_SECONDS), nonce)
+                    .map(v -> RecoveryChallengeResponseDto.builder()
+                        .message(message)
+                        .expiresInSeconds(RECOVERY_NONCE_TTL_SECONDS)
+                        .build());
+            });
+    }
+
+    /**
+     * 시드 기반 계정 복구: 서명 검증 후 비밀번호 변경
+     */
+    public Future<RecoveryResetResponseDto> resetPasswordWithRecovery(String address, String chain, String signature, String newPassword) {
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
+        }
+        if (signature == null || signature.isBlank()) {
+            return Future.failedFuture(new BadRequestException("서명 값이 필요합니다."));
+        }
+        if (newPassword == null || newPassword.length() < 8) {
+            return Future.failedFuture(new BadRequestException("비밀번호는 8자 이상이어야 합니다."));
+        }
+        String normalizedChain = normalizeRecoveryChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("복구 기능을 사용할 수 없습니다."));
+        }
+        String key = buildRecoveryKey(normalizedChain, normalizedAddress);
+        return redisApi.get(key)
+            .compose(res -> {
+                if (res == null || res.toString() == null || res.toString().isBlank()) {
+                    return Future.failedFuture(new BadRequestException("복구 요청이 만료되었습니다. 다시 시도해주세요."));
+                }
+                String nonce = res.toString();
+                String message = buildRecoveryMessage(normalizedChain, normalizedAddress, nonce);
+                boolean verified = verifyRecoverySignature(normalizedChain, message, signature, normalizedAddress);
+                if (!verified) {
+                    return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
+                }
+                return findWalletForRecovery(normalizedChain, normalizedAddress)
+                    .compose(wallet -> {
+                        if (wallet == null) {
+                            return Future.failedFuture(new NotFoundException("해당 주소의 지갑을 찾을 수 없습니다."));
+                        }
+                        String hashed = BCrypt.hashpw(newPassword, BCrypt.gensalt(10));
+                        return userRepository.updateLoginPassword(pool, wallet.getUserId(), hashed)
+                            .compose(v -> redisApi.del(List.of(key)))
+                            .map(v -> RecoveryResetResponseDto.builder()
+                                .status("OK")
+                                .message("비밀번호가 변경되었습니다.")
+                                .build());
+                    });
+            });
+    }
+
+    private String normalizeRecoveryChain(String chain) {
+        if (chain == null) {
+            return null;
+        }
+        String normalized = chain.trim().toUpperCase();
+        return switch (normalized) {
+            case "ETH", "TRON", "BTC" -> normalized;
+            default -> null;
+        };
+    }
+
+    private String normalizeAddress(String chain, String address) {
+        if ("ETH".equals(chain)) {
+            return address.trim().toLowerCase();
+        }
+        return address.trim();
+    }
+
+    private String buildRecoveryKey(String chain, String address) {
+        return RECOVERY_NONCE_PREFIX + chain + ":" + address;
+    }
+
+    private String buildRecoveryMessage(String chain, String address, String nonce) {
+        return "FOXya Coin Recovery\nChain: " + chain + "\nAddress: " + address + "\nNonce: " + nonce;
+    }
+
+    private Future<com.foxya.coin.wallet.entities.Wallet> findWalletForRecovery(String chain, String address) {
+        if ("ETH".equals(chain)) {
+            return transferRepository.getWalletByAddressIgnoreCase(pool, address);
+        }
+        return transferRepository.getWalletByAddress(pool, address);
+    }
+
+    private boolean verifyRecoverySignature(String chain, String message, String signature, String address) {
+        String sig = signature.trim();
+        if ("ETH".equals(chain)) {
+            return RecoverySignatureVerifier.verifyEthSignature(message, sig, address);
+        }
+        if ("TRON".equals(chain)) {
+            return RecoverySignatureVerifier.verifyTronSignature(message, sig, address);
+        }
+        if ("BTC".equals(chain)) {
+            return RecoverySignatureVerifier.verifyBtcSignature(message, sig, address);
+        }
+        return false;
     }
 
     private static final java.util.regex.Pattern EMAIL_PATTERN =
