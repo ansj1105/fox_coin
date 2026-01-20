@@ -28,6 +28,7 @@ import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
 import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
 import com.foxya.coin.auth.dto.FindLoginIdDataDto;
 import com.foxya.coin.auth.dto.GoogleLoginRequestDto;
+import com.foxya.coin.auth.dto.RefreshResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
@@ -281,6 +282,59 @@ public class AuthService extends BaseService {
                 .build()
         );
     }
+
+    private static final long REFRESH_TOKEN_EXPIRE_SECONDS = 864000L; // 10일
+
+    /**
+     * refreshToken으로 accessToken(및 refreshToken 로테이션) 재발급.
+     * Authorization 헤더 없이 body의 refreshToken만으로 호출.
+     * 실패 시 UnauthorizedException("Invalid or expired refresh token") → 401.
+     */
+    public Future<RefreshResponseDto> refresh(String refreshToken) {
+        JsonObject credentials = new JsonObject().put("jwt", refreshToken);
+        return jwtAuth.authenticate(credentials)
+            .compose(user -> {
+                Long userId = AuthUtils.getUserIdOf(user);
+                String role = AuthUtils.getUserRoleOf(user);
+                if (userId == null || role == null) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+                }
+                return isTokenBlacklisted(refreshToken)
+                    .compose(blacklisted -> {
+                        if (Boolean.TRUE.equals(blacklisted)) {
+                            return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+                        }
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role));
+                        String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role));
+                        RefreshResponseDto dto = RefreshResponseDto.builder()
+                            .accessToken(accessToken)
+                            .refreshToken(newRefresh)
+                            .build();
+                        // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
+                        return addToBlacklist(refreshToken, REFRESH_TOKEN_EXPIRE_SECONDS)
+                            .map(v -> dto);
+                    });
+            })
+            .recover(t -> {
+                if (t instanceof UnauthorizedException) return Future.failedFuture(t);
+                log.warn("Refresh token verification failed: {}", t.getMessage());
+                return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+            });
+    }
+
+    /**
+     * 토큰을 블랙리스트에 지정 TTL로 추가
+     */
+    private Future<Void> addToBlacklist(String token, long expireSeconds) {
+        if (redisApi == null) return Future.succeededFuture();
+        String key = TOKEN_BLACKLIST_PREFIX + token;
+        return redisApi.setex(key, String.valueOf(expireSeconds), "1")
+            .<Void>map(r -> null)
+            .recover(e -> {
+                log.error("Failed to add token to blacklist", e);
+                return Future.succeededFuture();
+            });
+    }
     
     /**
      * API Key 재발급
@@ -353,34 +407,12 @@ public class AuthService extends BaseService {
     }
     
     /**
-     * 토큰을 블랙리스트에 추가
-     * 토큰의 만료 시간까지 Redis에 저장
+     * Access Token을 블랙리스트에 추가 (로그아웃 시)
      */
     private Future<Void> addTokenToBlacklist(String token) {
-        try {
-            // JWT 토큰에서 만료 시간 추출 (간단한 파싱)
-            // 실제로는 JWT 라이브러리를 사용하여 정확히 파싱해야 함
-            // 여기서는 Access Token의 기본 만료 시간(30분)을 사용
-            int accessTokenExpireMinutes = jwtConfig.getInteger("access_token_expire_minutes", 30);
-            long expireSeconds = accessTokenExpireMinutes * 60L;
-            
-            String blacklistKey = TOKEN_BLACKLIST_PREFIX + token;
-            
-            // Redis에 토큰을 블랙리스트에 추가 (만료 시간까지 저장)
-            return redisApi.setex(blacklistKey, String.valueOf(expireSeconds), "1")
-                .<Void>map(response -> {
-                    log.debug("Token added to blacklist: {}", blacklistKey);
-                    return null;
-                })
-                .recover(throwable -> {
-                    log.error("Failed to add token to blacklist", throwable);
-                    // Redis 오류가 있어도 로그아웃은 성공으로 처리
-                    return Future.succeededFuture();
-                });
-        } catch (Exception e) {
-            log.error("Error adding token to blacklist", e);
-            return Future.succeededFuture();
-        }
+        int accessTokenExpireMinutes = jwtConfig.getInteger("access_token_expire_minutes", 30);
+        long expireSeconds = accessTokenExpireMinutes * 60L;
+        return addToBlacklist(token, expireSeconds);
     }
     
     /**

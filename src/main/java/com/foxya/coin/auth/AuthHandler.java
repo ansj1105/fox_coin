@@ -2,6 +2,8 @@ package com.foxya.coin.auth;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -13,6 +15,7 @@ import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.auth.dto.EmailRequestDto;
 import com.foxya.coin.auth.dto.LoginDto;
+import com.foxya.coin.auth.dto.RefreshRequestDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
 import lombok.extern.slf4j.Slf4j;
 
@@ -46,7 +49,8 @@ public class AuthHandler extends BaseHandler {
         router.post("/send-temp-password").handler(this.sendTempPasswordValidation(parser)).handler(this::sendTempPassword);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
-        
+        router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
+
         // 인증 필요 API
         router.get("/access-token")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -190,6 +194,19 @@ public class AuthHandler extends BaseHandler {
             .build();
     }
     
+    /**
+     * refreshToken으로 access/refresh 재발급 Validation
+     */
+    private Handler<RoutingContext> refreshValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("refreshToken", stringSchema().with(minLength(1)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * Google 로그인 Validation
      */
@@ -360,6 +377,30 @@ public class AuthHandler extends BaseHandler {
         
         log.info("Google login attempt");
         response(ctx, authService.googleLogin(dto));
+    }
+
+    /**
+     * refreshToken으로 accessToken(및 refreshToken 로테이션) 재발급.
+     * Authorization 없이 body의 refreshToken만으로 호출. 응답은 { status, accessToken, refreshToken? }.
+     */
+    private void refresh(RoutingContext ctx) {
+        RefreshRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            RefreshRequestDto.class
+        );
+        log.info("Refresh token request");
+        authService.refresh(dto.getRefreshToken())
+            .onSuccess(data -> {
+                JsonObject body = new JsonObject().put("status", "OK").put("accessToken", data.getAccessToken());
+                if (data.getRefreshToken() != null) {
+                    body.put("refreshToken", data.getRefreshToken());
+                }
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .end(body.encode());
+            })
+            .onFailure(ctx::fail);
     }
     
     /**

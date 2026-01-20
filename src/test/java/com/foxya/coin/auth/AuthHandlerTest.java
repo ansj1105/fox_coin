@@ -185,6 +185,49 @@ public class AuthHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+
+    @Nested
+    @DisplayName("POST /refresh (refreshToken으로 access/refresh 재발급)")
+    class RefreshTest {
+
+        @Test
+        @Order(24)
+        @DisplayName("성공 - refreshToken으로 accessToken·refreshToken 재발급")
+        void success(VertxTestContext tc) {
+            // 1) 로그인으로 refreshToken 획득
+            JsonObject login = new JsonObject().put("loginId", "testuser").put("password", "Test1234!@");
+            reqPost(getUrl("/login"))
+                .sendJson(login, tc.succeeding(loginRes -> tc.verify(() -> {
+                    LoginResponseDto loginDto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                    String refreshToken = loginDto.getRefreshToken();
+                    assertThat(refreshToken).isNotNull();
+
+                    // 2) POST /refresh (Authorization 없음)
+                    JsonObject body = new JsonObject().put("refreshToken", refreshToken);
+                    reqPost(getUrl("/refresh"))
+                        .sendJson(body, tc.succeeding(refreshRes -> tc.verify(() -> {
+                            assertThat(refreshRes.statusCode()).isEqualTo(200);
+                            JsonObject json = refreshRes.bodyAsJsonObject();
+                            assertThat(json.getString("status")).isEqualTo("OK");
+                            assertThat(json.getString("accessToken")).isNotNull();
+                            assertThat(json.getString("refreshToken")).isNotNull();
+                            tc.completeNow();
+                        })));
+                })));
+        }
+
+        @Test
+        @Order(25)
+        @DisplayName("실패 - Invalid or expired refresh token (401)")
+        void failInvalidRefreshToken(VertxTestContext tc) {
+            JsonObject body = new JsonObject().put("refreshToken", "invalid.jwt.token");
+            reqPost(getUrl("/refresh"))
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
     
     @Nested
     @DisplayName("토큰 재발급 테스트")
