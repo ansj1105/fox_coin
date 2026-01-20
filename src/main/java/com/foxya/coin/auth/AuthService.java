@@ -2,6 +2,7 @@ package com.foxya.coin.auth;
 
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.auth.authentication.TokenCredentials;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
@@ -291,8 +292,8 @@ public class AuthService extends BaseService {
      * 실패 시 UnauthorizedException("Invalid or expired refresh token") → 401.
      */
     public Future<RefreshResponseDto> refresh(String refreshToken) {
-        JsonObject credentials = new JsonObject().put("jwt", refreshToken);
-        return jwtAuth.authenticate(credentials)
+        // Vert.x 4.x JWTAuth.authenticate: TokenCredentials 사용 (JsonObject "jwt"/"token"은 내부 구현에 따라 동작 안 할 수 있음)
+        return jwtAuth.authenticate(new TokenCredentials(refreshToken))
             .compose(user -> {
                 Long userId = AuthUtils.getUserIdOf(user);
                 String role = AuthUtils.getUserRoleOf(user);
