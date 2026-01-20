@@ -1522,10 +1522,12 @@ paths:
                     format: int64
 
   # ==================== Auth ====================
-  /api/v1/auth/register:
+  /api/v1/auth/check-email:
     post:
-      summary: 회원가입
-      description: 새로운 사용자 계정을 생성합니다.
+      summary: 이메일(아이디) 중복 검사
+      description: |
+        비인증. available=true면 가입 가능, false면 가입된 아이디입니다.
+        클라이언트는 이메일 입력/블러 시 또는 인증번호 받기 전 호출.
       tags: [Auth]
       requestBody:
         required: true
@@ -1533,27 +1535,155 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - loginId
-                - password
+              required: [email]
               properties:
-                loginId:
+                email:
                   type: string
-                  minLength: 3
-                  maxLength: 50
-                  example: testuser
+                  example: user@example.com
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          available:
+                            type: boolean
+
+  /api/v1/auth/email/send-code:
+    post:
+      summary: 회원가입용 이메일 인증코드 발송
+      description: 6자리 숫자 코드 발송. 60초 쿨다운 권장. 이미 가입된 이메일이면 409.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+        '409':
+          description: 가입된 아이디입니다
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                status: ERROR
+                message: "가입된 아이디입니다"
+        '400':
+          description: 올바른 이메일 주소를 입력해주세요.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/email/verify:
+    post:
+      summary: 회원가입용 이메일 인증 확인
+      description: send-code로 발송된 6자리 code가 해당 email과 일치하고 유효기간 내인지 검증.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+        '400':
+          description: 인증코드가 일치하지 않거나 만료되었습니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/register:
+    post:
+      summary: 회원가입 (이메일 인증 완료 후)
+      description: |
+        인증 이메일=loginId. email, code, password, nickname, name, country 필수.
+        referralCode(선택), gender(선택, M/F/O 또는 빈 문자열).
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, password, nickname, name, country]
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  description: auth/email/verify에서 검증한 6자리 인증코드
                 password:
                   type: string
                   minLength: 8
-                  maxLength: 20
-                  description: 영문, 숫자, 특수문자 포함
-                  example: Test1234!@
+                  description: 8자 이상 (영문·숫자·특수문자 등)
                 referralCode:
                   type: string
                   minLength: 6
                   maxLength: 20
-                  description: 추천인 코드 (선택)
-                  example: ABC123
+                nickname:
+                  type: string
+                  minLength: 8
+                  maxLength: 8
+                  pattern: "^[가-힣a-zA-Z0-9]{8}$"
+                  description: 닉네임, 한글·영문·숫자 8자리
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  description: 실제 사용자 이름
+                country:
+                  type: string
+                  description: KR, US, JP, CN, VN, TH, ETC
+                gender:
+                  type: string
+                  description: M / F / O 또는 빈 문자열(미선택)
       responses:
         '200':
           description: 회원가입 성공
@@ -1576,7 +1706,13 @@ paths:
                           loginId:
                             type: string
         '400':
-          description: 잘못된 요청 (이미 존재하는 아이디, 유효하지 않은 비밀번호 형식 등)
+          description: 인증코드 오류·만료, 닉네임 중복, 형식 오류 등
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 가입된 아이디입니다
           content:
             application/json:
               schema:
@@ -1585,7 +1721,9 @@ paths:
   /api/v1/auth/login:
     post:
       summary: 로그인
-      description: 사용자 인증 및 JWT 토큰 발급
+      description: |
+        이메일(또는 로그인ID) + 비밀번호. 일반 회원은 password 8자 이상.
+        **소셜 로그인 전용 회원**: password 생략 또는 빈 문자열 `""` 전송. 프론트는 `{ password: password ?? '' }`로 항상 `password` 키 포함.
       tags: [Auth]
       requestBody:
         required: true
@@ -1593,16 +1731,16 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - loginId
-                - password
+              required: [loginId, password]
               properties:
                 loginId:
                   type: string
-                  example: testuser
+                  description: 이메일 가입 시 이메일 주소 또는 로그인 ID
+                  example: user@example.com
                 password:
                   type: string
-                  example: Test1234!@
+                  description: 8자 이상. 소셜 전용은 "" 허용
+                  example: password123!
       responses:
         '200':
           description: 로그인 성공
@@ -1625,7 +1763,7 @@ paths:
                           loginId:
                             type: string
         '401':
-          description: 인증 실패 (잘못된 아이디 또는 비밀번호)
+          description: '아이디 또는 비밀번호가 일치하지 않습니다.'
           content:
             application/json:
               schema:
@@ -2168,10 +2306,133 @@ paths:
           description: 인증 실패
 
   # ==================== User ====================
+  /api/v1/users/me:
+    get:
+      summary: 내 정보 조회
+      description: 설정/내정보수정용. gender·country는 변경 불가(읽기 전용).
+      tags: [User]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          nickname:
+                            type: string
+                          phone:
+                            type: string
+                            nullable: true
+                          gender:
+                            type: string
+                            description: M / F / O
+                          country:
+                            type: string
+                            description: 국가 코드 (KR, US 등)
+        '401':
+          description: 인증 실패
+    patch:
+      summary: 내 정보 수정
+      description: 이름(name), 닉네임(nickname), 연락처(phone)만 수정 가능. 성별·국가는 변경 불가. 빈 문자열 시 name·nickname은 미변경, phone은 삭제. 부분 수정(해당 필드만 전송) 허용.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 50
+                nickname:
+                  type: string
+                  description: 한글·영문·숫자 8자리
+                phone:
+                  type: string
+                  maxLength: 20
+                  nullable: true
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+        '400':
+          description: 닉네임 중복, 길이 위반 등
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/{id}:
+    get:
+      summary: 사용자 조회
+      description: 본인 또는 관리자 등 권한에 따라. 대시보드·헤더 등에서 사용.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          loginId:
+                            type: string
+                          nickname:
+                            type: string
+                          profileImageUrl:
+                            type: string
+                            nullable: true
+                          level:
+                            type: integer
+                          referralCode:
+                            type: string
+        '401':
+          description: 인증 실패
+        '403':
+          description: 권한 없음
+        '404':
+          description: 사용자를 찾을 수 없음
+
   /api/v1/user/{id}:
     get:
-      summary: 사용자 정보 조회
-      description: 특정 사용자의 정보를 조회합니다.
+      summary: 사용자 정보 조회 (legacy path)
+      description: /api/v1/users/{id}와 동일. 특정 사용자 정보 조회.
       tags: [User]
       security:
         - BearerAuth: []
@@ -2193,7 +2454,21 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/User'
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          loginId:
+                            type: string
+                          nickname:
+                            type: string
+                          profileImageUrl:
+                            type: string
+                            nullable: true
+                          level:
+                            type: integer
+                          referralCode:
+                            type: string
         '401':
           description: 인증 실패
         '403':

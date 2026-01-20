@@ -179,7 +179,7 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       # nginx를 통한 HTTPS 접근을 위해 subpath 설정
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana
+      - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana/
       # 쿠키 설정 (subpath에서 인증 문제 해결)
       - GF_SERVER_COOKIE_SAMESITE=none
       - GF_SERVER_COOKIE_SECURE=true

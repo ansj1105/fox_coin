@@ -15,6 +15,7 @@ import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
+import com.foxya.coin.user.dto.MeResponseDto;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -45,7 +46,19 @@ public class UserHandler extends BaseHandler {
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
         
         // 인증 필요 API - 구체적인 경로를 먼저 등록 (파라미터 경로보다 우선)
-        
+
+        // 내 정보 조회/수정 (/me는 /:id 보다 먼저)
+        router.get("/me")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getMe);
+
+        router.patch("/me")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(patchMeValidation(parser))
+            .handler(this::patchMe);
+
         // 이메일 관련 API (가장 구체적인 경로 우선)
         router.get("/email")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -90,6 +103,31 @@ public class UserHandler extends BaseHandler {
         return router;
     }
     
+    /**
+     * PATCH /me: name, nickname, phone 모두 선택. 빈 문자열 허용 (name·nickname은 미변경, phone은 삭제).
+     */
+    private Handler<RoutingContext> patchMeValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .optionalProperty("name", stringSchema().with(maxLength(50)))
+                    .optionalProperty("nickname", stringSchema().with(maxLength(20)))
+                    .optionalProperty("phone", stringSchema().with(maxLength(20)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private void getMe(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getMe(userId));
+    }
+
+    private void patchMe(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.updateMe(userId, ctx.getBodyAsJson()), v -> null);
+    }
+
     /**
      * 회원가입 Validation
      */
@@ -153,7 +191,7 @@ public class UserHandler extends BaseHandler {
         
         try {
             Long id = Long.valueOf(idParam);
-            response(ctx, userService.getUserById(id));
+            response(ctx, userService.getUserProfile(id));
         } catch (NumberFormatException e) {
             log.warn("Invalid user ID format: {}", idParam, e);
             ctx.fail(404, new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));

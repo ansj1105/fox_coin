@@ -13,16 +13,24 @@ import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.LoginResponseDto;
+import com.foxya.coin.user.dto.MeResponseDto;
 import com.foxya.coin.user.dto.ReferralCodeResponseDto;
+import com.foxya.coin.user.dto.UserProfileResponseDto;
 import com.foxya.coin.user.dto.EmailInfoDto;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
 import java.security.SecureRandom;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 @Slf4j
 public class UserService extends BaseService {
+
+    private static final Pattern NICKNAME_PATTERN = Pattern.compile("^[가-힣a-zA-Z0-9]{8}$");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$");
     
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
@@ -110,6 +118,100 @@ public class UserService extends BaseService {
     
     public Future<User> getUserById(Long id) {
         return userRepository.getUserById(pool, id);
+    }
+
+    /**
+     * 사용자 프로필 조회 (GET /users/{id}). id, loginId, nickname, profileImageUrl, level, referralCode.
+     */
+    public Future<UserProfileResponseDto> getUserProfile(Long id) {
+        return userRepository.getUserById(pool, id)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return Future.succeededFuture(UserProfileResponseDto.builder()
+                    .id(user.getId())
+                    .loginId(user.getLoginId())
+                    .nickname(user.getNickname())
+                    .profileImageUrl(null)
+                    .level(user.getLevel() != null ? user.getLevel() : 1)
+                    .referralCode(user.getReferralCode())
+                    .build());
+            });
+    }
+
+    /**
+     * 내 정보 조회 (설정/내정보수정용). name, nickname, phone, gender, country.
+     * gender·country는 변경 불가(읽기 전용).
+     */
+    public Future<MeResponseDto> getMe(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return Future.succeededFuture(MeResponseDto.builder()
+                    .name(user.getName())
+                    .nickname(user.getNickname())
+                    .phone(user.getPhone())
+                    .gender(user.getGender())
+                    .country(user.getCountryCode())
+                    .build());
+            });
+    }
+
+    /**
+     * 내 정보 수정. name, nickname, phone 만 수정 가능. 성별·국가는 변경 불가.
+     * body에 포함된 필드만 반영. 빈 문자열: name·nickname은 변경 안 함, phone은 삭제(null).
+     */
+    public Future<Void> updateMe(Long userId, JsonObject body) {
+        Map<String, Object> updates = new HashMap<>();
+        if (body.containsKey("name")) {
+            String v = body.getString("name");
+            if (v != null && !v.isBlank()) {
+                if (v.length() > 50) {
+                    return Future.failedFuture(new BadRequestException("이름은 1~50자입니다."));
+                }
+                updates.put("name", v);
+            }
+        }
+        if (body.containsKey("nickname")) {
+            String v = body.getString("nickname");
+            if (v != null && !v.isBlank()) {
+                if (!NICKNAME_PATTERN.matcher(v).matches()) {
+                    return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 8자리로 입력해주세요."));
+                }
+                return userRepository.existsByNicknameExcludingUser(pool, v, userId)
+                    .compose(exists -> {
+                        if (Boolean.TRUE.equals(exists)) {
+                            return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                        }
+                        updates.put("nickname", v);
+                        return doUpdateMePhone(userId, body, updates);
+                    });
+            } else {
+                return doUpdateMePhone(userId, body, updates);
+            }
+        }
+        return doUpdateMePhone(userId, body, updates);
+    }
+
+    private Future<Void> doUpdateMePhone(Long userId, JsonObject body, Map<String, Object> updates) {
+        if (body.containsKey("phone")) {
+            String v = body.getString("phone");
+            if (v == null || v.isBlank()) {
+                updates.put("phone", null);
+            } else {
+                if (!PHONE_PATTERN.matcher(v).matches()) {
+                    return Future.failedFuture(new BadRequestException("올바른 연락처 형식이 아닙니다."));
+                }
+                updates.put("phone", v);
+            }
+        }
+        if (updates.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        return userRepository.updateMeProfile(pool, userId, updates);
     }
     
     /**

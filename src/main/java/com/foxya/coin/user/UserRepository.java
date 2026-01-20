@@ -25,6 +25,10 @@ public class UserRepository extends BaseRepository {
         .level(getIntegerColumnValue(row, "level"))
         .exp(getBigDecimalColumnValue(row, "exp"))
         .countryCode(getStringColumnValue(row, "country_code"))
+        .nickname(getStringColumnValue(row, "nickname"))
+        .name(getStringColumnValue(row, "name"))
+        .gender(getStringColumnValue(row, "gender"))
+        .phone(getStringColumnValue(row, "phone"))
         .deletedAt(getLocalDateTimeColumnValue(row, "deleted_at"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
@@ -143,6 +147,67 @@ public class UserRepository extends BaseRepository {
                 return false;
             })
             .onFailure(throwable -> log.error("레퍼럴 코드 존재 여부 확인 실패: {}", referralCode));
+    }
+
+    /**
+     * 닉네임 존재 여부 (삭제 제외)
+     */
+    public Future<Boolean> existsByNickname(SqlClient client, String nickname) {
+        if (nickname == null || nickname.isBlank()) return Future.succeededFuture(false);
+        String sql = QueryBuilder
+            .select("users", "COUNT(*) as count")
+            .where("nickname", Op.Equal, "nickname")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        return query(client, sql, Collections.singletonMap("nickname", nickname))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Long c = getLongColumnValue(rows.iterator().next(), "count");
+                    return c != null && c > 0;
+                }
+                return false;
+            });
+    }
+
+    /**
+     * 다른 사용자가 해당 닉네임을 사용 중인지 (excludeUserId 제외)
+     */
+    public Future<Boolean> existsByNicknameExcludingUser(SqlClient client, String nickname, Long excludeUserId) {
+        if (nickname == null || nickname.isBlank()) return Future.succeededFuture(false);
+        String sql = QueryBuilder
+            .select("users", "COUNT(*) as count")
+            .where("nickname", Op.Equal, "nickname")
+            .andWhere("deleted_at", Op.IsNull)
+            .andWhere("id", Op.NotEqual, "exclude_id")
+            .build();
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("nickname", nickname);
+        params.put("exclude_id", excludeUserId);
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Long c = getLongColumnValue(rows.iterator().next(), "count");
+                    return c != null && c > 0;
+                }
+                return false;
+            });
+    }
+
+    /**
+     * 내 정보 수정 (name, nickname, phone 일부만 전달해도 됨)
+     */
+    public Future<Void> updateMeProfile(SqlClient client, Long userId, java.util.Map<String, Object> updates) {
+        if (updates == null || updates.isEmpty()) return Future.succeededFuture();
+        updates.put("id", userId);
+        updates.put("updated_at", DateUtils.now());
+        String setClause = updates.keySet().stream()
+            .filter(k -> !"id".equals(k))
+            .map(k -> k + " = #{" + k + "}")
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("updated_at = #{updated_at}");
+        String sql = "UPDATE users SET " + setClause + " WHERE id = #{id}";
+        String q = QueryBuilder.selectStringQuery(sql).build();
+        return query(client, q, updates).map(v -> null);
     }
     
     /**

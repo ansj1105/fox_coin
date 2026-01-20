@@ -20,6 +20,8 @@ public class ErrorHandler {
             statusCode = 403;
         } else if (failure instanceof NotFoundException) {
             statusCode = 404;
+        } else if (failure instanceof ConflictException) {
+            statusCode = 409;
         } else if (statusCode == -1) {
             statusCode = 500;
         }

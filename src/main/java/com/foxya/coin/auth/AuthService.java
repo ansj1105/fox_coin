@@ -11,8 +11,10 @@ import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.common.exceptions.ConflictException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
+import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
@@ -28,8 +30,10 @@ import com.foxya.coin.auth.dto.LogoutResponseDto;
 import com.foxya.coin.auth.dto.DeleteAccountRequestDto;
 import com.foxya.coin.auth.dto.DeleteAccountResponseDto;
 import com.foxya.coin.auth.dto.FindLoginIdDataDto;
+import com.foxya.coin.auth.dto.CheckEmailResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginRequestDto;
 import com.foxya.coin.auth.dto.RefreshResponseDto;
+import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
@@ -81,6 +85,7 @@ public class AuthService extends BaseService {
     private final AirdropRepository airdropRepository;
     private final InquiryRepository inquiryRepository;
     private final EmailVerificationRepository emailVerificationRepository;
+    private final SignupEmailCodeRepository signupEmailCodeRepository;
     private final ReferralRepository referralRepository;
     private final EmailService emailService;
     private final WebClient webClient;
@@ -99,6 +104,7 @@ public class AuthService extends BaseService {
                       ExchangeRepository exchangeRepository, PaymentDepositRepository paymentDepositRepository,
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
+                      SignupEmailCodeRepository signupEmailCodeRepository,
                       ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig) {
         super(pool);
         this.userRepository = userRepository;
@@ -124,6 +130,7 @@ public class AuthService extends BaseService {
         this.airdropRepository = airdropRepository;
         this.inquiryRepository = inquiryRepository;
         this.emailVerificationRepository = emailVerificationRepository;
+        this.signupEmailCodeRepository = signupEmailCodeRepository;
         this.referralRepository = referralRepository;
         this.emailService = emailService;
         this.webClient = webClient;
@@ -140,9 +147,18 @@ public class AuthService extends BaseService {
                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                 }
                 
-                // 비밀번호 검증
-                if (!BCrypt.checkpw(dto.getPassword(), user.getPasswordHash())) {
-                    return Future.failedFuture(new UnauthorizedException("비밀번호가 일치하지 않습니다."));
+                // 비밀번호 검증: 소셜 전용(비밀번호 미설정)은 빈 문자열로 로그인 허용
+                String pw = dto.getPassword();
+                boolean pwBlank = pw == null || pw.isBlank();
+                if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+                    if (!pwBlank) {
+                        return Future.failedFuture(new UnauthorizedException("아이디 또는 비밀번호가 일치하지 않습니다."));
+                    }
+                    // 소셜 전용: password "" 허용, 통과
+                } else {
+                    if (pwBlank || !BCrypt.checkpw(pw, user.getPasswordHash())) {
+                        return Future.failedFuture(new UnauthorizedException("아이디 또는 비밀번호가 일치하지 않습니다."));
+                    }
                 }
                 
                 // Access Token & Refresh Token 생성
@@ -209,25 +225,134 @@ public class AuthService extends BaseService {
             });
     }
 
+    private static final java.util.regex.Pattern EMAIL_PATTERN =
+        java.util.regex.Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    private static final java.util.regex.Pattern NICKNAME_PATTERN =
+        java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{8}$");
+    private static final String[] COUNTRY_CODES = {"KR", "US", "JP", "CN", "VN", "TH", "ETC"};
+
     /**
-     * 회원가입
+     * 이메일(아이디) 중복 검사 (비인증). available=true면 가입 가능.
      */
-    public Future<LoginResponseDto> register(CreateUserDto dto) {
-        // UserService.createUser()를 사용하여 레퍼럴 코드 자동 생성 포함
-        return userService.createUser(dto)
+    public Future<CheckEmailResponseDto> checkEmailAvailable(String email) {
+        if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
+            return Future.succeededFuture(CheckEmailResponseDto.builder().available(false).build());
+        }
+        return userRepository.getUserByLoginId(pool, email)
+            .map(user -> CheckEmailResponseDto.builder().available(user == null).build());
+    }
+
+    /**
+     * 회원가입용 이메일 인증코드 발송 (비인증). 이미 가입된 이메일이면 ConflictException.
+     */
+    public Future<Void> sendSignupEmailCode(String email) {
+        if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
+            return Future.failedFuture(new BadRequestException("올바른 이메일 주소를 입력해주세요."));
+        }
+        return userRepository.getUserByLoginId(pool, email)
             .compose(user -> {
-                // 회원가입 후 자동 로그인
+                if (user != null) {
+                    return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
+                }
+                String code = emailService.generateVerificationCode();
+                return signupEmailCodeRepository.upsert(pool, email, code, DateUtils.now().plusMinutes(10))
+                    .compose(ok -> emailService.sendVerificationCode(email, code))
+                    .mapEmpty();
+            });
+    }
+
+    /**
+     * 회원가입용 이메일 인증 확인 (비인증).
+     */
+    public Future<Void> verifySignupEmail(String email, String code) {
+        return signupEmailCodeRepository.findValid(pool, email, code)
+            .compose(rec -> {
+                if (rec == null) {
+                    return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+                }
+                return Future.succeededFuture();
+            })
+            .mapEmpty();
+    }
+
+    /**
+     * 회원가입 (이메일 인증 완료 후). loginId=email, 프로필(nickname, name, country, gender) 저장.
+     */
+    public Future<LoginResponseDto> registerWithEmail(RegisterRequestDto dto) {
+        String email = dto.getEmail();
+        if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
+            return Future.failedFuture(new BadRequestException("올바른 이메일 주소를 입력해주세요."));
+        }
+        String country = (dto.getCountry() != null && !dto.getCountry().isBlank()) ? dto.getCountry() : dto.getCountryCode();
+        if (country == null || country.isBlank() || java.util.Arrays.stream(COUNTRY_CODES).noneMatch(c -> c.equals(country))) {
+            return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
+        }
+        String g = dto.getGender();
+        if (g != null && !g.isEmpty() && !java.util.Set.of("M", "F", "O").contains(g.toUpperCase())) {
+            return Future.failedFuture(new BadRequestException("gender는 M, F, O 또는 비워두세요."));
+        }
+        String nickname = dto.getNickname();
+        if (nickname == null || !NICKNAME_PATTERN.matcher(nickname).matches()) {
+            return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 8자리로 입력해주세요."));
+        }
+        return signupEmailCodeRepository.findValid(pool, email, dto.getCode())
+            .compose(rec -> {
+                if (rec == null) {
+                    return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+                }
+                return userRepository.getUserByLoginId(pool, email)
+                    .compose(existing -> {
+                        if (existing != null) {
+                            return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
+                        }
+                        return userRepository.existsByNickname(pool, dto.getNickname())
+                            .compose(nickExists -> {
+                                if (Boolean.TRUE.equals(nickExists)) {
+                                    return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                                }
+                                CreateUserDto create = CreateUserDto.builder()
+                                    .loginId(email)
+                                    .password(dto.getPassword())
+                                    .nickname(dto.getNickname())
+                                    .name(dto.getName())
+                                    .countryCode(country)
+                                    .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
+                                    .build();
+                                return userService.createUser(create);
+                            });
+                    });
+            })
+            .compose(user -> signupEmailCodeRepository.markUsed(pool, email)
+                .map(v -> user))
+            .compose(user -> {
                 String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
                 String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                
-                return Future.succeededFuture(
-                    LoginResponseDto.builder()
-                        .accessToken(accessToken)
-                        .refreshToken(refreshToken)
-                        .userId(user.getId())
-                        .loginId(user.getLoginId())
-                        .build()
-                );
+                LoginResponseDto loginDto = LoginResponseDto.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .userId(user.getId())
+                    .loginId(user.getLoginId())
+                    .build();
+                String refCode = dto.getReferralCode();
+                if (refCode != null && !refCode.isBlank()) {
+                    return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
+                        .compose(referrer -> {
+                            if (referrer != null && !referrer.getId().equals(user.getId())) {
+                                return referralRepository.existsReferralRelation(pool, user.getId())
+                                    .compose(exists -> {
+                                        if (!Boolean.TRUE.equals(exists)) {
+                                            return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
+                                                .map(r -> loginDto)
+                                                .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                        }
+                                        return Future.succeededFuture(loginDto);
+                                    });
+                            }
+                            return Future.succeededFuture(loginDto);
+                        })
+                        .otherwise(loginDto);
+                }
+                return Future.succeededFuture(loginDto);
             });
     }
     

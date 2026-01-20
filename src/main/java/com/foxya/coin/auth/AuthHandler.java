@@ -14,8 +14,10 @@ import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.auth.dto.EmailRequestDto;
+import com.foxya.coin.auth.dto.EmailVerifyRequestDto;
 import com.foxya.coin.auth.dto.LoginDto;
 import com.foxya.coin.auth.dto.RefreshRequestDto;
+import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
 import lombok.extern.slf4j.Slf4j;
 
@@ -43,8 +45,11 @@ public class AuthHandler extends BaseHandler {
         SchemaParser parser = createSchemaParser();
         
         // 공개 API
-        router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
+        router.post("/check-email").handler(this.checkEmailValidation(parser)).handler(this::checkEmail);
+        router.post("/email/send-code").handler(this.sendSignupCodeValidation(parser)).handler(this::sendSignupCode);
+        router.post("/email/verify").handler(this.verifySignupEmailValidation(parser)).handler(this::verifySignupEmail);
         router.post("/register").handler(this.registerValidation(parser)).handler(this::register);
+        router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
         router.post("/find-login-id").handler(this.findLoginIdValidation(parser)).handler(this::findLoginId);
         router.post("/send-temp-password").handler(this.sendTempPasswordValidation(parser)).handler(this::sendTempPassword);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
@@ -85,14 +90,15 @@ public class AuthHandler extends BaseHandler {
     }
     
     /**
-     * 로그인 Validation
+     * 로그인 Validation.
+     * password: 일반 회원 8자 이상. 소셜 전용은 빈 문자열 "" 허용 (프론트가 항상 password 키 포함).
      */
     private Handler<RoutingContext> loginValidation(SchemaParser parser) {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
                     .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
-                    .requiredProperty("password", stringSchema().with(minLength(8), maxLength(20)))
+                    .requiredProperty("password", stringSchema().with(minLength(0), maxLength(256)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -124,16 +130,53 @@ public class AuthHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> checkEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> sendSignupCodeValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> verifySignupEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .requiredProperty("code", stringSchema().with(minLength(6), maxLength(6)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
-     * 회원가입 Validation
+     * 회원가입 Validation (이메일 인증 기반: email, code, password, nickname, name, country, gender?, referralCode?)
      */
     private Handler<RoutingContext> registerValidation(SchemaParser parser) {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
+                    .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
+                    .requiredProperty("code", stringSchema().with(minLength(6), maxLength(6)))
                     .requiredProperty("password", passwordSchema())
                     .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)))
+                    .requiredProperty("nickname", nicknameSchema())
+                    .requiredProperty("name", stringSchema().with(minLength(1), maxLength(50)))
+                    .requiredProperty("country", stringSchema().with(minLength(2), maxLength(3)))
+                    .optionalProperty("country_code", stringSchema().with(minLength(2), maxLength(3)))
+                    .optionalProperty("gender", stringSchema().with(maxLength(1)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -222,6 +265,31 @@ public class AuthHandler extends BaseHandler {
             .build();
     }
     
+    private void checkEmail(RoutingContext ctx) {
+        EmailRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            EmailRequestDto.class
+        );
+        response(ctx, authService.checkEmailAvailable(dto.getEmail()));
+    }
+
+    private void sendSignupCode(RoutingContext ctx) {
+        EmailRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            EmailRequestDto.class
+        );
+        log.info("Send signup code for email: {}", dto.getEmail());
+        response(ctx, authService.sendSignupEmailCode(dto.getEmail()), v -> null);
+    }
+
+    private void verifySignupEmail(RoutingContext ctx) {
+        EmailVerifyRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            EmailVerifyRequestDto.class
+        );
+        response(ctx, authService.verifySignupEmail(dto.getEmail(), dto.getCode()), v -> null);
+    }
+
     /**
      * 로그인
      */
@@ -260,16 +328,15 @@ public class AuthHandler extends BaseHandler {
     }
     
     /**
-     * 회원가입
+     * 회원가입 (이메일 인증 완료 후. loginId=email)
      */
     private void register(RoutingContext ctx) {
-        com.foxya.coin.user.dto.CreateUserDto dto = getObjectMapper().convertValue(
+        RegisterRequestDto dto = getObjectMapper().convertValue(
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
-            com.foxya.coin.user.dto.CreateUserDto.class
+            RegisterRequestDto.class
         );
-        
-        log.info("Register attempt for user: {}", dto.getLoginId());
-        response(ctx, authService.register(dto));
+        log.info("Register attempt for email: {}", dto.getEmail());
+        response(ctx, authService.registerWithEmail(dto));
     }
     
     /**

@@ -5,6 +5,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.auth.dto.LoginResponseDto;
@@ -37,40 +38,143 @@ public class AuthHandlerTest extends HandlerTestBase {
     }
     
     @Nested
-    @DisplayName("회원가입 테스트")
-    class RegisterTest {
-        
+    @DisplayName("check-email 테스트")
+    class CheckEmailTest {
         @Test
         @Order(1)
-        @DisplayName("성공 - 정상 회원가입")
-        void success(VertxTestContext tc) {
-            JsonObject data = new JsonObject()
-                .put("loginId", "newuser")
-                .put("password", "Test1234!@");
-            
-            reqPost(getUrl("/register"))
-                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Register response: {}", res.bodyAsJsonObject());
-                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
-                    
-                    assertThat(dto.getAccessToken()).isNotNull();
-                    assertThat(dto.getRefreshToken()).isNotNull();
-                    assertThat(dto.getLoginId()).isEqualTo("newuser");
-                    
+        @DisplayName("성공 - 가입 가능한 이메일")
+        void available(VertxTestContext tc) {
+            reqPost(getUrl("/check-email"))
+                .sendJson(new JsonObject().put("email", "newuser@test.com"), tc.succeeding(res -> tc.verify(() -> {
+                    expectSuccess(res);
+                    assertThat(res.bodyAsJsonObject().getJsonObject("data").getBoolean("available")).isTrue();
                     tc.completeNow();
                 })));
         }
-        
+
         @Test
         @Order(2)
+        @DisplayName("성공 - 가입 가능 (다른 이메일)")
+        void available2(VertxTestContext tc) {
+            reqPost(getUrl("/check-email"))
+                .sendJson(new JsonObject().put("email", "newuser2@test.com"), tc.succeeding(res -> tc.verify(() -> {
+                    assertThat(res.bodyAsJsonObject().getJsonObject("data").getBoolean("available")).isTrue();
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("email/send-code 테스트")
+    class SendSignupCodeTest {
+        @Test
+        @Order(10)
+        @DisplayName("성공 - 인증코드 발송")
+        void success(VertxTestContext tc) {
+            reqPost(getUrl("/email/send-code"))
+                .sendJson(new JsonObject().put("email", "sendcode@test.com"), tc.succeeding(res -> tc.verify(() -> {
+                    expectSuccess(res);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(11)
+        @DisplayName("실패 - 이미 가입된 이메일(login_id) 409")
+        void failAlreadyRegistered(VertxTestContext tc) {
+            // testuser의 login_id는 "testuser" (이메일 형식 아님). 이메일 형식인 기존 유저가 있어야 409.
+            // send-code "invalid" 형식 -> 400. 409를 위해선 login_id=email인 유저 필요. seed에 추가하거나 생략.
+            reqPost(getUrl("/email/send-code"))
+                .sendJson(new JsonObject().put("email", "bad"), tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("email/verify 테스트")
+    class VerifySignupEmailTest {
+        @Test
+        @Order(12)
+        @DisplayName("실패 - 인증코드 불일치 또는 만료")
+        void failInvalidCode(VertxTestContext tc) {
+            reqPost(getUrl("/email/verify"))
+                .sendJson(new JsonObject().put("email", "any@test.com").put("code", "000000"), tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("회원가입 테스트 (이메일 인증 기반)")
+    class RegisterTest {
+
+        @Test
+        @Order(30)
+        @DisplayName("성공 - 이메일 인증 후 회원가입 (send-code → DB에서 code 조회 → register)")
+        void success(VertxTestContext tc) {
+            String email = "register-success@test.com";
+            reqPost(getUrl("/email/send-code"))
+                .sendJson(new JsonObject().put("email", email), tc.succeeding(sendRes -> tc.verify(() -> {
+                    expectSuccess(sendRes);
+                    sqlClient.preparedQuery("SELECT code FROM signup_email_codes WHERE email = $1 ORDER BY created_at DESC LIMIT 1")
+                        .execute(Tuple.of(email))
+                        .onSuccess(rows -> {
+                            if (!rows.iterator().hasNext()) { tc.failNow(new AssertionError("code not found")); return; }
+                            String code = rows.iterator().next().getString(0);
+                            JsonObject reg = new JsonObject()
+                                .put("email", email)
+                                .put("code", code)
+                                .put("password", "Test1234!@")
+                                .put("nickname", "nickreg1")
+                                .put("name", "DisplayOne")
+                                .put("country", "KR");
+                            reqPost(getUrl("/register"))
+                                .sendJson(reg, tc.succeeding(regRes -> tc.verify(() -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(regRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getLoginId()).isEqualTo(email);
+                                    tc.completeNow();
+                                })));
+                        })
+                        .onFailure(tc::failNow);
+                })));
+        }
+
+        @Test
+        @Order(31)
+        @DisplayName("실패 - 인증코드 불일치/만료")
+        void failInvalidCode(VertxTestContext tc) {
+            JsonObject reg = new JsonObject()
+                .put("email", "no-code@test.com")
+                .put("code", "999999")
+                .put("password", "Test1234!@")
+                .put("nickname", "nickfail")
+                .put("name", "DN")
+                .put("country", "KR");
+            reqPost(getUrl("/register"))
+                .sendJson(reg, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(32)
         @DisplayName("실패 - 비밀번호 형식 오류")
         void failInvalidPassword(VertxTestContext tc) {
-            JsonObject data = new JsonObject()
-                .put("loginId", "weakuser")
-                .put("password", "weak");
-            
+            JsonObject reg = new JsonObject()
+                .put("email", "pwfail@test.com")
+                .put("code", "000000")
+                .put("password", "short")
+                .put("nickname", "nicknam1")
+                .put("name", "D")
+                .put("country", "KR");
             reqPost(getUrl("/register"))
-                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                .sendJson(reg, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 400);
                     tc.completeNow();
                 })));
