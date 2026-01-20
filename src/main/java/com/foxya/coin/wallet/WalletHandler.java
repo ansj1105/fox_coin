@@ -17,6 +17,8 @@ import com.foxya.coin.wallet.dto.RegisterWalletRequestDto;
 import io.vertx.json.schema.SchemaParser;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Map;
+
 import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
 import static io.vertx.json.schema.common.dsl.Schemas.*;
@@ -60,6 +62,16 @@ public class WalletHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(registerWalletValidation(parser))
             .handler(this::registerWallet);
+
+        // 시드 구문 존재 여부 확인
+        router.get("/has-seed")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::hasSeed);
+
+        // 시드 구문으로 모든 지갑 자동 생성
+        router.post("/create-all-from-seed")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::createAllWalletsFromSeed);
         
         return router;
     }
@@ -142,5 +154,17 @@ public class WalletHandler extends BaseHandler {
         );
         log.info("Wallet register - userId: {}, currencyCode: {}", userId, dto.getCurrencyCode());
         response(ctx, walletService.registerWalletWithSignature(userId, dto.getCurrencyCode(), dto.getChain(), dto.getAddress(), dto.getSignature()));
+    }
+
+    private void hasSeed(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Checking seed existence for user: {}", userId);
+        response(ctx, walletService.hasSeed(userId), hasSeed -> Map.of("hasSeed", hasSeed));
+    }
+
+    private void createAllWalletsFromSeed(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Creating all wallets from seed for user: {}", userId);
+        response(ctx, walletService.createAllWalletsFromSeed(userId));
     }
 }

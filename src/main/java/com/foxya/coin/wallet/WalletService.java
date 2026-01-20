@@ -427,4 +427,118 @@ public class WalletService extends BaseService {
             return "ADDR_" + currencyCode + "_" + uuid1.substring(0, 16).toUpperCase();
         }
     }
+
+    /**
+     * 시드 구문 존재 여부 확인
+     * 사용자가 시드 기반 지갑(ETH, TRON, BTC)을 하나라도 등록했다면 시드 구문이 있다고 간주
+     */
+    public Future<Boolean> hasSeed(Long userId) {
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .map(wallets -> {
+                // ETH, TRON, BTC 체인의 지갑이 하나라도 있으면 시드 구문이 있다고 간주
+                return wallets.stream()
+                    .anyMatch(wallet -> {
+                        String network = wallet.getNetwork();
+                        return network != null && (
+                            "ETH".equalsIgnoreCase(network) ||
+                            "TRON".equalsIgnoreCase(network) ||
+                            "BTC".equalsIgnoreCase(network) ||
+                            "Ether".equalsIgnoreCase(network)
+                        );
+                    });
+            });
+    }
+
+    /**
+     * 시드 구문으로 모든 지갑 자동 생성 (ETH, USDT(TRON), KORI(TRON), BTC)
+     * 기존에 등록된 시드 기반 지갑 주소를 사용하여 나머지 지갑들을 생성
+     * 같은 시드 구문에서 파생된 주소이므로 같은 주소를 사용
+     */
+    public Future<List<Wallet>> createAllWalletsFromSeed(Long userId) {
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .compose(existingWallets -> {
+                // ETH, TRON, BTC 체인의 지갑 주소 찾기
+                String ethAddress = null;
+                String tronAddress = null;
+                String btcAddress = null;
+
+                for (Wallet wallet : existingWallets) {
+                    String network = wallet.getNetwork();
+                    if (network != null) {
+                        if ("ETH".equalsIgnoreCase(network) || "Ether".equalsIgnoreCase(network)) {
+                            ethAddress = wallet.getAddress();
+                        } else if ("TRON".equalsIgnoreCase(network)) {
+                            tronAddress = wallet.getAddress();
+                        } else if ("BTC".equalsIgnoreCase(network)) {
+                            btcAddress = wallet.getAddress();
+                        }
+                    }
+                }
+
+                // 시드 구문이 없다면 에러
+                if (ethAddress == null && tronAddress == null && btcAddress == null) {
+                    return Future.failedFuture(new BadRequestException("시드 구문이 등록되지 않았습니다. 먼저 시드 구문으로 지갑을 등록해주세요."));
+                }
+
+                // 생성할 지갑 목록 (이미 존재하는 지갑은 제외)
+                List<Future<Wallet>> walletFutures = new java.util.ArrayList<>();
+
+                // ETH 지갑 생성 (없는 경우만)
+                if (ethAddress != null) {
+                    boolean hasEth = existingWallets.stream()
+                        .anyMatch(w -> "ETH".equalsIgnoreCase(w.getCurrencyCode()) && 
+                                      ("ETH".equalsIgnoreCase(w.getNetwork()) || "Ether".equalsIgnoreCase(w.getNetwork())));
+                    if (!hasEth) {
+                        walletFutures.add(createWalletWithAddress(userId, "ETH", "ETH", ethAddress));
+                    }
+                }
+
+                // USDT(TRON) 지갑 생성 (없는 경우만)
+                if (tronAddress != null) {
+                    boolean hasUsdt = existingWallets.stream()
+                        .anyMatch(w -> "USDT".equalsIgnoreCase(w.getCurrencyCode()) && "TRON".equalsIgnoreCase(w.getNetwork()));
+                    if (!hasUsdt) {
+                        walletFutures.add(createWalletWithAddress(userId, "USDT", "TRON", tronAddress));
+                    }
+                    
+                    boolean hasKori = existingWallets.stream()
+                        .anyMatch(w -> "KORI".equalsIgnoreCase(w.getCurrencyCode()) && "TRON".equalsIgnoreCase(w.getNetwork()));
+                    if (!hasKori) {
+                        walletFutures.add(createWalletWithAddress(userId, "KORI", "TRON", tronAddress));
+                    }
+                }
+
+                // BTC 지갑 생성 (없는 경우만)
+                if (btcAddress != null) {
+                    boolean hasBtc = existingWallets.stream()
+                        .anyMatch(w -> "BTC".equalsIgnoreCase(w.getCurrencyCode()) && "BTC".equalsIgnoreCase(w.getNetwork()));
+                    if (!hasBtc) {
+                        walletFutures.add(createWalletWithAddress(userId, "BTC", "BTC", btcAddress));
+                    }
+                }
+
+                // 생성할 지갑이 없으면 빈 리스트 반환
+                if (walletFutures.isEmpty()) {
+                    return Future.succeededFuture(java.util.Collections.emptyList());
+                }
+
+                // 모든 지갑 생성 완료 대기
+                return Future.all(walletFutures)
+                    .map(results -> {
+                        List<Wallet> createdWallets = new java.util.ArrayList<>();
+                        for (int i = 0; i < results.size(); i++) {
+                            try {
+                                Wallet wallet = results.resultAt(i);
+                                if (wallet != null) {
+                                    createdWallets.add(wallet);
+                                }
+                            } catch (Exception e) {
+                                // 이미 존재하는 지갑은 무시
+                                log.debug("Wallet already exists, skipping: {}", e.getMessage());
+                            }
+                        }
+                        return createdWallets;
+                    });
+            });
+    }
 }

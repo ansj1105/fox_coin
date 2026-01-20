@@ -3224,6 +3224,50 @@ paths:
         '401':
           description: 인증 실패
 
+  /api/v1/wallets/has-seed:
+    get:
+      summary: 시드 구문 존재 여부 확인
+      description: |
+        사용자가 시드 기반 지갑(ETH, TRON, BTC)을 하나라도 등록했는지 확인합니다.
+        시드 기반 지갑이 하나라도 있으면 시드 구문이 있다고 간주합니다.
+      tags: [Wallet]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          hasSeed:
+                            type: boolean
+                            description: 시드 구문 존재 여부
+                            example: true
+              examples:
+                hasSeed:
+                  summary: 시드 구문이 있는 경우
+                  value:
+                    status: OK
+                    message: null
+                    data:
+                      hasSeed: true
+                noSeed:
+                  summary: 시드 구문이 없는 경우
+                  value:
+                    status: OK
+                    message: null
+                    data:
+                      hasSeed: false
+        '401':
+          description: 인증 실패
+
   # ==================== Transfer ====================
   /api/v1/transfers/internal:
     post:
