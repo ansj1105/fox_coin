@@ -20,12 +20,12 @@ CREATE INDEX IF NOT EXISTS IDX_signup_email_codes_email ON signup_email_codes(em
 CREATE INDEX IF NOT EXISTS IDX_signup_email_codes_expires_at ON signup_email_codes(expires_at);
 
 -- users 프로필 필드 추가 (이메일 인증 회원가입)
--- nickname: 표시용 닉네임, 한글·영문·숫자 8자리. name: 실제 사용자 이름 (1~50자).
+-- nickname: 표시용 닉네임, 한글·영문·숫자 2~8자리. name: 실제 사용자 이름 (1~50자).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(8) NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(50) NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(1) NULL;
 
-COMMENT ON COLUMN users.nickname IS '닉네임(표시용), 한글·영문·숫자 8자리';
+COMMENT ON COLUMN users.nickname IS '닉네임(표시용), 한글·영문·숫자 2~8자리';
 COMMENT ON COLUMN users.name IS '실제 사용자 이름, 1~50자';
 COMMENT ON COLUMN users.gender IS 'M/F/O 또는 NULL(미선택)';
 

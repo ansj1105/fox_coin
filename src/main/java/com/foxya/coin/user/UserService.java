@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 @Slf4j
 public class UserService extends BaseService {
 
-    private static final Pattern NICKNAME_PATTERN = Pattern.compile("^[가-힣a-zA-Z0-9]{8}$");
+    private static final Pattern NICKNAME_PATTERN = Pattern.compile("^[가-힣a-zA-Z0-9]{2,8}$");
     private static final Pattern PHONE_PATTERN = Pattern.compile("^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$");
     
     private final UserRepository userRepository;
@@ -179,7 +179,7 @@ public class UserService extends BaseService {
             String v = body.getString("nickname");
             if (v != null && !v.isBlank()) {
                 if (!NICKNAME_PATTERN.matcher(v).matches()) {
-                    return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 8자리로 입력해주세요."));
+                    return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 2~8자리로 입력해주세요."));
                 }
                 return userRepository.existsByNicknameExcludingUser(pool, v, userId)
                     .compose(exists -> {
@@ -429,4 +429,3 @@ public class UserService extends BaseService {
             });
     }
 }
-

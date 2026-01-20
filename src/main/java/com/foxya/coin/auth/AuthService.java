@@ -359,7 +359,7 @@ public class AuthService extends BaseService {
     private static final java.util.regex.Pattern EMAIL_PATTERN =
         java.util.regex.Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
     private static final java.util.regex.Pattern NICKNAME_PATTERN =
-        java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{8}$");
+        java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{2,8}$");
     private static final String[] COUNTRY_CODES = {"KR", "US", "JP", "CN", "VN", "TH", "ETC"};
 
     /**
@@ -424,7 +424,7 @@ public class AuthService extends BaseService {
         }
         String nickname = dto.getNickname();
         if (nickname == null || !NICKNAME_PATTERN.matcher(nickname).matches()) {
-            return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 8자리로 입력해주세요."));
+            return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 2~8자리로 입력해주세요."));
         }
         return signupEmailCodeRepository.findValid(pool, email, dto.getCode())
             .compose(rec -> {

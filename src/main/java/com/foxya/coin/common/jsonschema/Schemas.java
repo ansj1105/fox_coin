@@ -64,13 +64,13 @@ public abstract class Schemas {
     }
     
     /**
-     * 닉네임 스키마 (한글·영문·숫자 8자리)
+     * 닉네임 스키마 (한글·영문·숫자 2~8자리)
      */
     public static StringSchemaBuilder nicknameSchema() {
         return stringSchema().with(
-            minLength(8),
+            minLength(2),
             maxLength(8),
-            pattern(Pattern.compile("^[가-힣a-zA-Z0-9]{8}$"))
+            pattern(Pattern.compile("^[가-힣a-zA-Z0-9]{2,8}$"))
         );
     }
 
@@ -84,4 +84,3 @@ public abstract class Schemas {
         );
     }
 }
-
