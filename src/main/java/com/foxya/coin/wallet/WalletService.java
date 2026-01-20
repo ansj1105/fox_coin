@@ -193,6 +193,7 @@ public class WalletService extends BaseService {
             return Future.failedFuture(new BadRequestException("서명 값이 필요합니다."));
         }
         String normalizedAddress = normalizeAddress(normalizedChain, address);
+        String normalizedSignature = signature.trim();
         String key = buildWalletNonceKey(userId, normalizedChain, normalizedAddress);
         return redisApi.get(key)
             .compose(nonceValue -> {
@@ -201,7 +202,7 @@ public class WalletService extends BaseService {
                 }
                 String nonce = nonceValue.toString();
                 String message = buildWalletMessage(userId, normalizedChain, normalizedAddress, nonce);
-                boolean verified = verifySignature(normalizedChain, message, signature, normalizedAddress);
+                boolean verified = verifySignature(normalizedChain, message, normalizedSignature, normalizedAddress);
                 if (!verified) {
                     return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
                 }
