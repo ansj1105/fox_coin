@@ -269,7 +269,7 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("password", stringSchema().with(minLength(8), maxLength(20)))
+                    .property("password", stringSchema().with(minLength(0), maxLength(20)))
                     .allowAdditionalProperties(false)
             ))
             .build();

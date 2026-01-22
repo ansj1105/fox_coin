@@ -951,14 +951,26 @@ public class AuthService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
                 }
-                
-                // 비밀번호 검증
-                if (!BCrypt.checkpw(password, user.getPasswordHash())) {
-                    return Future.failedFuture(new UnauthorizedException("Invalid password"));
+
+                String normalizedPassword = password != null ? password.trim() : "";
+                Future<Void> authCheck;
+                if (!normalizedPassword.isEmpty()) {
+                    if (!BCrypt.checkpw(normalizedPassword, user.getPasswordHash())) {
+                        return Future.failedFuture(new UnauthorizedException("Invalid password"));
+                    }
+                    authCheck = Future.succeededFuture();
+                } else {
+                    authCheck = socialLinkRepository.hasSocialLink(pool, userId)
+                        .compose(hasSocial -> {
+                            if (!hasSocial) {
+                                return Future.failedFuture(new UnauthorizedException("Invalid password"));
+                            }
+                            return Future.succeededFuture();
+                        });
                 }
-                
+
                 // 2. 트랜잭션으로 모든 관련 데이터 Soft Delete
-                return pool.withTransaction(client -> {
+                return authCheck.compose(ignoredAuth -> pool.withTransaction(client -> {
                     // 2-1. 사용자 지갑 Soft Delete
                     return walletRepository.softDeleteWalletsByUserId(client, userId)
                         // 2-2. 전송 내역 Soft Delete
@@ -1003,7 +1015,7 @@ public class AuthService extends BaseService {
                         .compose(v -> referralRepository.softDeleteReferralRelationsByUserId(client, userId))
                         // 2-22. 사용자 Soft Delete (마지막)
                         .compose(v -> userRepository.softDeleteUser(client, userId));
-                })
+                }))
                 .map(deletedUser -> {
                     log.info("Account deleted successfully - userId: {}", userId);
                     
