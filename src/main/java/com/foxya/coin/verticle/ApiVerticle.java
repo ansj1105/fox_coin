@@ -29,6 +29,7 @@ import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserHandler;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
+import com.foxya.coin.user.UserExternalIdRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -239,7 +240,9 @@ public class ApiVerticle extends AbstractVerticle {
         AirdropService airdropService = new AirdropService(
             pool, airdropRepository, currencyRepository, transferRepository, walletRepository);
         ClientRepository clientRepository = new ClientRepository();
-        ClientService clientService = new ClientService(pool, clientRepository, jwtAuth);
+        UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
+        ClientService clientService = new ClientService(
+            pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -416,6 +419,7 @@ public class ApiVerticle extends AbstractVerticle {
         router.route().handler(CorsHandler.create()
             //.addOrigin("https://app.korion.io.kr")
             .addRelativeOrigin(".*")
+            .allowCredentials(true)
             .allowedMethod(HttpMethod.GET)
             .allowedMethod(HttpMethod.POST)
             .allowedMethod(HttpMethod.PUT)

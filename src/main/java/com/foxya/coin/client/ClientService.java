@@ -6,11 +6,14 @@ import io.vertx.pgclient.PgPool;
 import com.foxya.coin.client.dto.RefreshTokenRequestDto;
 import com.foxya.coin.client.dto.TokenRequestDto;
 import com.foxya.coin.client.dto.TokenResponseDto;
+import com.foxya.coin.client.dto.UserTokenRequestDto;
 import com.foxya.coin.client.entities.ApiKey;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.user.UserExternalIdRepository;
+import com.foxya.coin.user.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -19,14 +22,19 @@ import java.time.LocalDateTime;
 public class ClientService extends BaseService {
     
     private final ClientRepository clientRepository;
+    private final UserExternalIdRepository userExternalIdRepository;
+    private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
     
     // 클라이언트용 가상 사용자 ID (API Key 기반 인증용)
     private static final Long CLIENT_USER_ID = 0L;
     
-    public ClientService(PgPool pool, ClientRepository clientRepository, JWTAuth jwtAuth) {
+    public ClientService(PgPool pool, ClientRepository clientRepository, UserExternalIdRepository userExternalIdRepository,
+                         UserRepository userRepository, JWTAuth jwtAuth) {
         super(pool);
         this.clientRepository = clientRepository;
+        this.userExternalIdRepository = userExternalIdRepository;
+        this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
     }
     
@@ -82,5 +90,34 @@ public class ClientService extends BaseService {
                 .build()
         );
     }
+    
+    /**
+     * 외부 사용자 식별자로 유저 토큰 발급
+     */
+    public Future<TokenResponseDto> issueUserToken(UserTokenRequestDto dto) {
+        return userExternalIdRepository.getUserIdByProviderAndExternalId(pool, dto.getProvider(), dto.getExternalId())
+            .compose(userId -> {
+                if (userId == null) {
+                    return Future.failedFuture(new UnauthorizedException("연동된 사용자 정보를 찾을 수 없습니다."));
+                }
+                
+                return userRepository.getUserByIdNotDeleted(pool, userId)
+                    .compose(user -> {
+                        if (user == null) {
+                            return Future.failedFuture(new UnauthorizedException("연동된 사용자 정보를 찾을 수 없습니다."));
+                        }
+                        
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.USER);
+                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.USER);
+                        
+                        return Future.succeededFuture(
+                            TokenResponseDto.builder()
+                                .accessToken(accessToken)
+                                .refreshToken(refreshToken)
+                                .expiresIn(1800L) // 30분
+                                .build()
+                        );
+                    });
+            });
+    }
 }
-

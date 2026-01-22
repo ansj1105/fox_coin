@@ -179,6 +179,61 @@ public class AuthService extends BaseService {
                 );
             });
     }
+
+    /**
+     * 시드 구문 로그인 (챌린지 서명 기반)
+     */
+    public Future<LoginResponseDto> loginWithSeed(String address, String chain, String signature) {
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
+        }
+        if (signature == null || signature.isBlank()) {
+            return Future.failedFuture(new BadRequestException("서명 값이 필요합니다."));
+        }
+        String normalizedChain = normalizeRecoveryChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("복구 기능을 사용할 수 없습니다."));
+        }
+        String key = buildRecoveryKey(normalizedChain, normalizedAddress);
+        return redisApi.get(key)
+            .compose(res -> {
+                if (res == null || res.toString() == null || res.toString().isBlank()) {
+                    return Future.failedFuture(new BadRequestException("복구 요청이 만료되었습니다. 다시 시도해주세요."));
+                }
+                String nonce = res.toString();
+                String message = buildRecoveryMessage(normalizedChain, normalizedAddress, nonce);
+                boolean verified = verifyRecoverySignature(normalizedChain, message, signature, normalizedAddress);
+                if (!verified) {
+                    return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
+                }
+                return findWalletForRecovery(normalizedChain, normalizedAddress)
+                    .compose(wallet -> {
+                        if (wallet == null) {
+                            return Future.failedFuture(new NotFoundException("해당 주소의 지갑을 찾을 수 없습니다."));
+                        }
+                        return userRepository.getUserByIdNotDeleted(pool, wallet.getUserId())
+                            .compose(user -> {
+                                if (user == null) {
+                                    return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
+                                }
+                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
+                                String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                                return redisApi.del(java.util.List.of(key))
+                                    .recover(e -> Future.succeededFuture())
+                                    .map(v -> LoginResponseDto.builder()
+                                        .accessToken(accessToken)
+                                        .refreshToken(refreshToken)
+                                        .userId(user.getId())
+                                        .loginId(user.getLoginId())
+                                        .build());
+                            });
+                    });
+            });
+    }
     
     /**
      * 아이디 찾기 (가입 이메일로 로그인 아이디 조회)
@@ -359,7 +414,7 @@ public class AuthService extends BaseService {
     private static final java.util.regex.Pattern EMAIL_PATTERN =
         java.util.regex.Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
     private static final java.util.regex.Pattern NICKNAME_PATTERN =
-        java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{2,8}$");
+        java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{1,8}$");
     private static final String[] COUNTRY_CODES = {"KR", "US", "JP", "CN", "VN", "TH", "ETC"};
 
     /**
@@ -424,14 +479,25 @@ public class AuthService extends BaseService {
         }
         String nickname = dto.getNickname();
         if (nickname == null || !NICKNAME_PATTERN.matcher(nickname).matches()) {
-            return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 2~8자리로 입력해주세요."));
+            return Future.failedFuture(new BadRequestException("닉네임은 한글·영문·숫자 1~8자리로 입력해주세요."));
         }
-        return signupEmailCodeRepository.findValid(pool, email, dto.getCode())
-            .compose(rec -> {
-                if (rec == null) {
-                    return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
-                }
-                return userRepository.getUserByLoginId(pool, email)
+        String code = dto.getCode();
+        boolean isSocialFlow = (code == null || code.isBlank());
+        
+        // 소셜 로그인 플로우: code가 빈 문자열이면 이메일 인증 단계 건너뛰기
+        Future<Void> codeValidation = isSocialFlow 
+            ? Future.succeededFuture() 
+            : signupEmailCodeRepository.findValid(pool, email, code)
+                .compose(rec -> {
+                    if (rec == null) {
+                        return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+                    }
+                    return Future.succeededFuture();
+                })
+                .mapEmpty();
+        
+        return codeValidation
+            .compose(v -> userRepository.getUserByLoginId(pool, email)
                     .compose(existing -> {
                         if (existing != null) {
                             return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
@@ -451,10 +517,15 @@ public class AuthService extends BaseService {
                                     .build();
                                 return userService.createUser(create);
                             });
-                    });
+                    }))
+            .compose(user -> {
+                // 소셜 로그인 플로우가 아니면 code 사용 처리
+                if (!isSocialFlow) {
+                    return signupEmailCodeRepository.markUsed(pool, email)
+                        .map(v -> user);
+                }
+                return Future.succeededFuture(user);
             })
-            .compose(user -> signupEmailCodeRepository.markUsed(pool, email)
-                .map(v -> user))
             .compose(user -> {
                 String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
                 String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);

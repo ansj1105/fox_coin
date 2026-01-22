@@ -18,6 +18,13 @@ import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.web3j.crypto.ECKeyPair;
+import org.web3j.crypto.Keys;
+import org.web3j.crypto.Sign;
+import org.web3j.utils.Numeric;
+
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +39,7 @@ public class AuthHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<DeleteAccountResponseDto>> refDeleteAccountResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<GoogleLoginResponseDto>> refGoogleLoginResponse = new TypeReference<>() {};
     private final TypeReference<ApiResponse<FindLoginIdDataDto>> refFindLoginIdResponse = new TypeReference<>() {};
+    private static final String SEED_PRIVATE_KEY_HEX = "4f3edf983ac636a65a842ce7c78d9aa706d3b113b37d3e4c5f7c6f9c1e6f3f99";
 
     public AuthHandlerTest() {
         super("/api/v1/auth");
@@ -220,6 +228,80 @@ public class AuthHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+    }
+
+    @Nested
+    @DisplayName("시드 로그인 테스트")
+    class LoginWithSeedTest {
+
+        @Test
+        @Order(40)
+        @DisplayName("성공 - 시드 구문 로그인")
+        void successLoginWithSeed(VertxTestContext tc) {
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
+            String address = "0x" + Keys.getAddress(keyPair.getPublicKey());
+
+            sqlClient.preparedQuery("SELECT id FROM users WHERE login_id = $1")
+                .execute(Tuple.of("testuser"))
+                .compose(userRows -> {
+                    if (!userRows.iterator().hasNext()) {
+                        return io.vertx.core.Future.failedFuture("user not found");
+                    }
+                    Long userId = userRows.iterator().next().getLong("id");
+                    return sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 LIMIT 1")
+                        .execute(Tuple.of("ETH"))
+                        .compose(currencyRows -> {
+                            if (!currencyRows.iterator().hasNext()) {
+                                return io.vertx.core.Future.failedFuture("currency not found");
+                            }
+                            Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                            return sqlClient.preparedQuery(
+                                    "INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at) " +
+                                        "VALUES ($1, $2, $3, 0, 0, 'ACTIVE', NOW(), NOW())"
+                                )
+                                .execute(Tuple.of(userId, currencyId, address));
+                        });
+                })
+                .onSuccess(v -> {
+                    JsonObject challengeRequest = new JsonObject()
+                        .put("address", address)
+                        .put("chain", "ETH");
+
+                    reqPost(getUrl("/recovery/challenge"))
+                        .sendJson(challengeRequest, tc.succeeding(chRes -> tc.verify(() -> {
+                            expectSuccess(chRes);
+                            String message = chRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+
+                            String signature = signRecoveryMessage(message, keyPair);
+                            JsonObject loginRequest = new JsonObject()
+                                .put("address", address)
+                                .put("chain", "ETH")
+                                .put("signature", signature);
+
+                            reqPost(getUrl("/login-with-seed"))
+                                .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getUserId()).isNotNull();
+                                    tc.completeNow();
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
+    }
+
+    private static String signRecoveryMessage(String message, ECKeyPair keyPair) {
+        byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+        Sign.SignatureData signatureData = Sign.signPrefixedMessage(messageBytes, keyPair);
+        byte[] signature = new byte[65];
+        System.arraycopy(signatureData.getR(), 0, signature, 0, 32);
+        System.arraycopy(signatureData.getS(), 0, signature, 32, 32);
+        signature[64] = signatureData.getV()[0];
+        return Numeric.toHexString(signature);
     }
 
     @Nested
@@ -617,4 +699,3 @@ public class AuthHandlerTest extends HandlerTestBase {
         }
     }
 }
-

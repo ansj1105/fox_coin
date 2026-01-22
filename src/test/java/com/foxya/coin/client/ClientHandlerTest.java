@@ -29,6 +29,9 @@ public class ClientHandlerTest extends HandlerTestBase {
     private static final String TEST_SECRET_003 = "test_secret_003";
     private static final String TEST_API_KEY_004 = "test_api_key_004"; // 만료된 키
     private static final String TEST_SECRET_004 = "test_secret_004";
+    private static final String TEST_PROVIDER = "test_provider";
+    private static final String TEST_EXTERNAL_ID = "ext_001";
+    private static final String TEST_EXTERNAL_ID_NOT_FOUND = "ext_not_found";
     
     public ClientHandlerTest() {
         super("/api/v1/client");
@@ -198,6 +201,63 @@ public class ClientHandlerTest extends HandlerTestBase {
     
     @Test
     @Order(8)
+    @DisplayName("성공 - 외부 사용자 토큰 발급")
+    void successIssueUserToken(VertxTestContext tc) {
+        JsonObject tokenData = new JsonObject()
+            .put("apiKey", TEST_API_KEY_001)
+            .put("apiSecret", TEST_SECRET_001);
+        
+        reqPost(getUrl("/token"))
+            .sendJson(tokenData, tc.succeeding(tokenRes -> tc.verify(() -> {
+                TokenResponseDto token = expectSuccessAndGetResponse(tokenRes, refToken);
+                String accessToken = token.getAccessToken();
+                
+                JsonObject requestData = new JsonObject()
+                    .put("provider", TEST_PROVIDER)
+                    .put("externalId", TEST_EXTERNAL_ID);
+                
+                reqPost(getUrl("/user-token"))
+                    .bearerTokenAuthentication(accessToken)
+                    .sendJson(requestData, tc.succeeding(res -> tc.verify(() -> {
+                        TokenResponseDto userToken = expectSuccessAndGetResponse(res, refToken);
+                        
+                        assertThat(userToken.getAccessToken()).isNotNull();
+                        assertThat(userToken.getRefreshToken()).isNotNull();
+                        assertThat(userToken.getExpiresIn()).isEqualTo(1800L);
+                        
+                        tc.completeNow();
+                    })));
+            })));
+    }
+    
+    @Test
+    @Order(9)
+    @DisplayName("실패 - 외부 사용자 토큰 발급 (매핑 없음)")
+    void failIssueUserTokenNotFound(VertxTestContext tc) {
+        JsonObject tokenData = new JsonObject()
+            .put("apiKey", TEST_API_KEY_001)
+            .put("apiSecret", TEST_SECRET_001);
+        
+        reqPost(getUrl("/token"))
+            .sendJson(tokenData, tc.succeeding(tokenRes -> tc.verify(() -> {
+                TokenResponseDto token = expectSuccessAndGetResponse(tokenRes, refToken);
+                String accessToken = token.getAccessToken();
+                
+                JsonObject requestData = new JsonObject()
+                    .put("provider", TEST_PROVIDER)
+                    .put("externalId", TEST_EXTERNAL_ID_NOT_FOUND);
+                
+                reqPost(getUrl("/user-token"))
+                    .bearerTokenAuthentication(accessToken)
+                    .sendJson(requestData, tc.succeeding(res -> tc.verify(() -> {
+                        expectError(res, 401);
+                        tc.completeNow();
+                    })));
+            })));
+    }
+    
+    @Test
+    @Order(10)
     @DisplayName("실패 - 유저 데이터 수신 (토큰 없음)")
     void failReceiveUserDataNoToken(VertxTestContext tc) {
         JsonObject userData = new JsonObject()
@@ -216,7 +276,7 @@ public class ClientHandlerTest extends HandlerTestBase {
     }
     
     @Test
-    @Order(9)
+    @Order(11)
     @DisplayName("실패 - 유저 데이터 수신 (userData 필드 누락)")
     void failReceiveUserDataMissingField(VertxTestContext tc) {
         // 먼저 토큰 발급
@@ -243,4 +303,3 @@ public class ClientHandlerTest extends HandlerTestBase {
             })));
     }
 }
-

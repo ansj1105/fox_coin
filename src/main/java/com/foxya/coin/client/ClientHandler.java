@@ -11,8 +11,10 @@ import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
 import com.foxya.coin.client.dto.RefreshTokenRequestDto;
 import com.foxya.coin.client.dto.TokenRequestDto;
-import com.foxya.coin.client.dto.UserDataRequestDto;
+import com.foxya.coin.client.dto.UserTokenRequestDto;
 import com.foxya.coin.common.BaseHandler;
+import com.foxya.coin.common.exceptions.ForbiddenException;
+import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,6 +27,7 @@ public class ClientHandler extends BaseHandler {
     
     private final ClientService clientService;
     private final JWTAuth jwtAuth;
+    private static final long CLIENT_USER_ID = 0L;
     
     public ClientHandler(Vertx vertx, ClientService clientService, JWTAuth jwtAuth) {
         super(vertx);
@@ -43,6 +46,11 @@ public class ClientHandler extends BaseHandler {
         router.post("/refresh").handler(refreshTokenValidation(parser)).handler(this::refreshToken);
         
         // 인증 필요 API (JWT 토큰 필요)
+        router.post("/user-token")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(this::requireClientToken)
+            .handler(userTokenValidation(parser))
+            .handler(this::issueUserToken);
         router.post("/user-data")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(userDataValidation(parser))
@@ -92,6 +100,20 @@ public class ClientHandler extends BaseHandler {
     }
     
     /**
+     * 외부 사용자 토큰 발급 Validation
+     */
+    private Handler<RoutingContext> userTokenValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("provider", stringSchema().with(minLength(1)))
+                    .requiredProperty("externalId", stringSchema().with(minLength(1)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+    
+    /**
      * API Key로 토큰 발급
      */
     private void issueToken(RoutingContext ctx) {
@@ -115,6 +137,30 @@ public class ClientHandler extends BaseHandler {
         
         log.info("Token refresh request");
         response(ctx, clientService.refreshToken(dto));
+    }
+    
+    /**
+     * 클라이언트 토큰인지 확인 (userId = 0)
+     */
+    private void requireClientToken(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        if (userId == null || userId != CLIENT_USER_ID) {
+            throw new ForbiddenException("클라이언트 토큰이 필요합니다.");
+        }
+        ctx.next();
+    }
+    
+    /**
+     * 외부 사용자 식별자로 유저 토큰 발급
+     */
+    private void issueUserToken(RoutingContext ctx) {
+        UserTokenRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            UserTokenRequestDto.class
+        );
+        
+        log.info("User token issue request - provider: {}, externalId: {}", dto.getProvider(), dto.getExternalId());
+        response(ctx, clientService.issueUserToken(dto));
     }
     
     /**

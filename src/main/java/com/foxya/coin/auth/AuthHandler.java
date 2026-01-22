@@ -5,6 +5,8 @@ import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
+import io.vertx.core.http.Cookie;
+import io.vertx.core.http.CookieSameSite;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.JWTAuthHandler;
@@ -21,6 +23,7 @@ import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.ApiKeyDto;
 import com.foxya.coin.auth.dto.RecoveryChallengeRequestDto;
 import com.foxya.coin.auth.dto.RecoveryResetRequestDto;
+import com.foxya.coin.auth.dto.LoginWithSeedRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -33,6 +36,8 @@ public class AuthHandler extends BaseHandler {
     
     private final AuthService authService;
     private final JWTAuth jwtAuth;
+    private static final String REFRESH_COOKIE_NAME = "refreshToken";
+    private static final long REFRESH_COOKIE_MAX_AGE = 864000L; // 10일
     
     public AuthHandler(Vertx vertx, AuthService authService, JWTAuth jwtAuth) {
         super(vertx);
@@ -52,6 +57,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/email/verify").handler(this.verifySignupEmailValidation(parser)).handler(this::verifySignupEmail);
         router.post("/register").handler(this.registerValidation(parser)).handler(this::register);
         router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
+        router.post("/login-with-seed").handler(this.loginWithSeedValidation(parser)).handler(this::loginWithSeed);
         router.post("/find-login-id").handler(this.findLoginIdValidation(parser)).handler(this::findLoginId);
         router.post("/send-temp-password").handler(this.sendTempPasswordValidation(parser)).handler(this::sendTempPassword);
         router.post("/recovery/challenge").handler(this.recoveryChallengeValidation(parser)).handler(this::requestRecoveryChallenge);
@@ -192,12 +198,16 @@ public class AuthHandler extends BaseHandler {
     /**
      * 회원가입 Validation (이메일 인증 기반: email, code, password, nickname, name, country, gender?, referralCode?)
      */
+    /**
+     * 회원가입 Validation.
+     * code: 일반 플로우는 6자리 필수, 소셜 로그인 플로우는 빈 문자열 "" 허용.
+     */
     private Handler<RoutingContext> registerValidation(SchemaParser parser) {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
                     .requiredProperty("email", stringSchema().with(minLength(5), maxLength(255)))
-                    .requiredProperty("code", stringSchema().with(minLength(6), maxLength(6)))
+                    .requiredProperty("code", stringSchema().with(minLength(0), maxLength(6)))
                     .requiredProperty("password", passwordSchema())
                     .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)))
                     .requiredProperty("nickname", nicknameSchema())
@@ -272,7 +282,7 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("refreshToken", stringSchema().with(minLength(1)))
+                    .property("refreshToken", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -288,6 +298,21 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("code", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 시드 구문 로그인 Validation
+     */
+    private Handler<RoutingContext> loginWithSeedValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("address", stringSchema().with(minLength(1)))
+                    .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -328,7 +353,12 @@ public class AuthHandler extends BaseHandler {
         );
         
         log.info("Login attempt for user: {}", dto.getLoginId());
-        response(ctx, authService.login(dto));
+        authService.login(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
     }
 
     /**
@@ -388,7 +418,12 @@ public class AuthHandler extends BaseHandler {
             RegisterRequestDto.class
         );
         log.info("Register attempt for email: {}", dto.getEmail());
-        response(ctx, authService.registerWithEmail(dto));
+        authService.registerWithEmail(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
     }
     
     /**
@@ -454,7 +489,10 @@ public class AuthHandler extends BaseHandler {
         boolean allDevices = Boolean.parseBoolean(ctx.request().getParam("allDevices", "false"));
         
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
-        response(ctx, authService.logout(userId, token, allDevices));
+        response(ctx, authService.logout(userId, token, allDevices), data -> {
+            clearRefreshTokenCookie(ctx);
+            return data;
+        });
     }
     
     /**
@@ -495,7 +533,29 @@ public class AuthHandler extends BaseHandler {
         );
         
         log.info("Google login attempt");
-        response(ctx, authService.googleLogin(dto));
+        authService.googleLogin(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
+    }
+
+    /**
+     * 시드 구문 로그인
+     */
+    private void loginWithSeed(RoutingContext ctx) {
+        LoginWithSeedRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            LoginWithSeedRequestDto.class
+        );
+        log.info("Login with seed attempt");
+        authService.loginWithSeed(dto.getAddress(), dto.getChain(), dto.getSignature())
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
     }
 
     /**
@@ -507,9 +567,17 @@ public class AuthHandler extends BaseHandler {
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             RefreshRequestDto.class
         );
+        String refreshToken = resolveRefreshToken(ctx, dto.getRefreshToken());
         log.info("Refresh token request");
-        authService.refresh(dto.getRefreshToken())
+        if (refreshToken == null || refreshToken.isBlank()) {
+            ctx.fail(new com.foxya.coin.common.exceptions.UnauthorizedException("Invalid or expired refresh token"));
+            return;
+        }
+        authService.refresh(refreshToken)
             .onSuccess(data -> {
+                if (data.getRefreshToken() != null) {
+                    setRefreshTokenCookie(ctx, data.getRefreshToken());
+                }
                 JsonObject body = new JsonObject().put("status", "OK").put("accessToken", data.getAccessToken());
                 if (data.getRefreshToken() != null) {
                     body.put("refreshToken", data.getRefreshToken());
@@ -520,6 +588,46 @@ public class AuthHandler extends BaseHandler {
                     .end(body.encode());
             })
             .onFailure(ctx::fail);
+    }
+
+    private String resolveRefreshToken(RoutingContext ctx, String bodyRefreshToken) {
+        if (bodyRefreshToken != null && !bodyRefreshToken.isBlank()) {
+            return bodyRefreshToken;
+        }
+        Cookie cookie = ctx.request().getCookie(REFRESH_COOKIE_NAME);
+        return cookie != null ? cookie.getValue() : null;
+    }
+
+    private void setRefreshTokenCookie(RoutingContext ctx, String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+        Cookie cookie = Cookie.cookie(REFRESH_COOKIE_NAME, refreshToken);
+        cookie.setHttpOnly(true);
+        cookie.setPath("/");
+        cookie.setMaxAge(REFRESH_COOKIE_MAX_AGE);
+        boolean secure = isSecureRequest(ctx);
+        cookie.setSecure(secure);
+        cookie.setSameSite(secure ? CookieSameSite.NONE : CookieSameSite.LAX);
+        ctx.response().addCookie(cookie);
+    }
+
+    private void clearRefreshTokenCookie(RoutingContext ctx) {
+        Cookie cookie = Cookie.cookie(REFRESH_COOKIE_NAME, "");
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        boolean secure = isSecureRequest(ctx);
+        cookie.setSecure(secure);
+        cookie.setSameSite(secure ? CookieSameSite.NONE : CookieSameSite.LAX);
+        ctx.response().addCookie(cookie);
+    }
+
+    private boolean isSecureRequest(RoutingContext ctx) {
+        if (ctx.request().isSSL()) {
+            return true;
+        }
+        String proto = ctx.request().getHeader("X-Forwarded-Proto");
+        return proto != null && "https".equalsIgnoreCase(proto);
     }
     
     /**
