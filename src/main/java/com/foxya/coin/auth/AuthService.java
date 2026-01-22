@@ -498,27 +498,52 @@ public class AuthService extends BaseService {
                 .mapEmpty();
         
         return codeValidation
-            .compose(v -> userRepository.getUserByLoginId(pool, email)
-                    .compose(existing -> {
-                        if (existing != null) {
+            .compose(ignored -> userRepository.getUserByLoginId(pool, email)
+                .compose(existing -> {
+                    if (existing != null) {
+                        if (!isSocialFlow) {
                             return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
                         }
-                        return userRepository.existsByNickname(pool, dto.getNickname())
-                            .compose(nickExists -> {
-                                if (Boolean.TRUE.equals(nickExists)) {
-                                    return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                        return socialLinkRepository.hasSocialLink(pool, existing.getId())
+                            .compose(hasSocial -> {
+                                if (!hasSocial) {
+                                    return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
                                 }
-                                CreateUserDto create = CreateUserDto.builder()
-                                    .loginId(email)
-                                    .password(dto.getPassword())
-                                    .nickname(dto.getNickname())
-                                    .name(dto.getName())
-                                    .countryCode(country)
-                                    .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
-                                    .build();
-                                return userService.createUser(create);
+                                return userRepository.existsByNicknameExcludingUser(pool, nickname, existing.getId())
+                                    .compose(nickExists -> {
+                                        if (Boolean.TRUE.equals(nickExists)) {
+                                            return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                                        }
+                                        java.util.Map<String, Object> updates = new java.util.HashMap<>();
+                                        updates.put("nickname", nickname);
+                                        updates.put("name", dto.getName());
+                                        updates.put("country_code", country);
+                                        if (g != null && !g.isEmpty()) {
+                                            updates.put("gender", g.toUpperCase());
+                                        }
+                                        String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
+                                        return userRepository.updateMeProfile(pool, existing.getId(), updates)
+                                            .compose(v -> userRepository.updateLoginPassword(pool, existing.getId(), passwordHash))
+                                            .map(v -> existing);
+                                    });
                             });
-                    }))
+                    }
+                    return userRepository.existsByNickname(pool, nickname)
+                        .compose(nickExists -> {
+                            if (Boolean.TRUE.equals(nickExists)) {
+                                return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                            }
+                            CreateUserDto create = CreateUserDto.builder()
+                                .loginId(email)
+                                .password(dto.getPassword())
+                                .nickname(nickname)
+                                .name(dto.getName())
+                                .countryCode(country)
+                                .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
+                                .build();
+                            return userService.createUser(create);
+                        });
+                }))
             .compose(user -> {
                 // 소셜 로그인 플로우가 아니면 code 사용 처리
                 if (!isSocialFlow) {
