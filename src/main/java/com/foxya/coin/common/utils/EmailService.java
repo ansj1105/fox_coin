@@ -80,7 +80,7 @@ public class EmailService {
         MailMessage message = new MailMessage();
         message.setFrom(fromAddress);
         message.setTo(email);
-        message.setSubject("[Foxya] 이메일 인증 코드");
+        message.setSubject("[KORION] 이메일 인증 코드");
         message.setHtml(getEmailTemplate(code));
 
         log.info("[EmailService] Sending mail via SMTP. Host: {}, Port: {}", 
@@ -136,7 +136,7 @@ public class EmailService {
                         <p>본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.</p>
                     </div>
                     <div class="footer">
-                        <p>© 2024 Foxya. All rights reserved.</p>
+                        <p>© 2026 KORION Network. All rights reserved.</p>
                     </div>
                 </div>
             </body>
@@ -180,7 +180,7 @@ public class EmailService {
         MailMessage message = new MailMessage();
         message.setFrom(fromAddress);
         message.setTo(email);
-        message.setSubject("[Foxya] 임시 비밀번호 안내");
+        message.setSubject("[KORION] 임시 비밀번호 안내");
         message.setHtml(getTemporaryPasswordTemplate(tempPassword));
         return mailClient.sendMail(message)
             .map(ok -> (Void) null)
@@ -204,14 +204,14 @@ public class EmailService {
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
             </style></head>
             <body><div class="container">
-            <div class="header"><h1>Foxya 임시 비밀번호</h1></div>
+            <div class="header"><h1>KORION 임시 비밀번호</h1></div>
             <div class="content">
             <p>안녕하세요,</p>
             <p>요청하신 임시 비밀번호입니다. 로그인 후 반드시 비밀번호를 변경해주세요.</p>
             <div class="code-box"><div class="code">%s</div></div>
             <p>보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.</p>
             </div>
-            <div class="footer"><p>© 2024 Foxya. All rights reserved.</p></div>
+            <div class="footer"><p>© 2026 KORION Network. All rights reserved.</p></div>
             </div></body></html>
             """.formatted(tempPassword);
     }
