@@ -61,8 +61,17 @@ public class AirdropService extends BaseService {
         log.info("에어드랍 상태 조회 - userId: {}", userId);
         
         return airdropRepository.getPhasesByUserId(pool, userId)
+            .recover(throwable -> {
+                log.error("에어드랍 Phase 조회 실패 - userId: {}", userId, throwable);
+                return Future.succeededFuture(java.util.Collections.emptyList());
+            })
             .compose(phases -> {
-                if (phases == null || phases.isEmpty()) {
+                // phases가 null이거나 비어있으면 빈 상태 반환
+                if (phases == null) {
+                    phases = java.util.Collections.emptyList();
+                }
+                
+                if (phases.isEmpty()) {
                     // Phase가 없으면 빈 상태 반환
                     return Future.succeededFuture(AirdropStatusDto.builder()
                         .totalReceived(BigDecimal.ZERO)
@@ -139,6 +148,10 @@ public class AirdropService extends BaseService {
         
         // 2. KORI 통화 조회
         return currencyRepository.getCurrencyByCodeAndChain(pool, KORI_CURRENCY_CODE, INTERNAL_CHAIN)
+            .recover(throwable -> {
+                log.error("KORI 통화 조회 실패", throwable);
+                return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
+            })
             .compose(currency -> {
                 if (currency == null) {
                     return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
@@ -146,7 +159,15 @@ public class AirdropService extends BaseService {
                 
                 // 3. 사용자의 RELEASED Phase 조회
                 return airdropRepository.getPhasesByUserId(pool, userId)
+                    .recover(throwable -> {
+                        log.error("에어드랍 Phase 조회 실패 - userId: {}", userId, throwable);
+                        return Future.succeededFuture(java.util.Collections.emptyList());
+                    })
                     .compose(phases -> {
+                        if (phases == null || phases.isEmpty()) {
+                            return Future.failedFuture(new BadRequestException("전송 가능한 에어드랍이 없습니다."));
+                        }
+                        
                         LocalDateTime now = LocalDateTime.now();
                         
                         // RELEASED 상태인 Phase들의 총 금액 계산
@@ -165,6 +186,10 @@ public class AirdropService extends BaseService {
                         
                         // 4. 사용자 지갑 조회 (없으면 생성)
                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                            .recover(throwable -> {
+                                log.error("지갑 조회 실패 - userId: {}, currencyId: {}", userId, currency.getId(), throwable);
+                                return Future.succeededFuture((Wallet) null);
+                            })
                             .compose(wallet -> {
                                 if (wallet == null) {
                                     // 지갑이 없으면 자동 생성 (KORI는 내부 통화이므로 더미 주소 사용)

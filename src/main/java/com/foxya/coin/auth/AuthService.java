@@ -54,6 +54,7 @@ import com.foxya.coin.deposit.TokenDepositRepository;
 import com.foxya.coin.airdrop.AirdropRepository;
 import com.foxya.coin.inquiry.InquiryRepository;
 import com.foxya.coin.auth.EmailVerificationRepository;
+import com.foxya.coin.auth.RecoverySignatureVerifier;
 import com.foxya.coin.referral.ReferralRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;

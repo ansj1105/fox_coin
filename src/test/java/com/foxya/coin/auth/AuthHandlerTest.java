@@ -257,7 +257,9 @@ public class AuthHandlerTest extends HandlerTestBase {
                             Integer currencyId = currencyRows.iterator().next().getInteger("id");
                             return sqlClient.preparedQuery(
                                     "INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at) " +
-                                        "VALUES ($1, $2, $3, 0, 0, 'ACTIVE', NOW(), NOW())"
+                                        "VALUES ($1, $2, $3, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                        "ON CONFLICT (user_id, currency_id) DO UPDATE " +
+                                        "SET address = EXCLUDED.address, updated_at = NOW()"
                                 )
                                 .execute(Tuple.of(userId, currencyId, address));
                         });

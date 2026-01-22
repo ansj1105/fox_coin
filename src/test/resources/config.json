@@ -8,8 +8,8 @@
       "host": "localhost",
       "port": 5432,
       "database": "coin_system_cloud",
-      "user": "postgres",
-      "password": "postgres",
+      "user": "an",
+      "password": "1234",
       "pool_size": 5
     },
     "jwt": {
@@ -40,4 +40,3 @@
     }
   }
 }
-
