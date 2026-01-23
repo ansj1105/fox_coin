@@ -29,6 +29,7 @@ public class UserRepository extends BaseRepository {
         .name(getStringColumnValue(row, "name"))
         .gender(getStringColumnValue(row, "gender"))
         .phone(getStringColumnValue(row, "phone"))
+        .isTest(getIntegerColumnValue(row, "is_test"))
         .deletedAt(getLocalDateTimeColumnValue(row, "deleted_at"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))

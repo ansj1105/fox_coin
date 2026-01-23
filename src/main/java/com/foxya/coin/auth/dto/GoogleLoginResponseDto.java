@@ -15,5 +15,5 @@ public class GoogleLoginResponseDto {
     private Long userId;
     private String loginId;
     private Boolean isNewUser;
+    private Integer isTest;
 }
-

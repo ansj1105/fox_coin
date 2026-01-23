@@ -111,6 +111,7 @@ public class UserService extends BaseService {
                         .refreshToken(refreshToken)
                         .userId(user.getId())
                         .loginId(user.getLoginId())
+                        .isTest(user.getIsTest())
                         .build()
                 );
             });

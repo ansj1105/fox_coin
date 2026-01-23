@@ -28,8 +28,8 @@ public class User {
     private String name;
     private String gender;
     private String phone;
+    private Integer isTest;
     private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
-

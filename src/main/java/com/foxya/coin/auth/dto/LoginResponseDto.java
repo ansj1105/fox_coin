@@ -11,4 +11,5 @@ public class LoginResponseDto {
     private String refreshToken;
     private Long userId;
     private String loginId;
+    private Integer isTest;
 }

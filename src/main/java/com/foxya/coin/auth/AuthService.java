@@ -176,6 +176,7 @@ public class AuthService extends BaseService {
                         .refreshToken(refreshToken)
                         .userId(user.getId())
                         .loginId(user.getLoginId())
+                        .isTest(user.getIsTest())
                         .build()
                 );
             });
@@ -230,6 +231,7 @@ public class AuthService extends BaseService {
                                         .refreshToken(refreshToken)
                                         .userId(user.getId())
                                         .loginId(user.getLoginId())
+                                        .isTest(user.getIsTest())
                                         .build());
                             });
                     });
@@ -560,6 +562,7 @@ public class AuthService extends BaseService {
                     .refreshToken(refreshToken)
                     .userId(user.getId())
                     .loginId(user.getLoginId())
+                    .isTest(user.getIsTest())
                     .build();
                 String refCode = dto.getReferralCode();
                 if (refCode != null && !refCode.isBlank()) {
@@ -915,6 +918,7 @@ public class AuthService extends BaseService {
                                             .userId(existingUser.getId())
                                             .loginId(existingUser.getLoginId())
                                             .isNewUser(false)
+                                            .isTest(existingUser.getIsTest())
                                             .build()
                                     );
                                 });
@@ -942,6 +946,7 @@ public class AuthService extends BaseService {
                                                     .userId(newUser.getId())
                                                     .loginId(newUser.getLoginId())
                                                     .isNewUser(true)
+                                                    .isTest(newUser.getIsTest())
                                                     .build()
                                             );
                                         });
