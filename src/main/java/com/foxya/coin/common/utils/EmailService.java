@@ -123,11 +123,11 @@ public class EmailService {
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>Foxya 이메일 인증</h1>
+                        <h1>KORION network 이메일 인증</h1>
                     </div>
                     <div class="content">
                         <p>안녕하세요,</p>
-                        <p>Foxya 서비스 이메일 인증을 위한 인증 코드입니다.</p>
+                        <p>KORION network 서비스 이메일 인증을 위한 인증 코드입니다.</p>
                         <div class="code-box">
                             <div class="code">%s</div>
                         </div>
