@@ -237,19 +237,9 @@ public class HandlerTestBase {
     }
 
     private static void ensureTestEncryptionKey() {
-        if (System.getenv("ENCRYPTION_KEY") != null) {
-            return;
-        }
-        try {
-            // 테스트에서만 환경 변수 주입 (리플렉션 기반)
-            java.util.Map<String, String> env = System.getenv();
-            java.lang.reflect.Field field = env.getClass().getDeclaredField("m");
-            field.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, String> writableEnv = (java.util.Map<String, String>) field.get(env);
-            writableEnv.put("ENCRYPTION_KEY", "test_encryption_key");
-        } catch (Exception e) {
-            log.warn("Failed to inject ENCRYPTION_KEY for tests: {}", e.getMessage());
+        String key = System.getenv("ENCRYPTION_KEY");
+        if (key == null || key.isBlank()) {
+            System.setProperty("ENCRYPTION_KEY", "test_encryption_key");
         }
     }
 }

@@ -64,6 +64,9 @@ public final class PrivateKeyEncryptionUtil {
     private static SecretKeySpec getSecretKey() throws Exception {
         String key = System.getenv(ENV_KEY);
         if (key == null || key.isBlank()) {
+            key = System.getProperty(ENV_KEY);
+        }
+        if (key == null || key.isBlank()) {
             throw new IllegalStateException("ENCRYPTION_KEY environment variable is required.");
         }
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
