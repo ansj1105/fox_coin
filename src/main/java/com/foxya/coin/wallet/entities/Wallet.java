@@ -1,6 +1,7 @@
 package com.foxya.coin.wallet.entities;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -23,10 +24,11 @@ public class Wallet {
     private String currencySymbol; // code와 동일하게 사용
     private String network;        // chain 값
     private String address;
+    @JsonIgnore
+    private String privateKey;
     private BigDecimal balance;
     private BigDecimal lockedBalance;
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
-

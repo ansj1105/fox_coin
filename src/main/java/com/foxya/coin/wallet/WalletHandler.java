@@ -14,6 +14,7 @@ import com.foxya.coin.wallet.dto.CreateWalletRequestDto;
 import com.foxya.coin.wallet.dto.RegisterWalletChallengeRequestDto;
 import com.foxya.coin.wallet.dto.RegisterWalletChallengeResponseDto;
 import com.foxya.coin.wallet.dto.RegisterWalletRequestDto;
+import com.foxya.coin.wallet.dto.RegisterWalletPrivateKeyRequestDto;
 import io.vertx.json.schema.SchemaParser;
 import lombok.extern.slf4j.Slf4j;
 
@@ -62,6 +63,12 @@ public class WalletHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(registerWalletValidation(parser))
             .handler(this::registerWallet);
+
+        // 지갑 개인키 등록
+        router.post("/register-private-key")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(registerWalletPrivateKeyValidation(parser))
+            .handler(this::registerWalletPrivateKey);
 
         // 시드 구문 존재 여부 확인
         router.get("/has-seed")
@@ -112,6 +119,18 @@ public class WalletHandler extends BaseHandler {
             ))
             .build();
     }
+
+    private Handler<RoutingContext> registerWalletPrivateKeyValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("currencyCode", stringSchema().with(minLength(1), maxLength(10)))
+                    .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .requiredProperty("privateKey", stringSchema().with(minLength(16), maxLength(512)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
     
     private void getMyWallets(RoutingContext ctx) {
         // JWT에서 userId 추출
@@ -154,6 +173,16 @@ public class WalletHandler extends BaseHandler {
         );
         log.info("Wallet register - userId: {}, currencyCode: {}", userId, dto.getCurrencyCode());
         response(ctx, walletService.registerWalletWithSignature(userId, dto.getCurrencyCode(), dto.getChain(), dto.getAddress(), dto.getSignature()));
+    }
+
+    private void registerWalletPrivateKey(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        RegisterWalletPrivateKeyRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            RegisterWalletPrivateKeyRequestDto.class
+        );
+        log.info("Wallet private key register - userId: {}, currencyCode: {}", userId, dto.getCurrencyCode());
+        response(ctx, walletService.storeWalletPrivateKey(userId, dto.getCurrencyCode(), dto.getChain(), dto.getPrivateKey()));
     }
 
     private void hasSeed(RoutingContext ctx) {

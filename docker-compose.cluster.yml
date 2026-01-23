@@ -143,6 +143,7 @@ services:
       - "8080:8080"
     environment:
       TZ: Asia/Seoul
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       - ./src/main/resources/config.json:/app/config.json
       - ./logs:/app/logs
@@ -159,4 +160,3 @@ volumes:
 networks:
   redis-cluster-network:
     driver: bridge
-

@@ -26,6 +26,7 @@ public class WalletRepository extends BaseRepository {
         .currencySymbol(getStringColumnValue(row, "currency_symbol"))
         .network(getStringColumnValue(row, "network"))
         .address(getStringColumnValue(row, "address"))
+        .privateKey(getStringColumnValue(row, "private_key"))
         .balance(getBigDecimalColumnValue(row, "balance"))
         .lockedBalance(getBigDecimalColumnValue(row, "locked_balance"))
         .status(getStringColumnValue(row, "status"))
@@ -130,11 +131,12 @@ public class WalletRepository extends BaseRepository {
     /**
      * 지갑 생성
      */
-    public Future<Wallet> createWallet(SqlClient client, Long userId, Integer currencyId, String address) {
+    public Future<Wallet> createWallet(SqlClient client, Long userId, Integer currencyId, String address, String privateKey) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("currency_id", currencyId);
         params.put("address", address);
+        params.put("private_key", privateKey);
         params.put("balance", java.math.BigDecimal.ZERO);
         params.put("locked_balance", java.math.BigDecimal.ZERO);
         params.put("status", "ACTIVE");
@@ -159,6 +161,30 @@ public class WalletRepository extends BaseRepository {
                 log.error("지갑 생성 실패 - userId: {}, currencyId: {}", userId, currencyId, throwable);
                 return Future.failedFuture(throwable);
             });
+    }
+
+    public Future<Wallet> createWallet(SqlClient client, Long userId, Integer currencyId, String address) {
+        return createWallet(client, userId, currencyId, address, null);
+    }
+
+    /**
+     * 지갑 개인키 업데이트
+     */
+    public Future<Void> updatePrivateKeyById(SqlClient client, Long walletId, String encryptedPrivateKey) {
+        String sql = QueryBuilder
+            .update("user_wallets", "private_key", "updated_at")
+            .where("id", Op.Equal, "walletId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("walletId", walletId);
+        params.put("private_key", encryptedPrivateKey);
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("지갑 개인키 업데이트 실패 - walletId: {}", walletId, throwable));
     }
     
     /**

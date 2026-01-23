@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class WalletHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<List<Wallet>>> refWalletList = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<Wallet>> refWallet = new TypeReference<>() {};
     
     public WalletHandlerTest() {
         super("/api/v1/wallets");
@@ -156,6 +157,48 @@ public class WalletHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+
+    @Nested
+    @DisplayName("지갑 개인키 등록 테스트")
+    class RegisterPrivateKeyTest {
+
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 개인키 저장")
+        void successRegisterPrivateKey(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+
+            io.vertx.core.json.JsonObject data = new io.vertx.core.json.JsonObject()
+                .put("currencyCode", "FOXYA")
+                .put("chain", "TRON")
+                .put("privateKey", "TEST_PRIVATE_KEY_1234567890");
+
+            reqPost(getUrl("/register-private-key"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    Wallet wallet = expectSuccessAndGetResponse(res, refWallet);
+                    assertThat(wallet).isNotNull();
+                    assertThat(wallet.getAddress()).isNotBlank();
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(2)
+        @DisplayName("실패 - 인증 없이 요청")
+        void failNoAuth(VertxTestContext tc) {
+            io.vertx.core.json.JsonObject data = new io.vertx.core.json.JsonObject()
+                .put("currencyCode", "FOXYA")
+                .put("chain", "TRON")
+                .put("privateKey", "TEST_PRIVATE_KEY_1234567890");
+
+            reqPost(getUrl("/register-private-key"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
     
     /**
      * 시드 구문 존재 여부 응답 DTO
@@ -164,4 +207,3 @@ public class WalletHandlerTest extends HandlerTestBase {
         public Boolean hasSeed;
     }
 }
-

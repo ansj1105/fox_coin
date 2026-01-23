@@ -52,6 +52,7 @@ public class HandlerTestBase {
     @BeforeAll
     protected static void deployVerticle(final Vertx vertx, final VertxTestContext testContext) throws IOException {
         log.info("Test deployVerticle start");
+        ensureTestEncryptionKey();
         
         webClient = WebClient.create(vertx);
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -234,5 +235,21 @@ public class HandlerTestBase {
     protected void expectError(HttpResponse<Buffer> res, int expectedStatusCode) {
         assertEquals(expectedStatusCode, res.statusCode());
     }
-}
 
+    private static void ensureTestEncryptionKey() {
+        if (System.getenv("ENCRYPTION_KEY") != null) {
+            return;
+        }
+        try {
+            // 테스트에서만 환경 변수 주입 (리플렉션 기반)
+            java.util.Map<String, String> env = System.getenv();
+            java.lang.reflect.Field field = env.getClass().getDeclaredField("m");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> writableEnv = (java.util.Map<String, String>) field.get(env);
+            writableEnv.put("ENCRYPTION_KEY", "test_encryption_key");
+        } catch (Exception e) {
+            log.warn("Failed to inject ENCRYPTION_KEY for tests: {}", e.getMessage());
+        }
+    }
+}

@@ -10,8 +10,10 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.auth.RecoverySignatureVerifier;
+import com.foxya.coin.common.utils.PrivateKeyEncryptionUtil;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
+import org.web3j.crypto.Credentials;
 
 import java.util.List;
 import java.util.UUID;
@@ -208,6 +210,73 @@ public class WalletService extends BaseService {
                 }
                 return createWalletWithAddress(userId, currencyCode, normalizedChain, normalizedAddress)
                     .compose(wallet -> redisApi.del(List.of(key)).map(v -> wallet));
+            });
+    }
+
+    public Future<Wallet> storeWalletPrivateKey(Long userId, String currencyCode, String chain, String privateKey) {
+        if (privateKey == null || privateKey.isBlank()) {
+            return Future.failedFuture(new BadRequestException("privateKey is required."));
+        }
+        String normalizedChain = normalizeChain(chain);
+        if (normalizedChain == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
+        }
+        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, normalizedChain)
+            .compose(currency -> {
+                if (currency == null) {
+                    if ("ETH".equalsIgnoreCase(currencyCode) && "ETH".equalsIgnoreCase(normalizedChain)) {
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, "Ether")
+                            .compose(etherCurrency -> etherCurrency != null ? Future.succeededFuture(etherCurrency) : currencyRepository.getCurrencyByCode(pool, currencyCode));
+                    }
+                    return currencyRepository.getCurrencyByCode(pool, currencyCode);
+                }
+                return Future.succeededFuture(currency);
+            })
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyCode + ". 통화를 먼저 등록해주세요."));
+                }
+                String currencyChain = normalizeChain(currency.getChain());
+                if (currencyChain == null) {
+                    currencyChain = normalizedChain;
+                }
+                if (!currencyChain.equalsIgnoreCase(normalizedChain)) {
+                    return Future.failedFuture(new BadRequestException("통화 네트워크가 일치하지 않습니다."));
+                }
+                return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                    .compose(wallet -> {
+                        if (wallet == null) {
+                            return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                        }
+                        if ("ETH".equalsIgnoreCase(normalizedChain)) {
+                            String normalizedKey = privateKey.startsWith("0x") ? privateKey.substring(2) : privateKey;
+                            try {
+                                String derivedAddress = Credentials.create(normalizedKey).getAddress();
+                                if (!derivedAddress.equalsIgnoreCase(wallet.getAddress())) {
+                                    return Future.failedFuture(new BadRequestException("privateKey가 지갑 주소와 일치하지 않습니다."));
+                                }
+                            } catch (Exception ex) {
+                                return Future.failedFuture(new BadRequestException("유효하지 않은 privateKey 입니다."));
+                            }
+                        }
+                        String encrypted = PrivateKeyEncryptionUtil.encrypt(privateKey);
+                        return walletRepository.updatePrivateKeyById(pool, wallet.getId(), encrypted)
+                            .map(v -> Wallet.builder()
+                                .id(wallet.getId())
+                                .userId(wallet.getUserId())
+                                .currencyId(wallet.getCurrencyId())
+                                .currencyCode(currency.getCode())
+                                .currencyName(currency.getName())
+                                .currencySymbol(currency.getCode())
+                                .network(currency.getChain())
+                                .address(wallet.getAddress())
+                                .balance(wallet.getBalance())
+                                .lockedBalance(wallet.getLockedBalance())
+                                .status(wallet.getStatus())
+                                .createdAt(wallet.getCreatedAt())
+                                .updatedAt(wallet.getUpdatedAt())
+                                .build());
+                    });
             });
     }
 
