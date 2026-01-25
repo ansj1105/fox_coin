@@ -1654,7 +1654,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, code, password, nickname, name, country]
+              required: [email, code, password, seedConfirmed, nickname, name, country]
               properties:
                 email:
                   type: string
@@ -1672,6 +1672,9 @@ paths:
                   description: |
                     8자 이상 (영문·숫자·특수문자 등).
                     소셜 로그인 플로우에서는 KORION WALLET 비밀번호 사용.
+                seedConfirmed:
+                  type: boolean
+                  description: 시드 구문 확인 여부 (시드 구문 확인 후 true)
                 referralCode:
                   type: string
                   minLength: 6

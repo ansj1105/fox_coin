@@ -472,6 +472,9 @@ public class AuthService extends BaseService {
         if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
             return Future.failedFuture(new BadRequestException("올바른 이메일 주소를 입력해주세요."));
         }
+        if (!Boolean.TRUE.equals(dto.getSeedConfirmed())) {
+            return Future.failedFuture(new BadRequestException("시드 구문 확인 후 계속 진행해주세요."));
+        }
         String country = (dto.getCountry() != null && !dto.getCountry().isBlank()) ? dto.getCountry() : dto.getCountryCode();
         if (country == null || country.isBlank() || java.util.Arrays.stream(COUNTRY_CODES).noneMatch(c -> c.equals(country))) {
             return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));

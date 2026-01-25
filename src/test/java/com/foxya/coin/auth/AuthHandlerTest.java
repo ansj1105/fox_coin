@@ -136,6 +136,7 @@ public class AuthHandlerTest extends HandlerTestBase {
                                 .put("email", email)
                                 .put("code", code)
                                 .put("password", "Test1234!@")
+                                .put("seedConfirmed", true)
                                 .put("nickname", "nickreg1")
                                 .put("name", "DisplayOne")
                                 .put("country", "KR");
