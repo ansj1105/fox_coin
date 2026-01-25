@@ -799,7 +799,7 @@ public class AuthService extends BaseService {
         }
         return redisApi.del(java.util.List.of(SOCIAL_SIGNUP_PREFIX + token))
             .mapEmpty()
-            .recover(e -> Future.succeededFuture());
+            .recover(e -> Future.succeededFuture((Void) null));
     }
     
     /**
