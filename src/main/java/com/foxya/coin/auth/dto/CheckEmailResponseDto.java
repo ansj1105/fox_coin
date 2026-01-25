@@ -13,4 +13,5 @@ import lombok.Setter;
 @AllArgsConstructor
 public class CheckEmailResponseDto {
     private Boolean available;
+    private String status;
 }

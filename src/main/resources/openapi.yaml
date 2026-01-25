@@ -160,6 +160,9 @@ components:
           type: boolean
           description: 신규 사용자 여부
           example: false
+        signupToken:
+          type: string
+          description: 신규 사용자용 소셜 가입 토큰 (신규 사용자일 때만 제공)
 
     GoogleLoginResponse:
       type: object
@@ -1675,6 +1678,9 @@ paths:
                 seedConfirmed:
                   type: boolean
                   description: 시드 구문 확인 여부 (시드 구문 확인 후 true)
+                signupToken:
+                  type: string
+                  description: 소셜 가입 토큰 (소셜 가입 플로우에서만 사용)
                 referralCode:
                   type: string
                   minLength: 6
@@ -2054,8 +2060,8 @@ paths:
         **제약사항:**
         - `code`: Google OAuth 2.0 Authorization Code (일회용, 짧은 수명)
         - 백엔드에서 Google API를 호출하여 code를 access_token으로 교환
-        - 기존 계정이 있으면 연동, 없으면 새 계정 생성
-        - `isNewUser`: true면 신규 가입, false면 기존 사용자 로그인
+        - 기존 계정이 있으면 연동, 없으면 신규 가입 토큰 발급
+        - `isNewUser`: true면 신규 가입 (signupToken 제공), false면 기존 사용자 로그인
       tags: [Auth]
       requestBody:
         required: true
@@ -2086,6 +2092,7 @@ paths:
                   userId: 123
                   loginId: "user@example.com"
                   isNewUser: false
+                  signupToken: "social_signup_token"
         '401':
           description: 인증 실패
           content:

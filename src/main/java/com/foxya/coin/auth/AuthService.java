@@ -149,7 +149,13 @@ public class AuthService extends BaseService {
         return userRepository.getUserByLoginId(pool, dto.getLoginId())
             .compose(user -> {
                 if (user == null) {
-                    return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
+                    return userRepository.getUserByLoginIdIncludingDeleted(pool, dto.getLoginId())
+                        .compose(deletedUser -> {
+                            if (deletedUser != null && deletedUser.getDeletedAt() != null) {
+                                return Future.failedFuture(new UnauthorizedException("탈퇴한 계정입니다."));
+                            }
+                            return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
+                        });
                 }
                 
                 // 비밀번호 검증: 소셜 전용(비밀번호 미설정)은 빈 문자열로 로그인 허용
@@ -425,10 +431,21 @@ public class AuthService extends BaseService {
      */
     public Future<CheckEmailResponseDto> checkEmailAvailable(String email) {
         if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
-            return Future.succeededFuture(CheckEmailResponseDto.builder().available(false).build());
+            return Future.succeededFuture(CheckEmailResponseDto.builder()
+                .available(false)
+                .status("INVALID")
+                .build());
         }
-        return userRepository.getUserByLoginId(pool, email)
-            .map(user -> CheckEmailResponseDto.builder().available(user == null).build());
+        return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+            .map(user -> {
+                if (user == null) {
+                    return CheckEmailResponseDto.builder().available(true).status("AVAILABLE").build();
+                }
+                if (user.getDeletedAt() != null) {
+                    return CheckEmailResponseDto.builder().available(false).status("DELETED").build();
+                }
+                return CheckEmailResponseDto.builder().available(false).status("DUPLICATE").build();
+            });
     }
 
     /**
@@ -438,10 +455,13 @@ public class AuthService extends BaseService {
         if (email == null || !EMAIL_PATTERN.matcher(email).matches()) {
             return Future.failedFuture(new BadRequestException("올바른 이메일 주소를 입력해주세요."));
         }
-        return userRepository.getUserByLoginId(pool, email)
-            .compose(user -> {
-                if (user != null) {
-                    return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
+        return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+            .compose(existing -> {
+                if (existing != null) {
+                    if (existing.getDeletedAt() != null) {
+                        return Future.failedFuture(new ConflictException("탈퇴회원입니다"));
+                    }
+                    return Future.failedFuture(new ConflictException("중복회원입니다"));
                 }
                 String code = emailService.generateVerificationCode();
                 return signupEmailCodeRepository.upsert(pool, email, code, DateUtils.now().plusMinutes(10))
@@ -454,14 +474,23 @@ public class AuthService extends BaseService {
      * 회원가입용 이메일 인증 확인 (비인증).
      */
     public Future<Void> verifySignupEmail(String email, String code) {
-        return signupEmailCodeRepository.findValid(pool, email, code)
-            .compose(rec -> {
-                if (rec == null) {
-                    return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+        return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+            .compose(existing -> {
+                if (existing != null) {
+                    if (existing.getDeletedAt() != null) {
+                        return Future.failedFuture(new ConflictException("탈퇴회원입니다"));
+                    }
+                    return Future.failedFuture(new ConflictException("중복회원입니다"));
                 }
-                return Future.succeededFuture();
-            })
-            .mapEmpty();
+                return signupEmailCodeRepository.findValid(pool, email, code)
+                    .compose(rec -> {
+                        if (rec == null) {
+                            return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+                        }
+                        return Future.succeededFuture();
+                    })
+                    .mapEmpty();
+            });
     }
 
     /**
@@ -489,104 +518,140 @@ public class AuthService extends BaseService {
         }
         String code = dto.getCode();
         boolean isSocialFlow = (code == null || code.isBlank());
-        
-        // 소셜 로그인 플로우: code가 빈 문자열이면 이메일 인증 단계 건너뛰기
-        Future<Void> codeValidation = isSocialFlow 
-            ? Future.succeededFuture() 
-            : signupEmailCodeRepository.findValid(pool, email, code)
-                .compose(rec -> {
-                    if (rec == null) {
-                        return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
-                    }
-                    return Future.succeededFuture();
-                })
-                .mapEmpty();
-        
-        return codeValidation
-            .compose(ignored -> userRepository.getUserByLoginId(pool, email)
-                .compose(existing -> {
-                    if (existing != null) {
-                        if (!isSocialFlow) {
-                            return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
+        String signupToken = dto.getSignupToken();
+        if (isSocialFlow && (signupToken == null || signupToken.isBlank())) {
+            return Future.failedFuture(new BadRequestException("소셜 가입 토큰이 필요합니다."));
+        }
+        return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+            .compose(existingAny -> {
+                if (existingAny != null && existingAny.getDeletedAt() != null) {
+                    return Future.failedFuture(new ConflictException("탈퇴회원입니다"));
+                }
+                // 소셜 로그인 플로우: code가 빈 문자열이면 이메일 인증 단계 건너뛰기
+                Future<Void> codeValidation = isSocialFlow 
+                    ? Future.succeededFuture() 
+                    : signupEmailCodeRepository.findValid(pool, email, code)
+                        .compose(rec -> {
+                            if (rec == null) {
+                                return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
+                            }
+                            return Future.succeededFuture();
+                        })
+                        .mapEmpty();
+                return codeValidation
+                    .compose(ignored -> loadSocialSignupPayload(signupToken, isSocialFlow))
+                    .compose(payload -> {
+                        if (isSocialFlow) {
+                            String socialEmail = payload.getString("email");
+                            if (socialEmail == null || !email.equalsIgnoreCase(socialEmail)) {
+                                return Future.failedFuture(new BadRequestException("소셜 가입 정보가 유효하지 않습니다."));
+                            }
                         }
-                        return socialLinkRepository.hasSocialLink(pool, existing.getId())
-                            .compose(hasSocial -> {
-                                if (!hasSocial) {
-                                    return Future.failedFuture(new ConflictException("가입된 아이디입니다"));
+                        return userRepository.getUserByLoginId(pool, email)
+                            .compose(existing -> {
+                                if (existing != null) {
+                                    if (!isSocialFlow) {
+                                        return Future.failedFuture(new ConflictException("중복회원입니다"));
+                                    }
+                                    return socialLinkRepository.hasSocialLink(pool, existing.getId())
+                                        .compose(hasSocial -> {
+                                            if (!hasSocial) {
+                                                return Future.failedFuture(new ConflictException("중복회원입니다"));
+                                            }
+                                            return userRepository.existsByNicknameExcludingUser(pool, nickname, existing.getId())
+                                                .compose(nickExists -> {
+                                                    if (Boolean.TRUE.equals(nickExists)) {
+                                                        return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
+                                                    }
+                                                    java.util.Map<String, Object> updates = new java.util.HashMap<>();
+                                                    updates.put("nickname", nickname);
+                                                    updates.put("name", dto.getName());
+                                                    updates.put("country_code", country);
+                                                    if (g != null && !g.isEmpty()) {
+                                                        updates.put("gender", g.toUpperCase());
+                                                    }
+                                                    String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
+                                                    return userRepository.updateMeProfile(pool, existing.getId(), updates)
+                                                        .compose(v -> userRepository.updateLoginPassword(pool, existing.getId(), passwordHash))
+                                                        .map(v -> existing);
+                                                });
+                                        });
                                 }
-                                return userRepository.existsByNicknameExcludingUser(pool, nickname, existing.getId())
+                                return userRepository.existsByNickname(pool, nickname)
                                     .compose(nickExists -> {
                                         if (Boolean.TRUE.equals(nickExists)) {
                                             return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
                                         }
-                                        java.util.Map<String, Object> updates = new java.util.HashMap<>();
-                                        updates.put("nickname", nickname);
-                                        updates.put("name", dto.getName());
-                                        updates.put("country_code", country);
-                                        if (g != null && !g.isEmpty()) {
-                                            updates.put("gender", g.toUpperCase());
-                                        }
-                                        String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
-                                        return userRepository.updateMeProfile(pool, existing.getId(), updates)
-                                            .compose(v -> userRepository.updateLoginPassword(pool, existing.getId(), passwordHash))
-                                            .map(v -> existing);
+                                        CreateUserDto create = CreateUserDto.builder()
+                                            .loginId(email)
+                                            .password(dto.getPassword())
+                                            .nickname(nickname)
+                                            .name(dto.getName())
+                                            .countryCode(country)
+                                            .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
+                                            .build();
+                                        return userService.createUser(create)
+                                            .compose(user -> {
+                                                if (!isSocialFlow || payload == null) {
+                                                    return Future.succeededFuture(user);
+                                                }
+                                                String provider = payload.getString("provider");
+                                                String providerUserId = payload.getString("providerUserId");
+                                                String socialEmail = payload.getString("email");
+                                                if (provider == null || providerUserId == null || socialEmail == null) {
+                                                    return Future.failedFuture(new BadRequestException("소셜 가입 정보가 유효하지 않습니다."));
+                                                }
+                                                return socialLinkRepository.createSocialLink(pool, user.getId(), provider, providerUserId, socialEmail)
+                                                    .compose(linked -> {
+                                                        if (!linked) {
+                                                            return Future.failedFuture(new BadRequestException("소셜 계정 연동에 실패했습니다."));
+                                                        }
+                                                        return Future.succeededFuture(user);
+                                                    });
+                                            });
                                     });
                             });
-                    }
-                    return userRepository.existsByNickname(pool, nickname)
-                        .compose(nickExists -> {
-                            if (Boolean.TRUE.equals(nickExists)) {
-                                return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
-                            }
-                            CreateUserDto create = CreateUserDto.builder()
-                                .loginId(email)
-                                .password(dto.getPassword())
-                                .nickname(nickname)
-                                .name(dto.getName())
-                                .countryCode(country)
-                                .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
-                                .build();
-                            return userService.createUser(create);
-                        });
-                }))
-            .compose(user -> {
-                // 소셜 로그인 플로우가 아니면 code 사용 처리
-                if (!isSocialFlow) {
-                    return signupEmailCodeRepository.markUsed(pool, email)
-                        .map(v -> user);
-                }
-                return Future.succeededFuture(user);
-            })
-            .compose(user -> {
-                String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                LoginResponseDto loginDto = LoginResponseDto.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken)
-                    .userId(user.getId())
-                    .loginId(user.getLoginId())
-                    .isTest(user.getIsTest())
-                    .build();
-                String refCode = dto.getReferralCode();
-                if (refCode != null && !refCode.isBlank()) {
-                    return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
-                        .compose(referrer -> {
-                            if (referrer != null && !referrer.getId().equals(user.getId())) {
-                                return referralRepository.existsReferralRelation(pool, user.getId())
-                                    .compose(exists -> {
-                                        if (!Boolean.TRUE.equals(exists)) {
-                                            return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                .map(r -> loginDto)
-                                                .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
-                                        }
-                                        return Future.succeededFuture(loginDto);
-                                    });
-                            }
-                            return Future.succeededFuture(loginDto);
-                        })
-                        .otherwise(loginDto);
-                }
-                return Future.succeededFuture(loginDto);
+                    })
+                    .compose(user -> clearSocialSignupPayload(signupToken, isSocialFlow).map(v -> user))
+                    .compose(user -> {
+                        // 소셜 로그인 플로우가 아니면 code 사용 처리
+                        if (!isSocialFlow) {
+                            return signupEmailCodeRepository.markUsed(pool, email)
+                                .map(v -> user);
+                        }
+                        return Future.succeededFuture(user);
+                    })
+                    .compose(user -> {
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
+                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                        LoginResponseDto loginDto = LoginResponseDto.builder()
+                            .accessToken(accessToken)
+                            .refreshToken(refreshToken)
+                            .userId(user.getId())
+                            .loginId(user.getLoginId())
+                            .isTest(user.getIsTest())
+                            .build();
+                        String refCode = dto.getReferralCode();
+                        if (refCode != null && !refCode.isBlank()) {
+                            return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
+                                .compose(referrer -> {
+                                    if (referrer != null && !referrer.getId().equals(user.getId())) {
+                                        return referralRepository.existsReferralRelation(pool, user.getId())
+                                            .compose(exists -> {
+                                                if (!Boolean.TRUE.equals(exists)) {
+                                                    return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
+                                                        .map(r -> loginDto)
+                                                        .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                                }
+                                                return Future.succeededFuture(loginDto);
+                                            });
+                                    }
+                                    return Future.succeededFuture(loginDto);
+                                })
+                                .otherwise(loginDto);
+                        }
+                        return Future.succeededFuture(loginDto);
+                    });
             });
     }
     
@@ -644,6 +709,8 @@ public class AuthService extends BaseService {
     }
 
     private static final long REFRESH_TOKEN_EXPIRE_SECONDS = 864000L; // 10일
+    private static final long SOCIAL_SIGNUP_TTL_SECONDS = 600L; // 10분
+    private static final String SOCIAL_SIGNUP_PREFIX = "social_signup:";
 
     /**
      * refreshToken으로 accessToken(및 refreshToken 로테이션) 재발급.
@@ -694,6 +761,45 @@ public class AuthService extends BaseService {
                 log.error("Failed to add token to blacklist", e);
                 return Future.succeededFuture();
             });
+    }
+
+    private Future<String> createSocialSignupToken(String provider, String providerUserId, String email) {
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("소셜 가입 기능을 사용할 수 없습니다."));
+        }
+        String token = UUID.randomUUID().toString().replace("-", "");
+        JsonObject payload = new JsonObject()
+            .put("provider", provider)
+            .put("providerUserId", providerUserId)
+            .put("email", email);
+        return redisApi.setex(SOCIAL_SIGNUP_PREFIX + token, String.valueOf(SOCIAL_SIGNUP_TTL_SECONDS), payload.encode())
+            .map(r -> token);
+    }
+
+    private Future<JsonObject> loadSocialSignupPayload(String token, boolean isSocialFlow) {
+        if (!isSocialFlow) {
+            return Future.succeededFuture(null);
+        }
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("소셜 가입 기능을 사용할 수 없습니다."));
+        }
+        String key = SOCIAL_SIGNUP_PREFIX + token;
+        return redisApi.get(key)
+            .compose(res -> {
+                if (res == null || res.toString() == null || res.toString().isBlank()) {
+                    return Future.failedFuture(new BadRequestException("소셜 가입 정보가 만료되었습니다."));
+                }
+                return Future.succeededFuture(new JsonObject(res.toString()));
+            });
+    }
+
+    private Future<Void> clearSocialSignupPayload(String token, boolean isSocialFlow) {
+        if (!isSocialFlow || redisApi == null || token == null || token.isBlank()) {
+            return Future.succeededFuture();
+        }
+        return redisApi.del(java.util.List.of(SOCIAL_SIGNUP_PREFIX + token))
+            .mapEmpty()
+            .recover(e -> Future.succeededFuture());
     }
     
     /**
@@ -899,8 +1005,11 @@ public class AuthService extends BaseService {
                 String picture = userInfo.getString("picture");
                 
                 // 2. 기존 계정 확인 (이메일로)
-                return userRepository.getUserByLoginId(pool, email)
+                return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
                     .compose(existingUser -> {
+                        if (existingUser != null && existingUser.getDeletedAt() != null) {
+                            return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
+                        }
                         if (existingUser != null) {
                             // 기존 사용자: 소셜 링크 연동 및 로그인
                             log.info("Existing user found: {}", email);
@@ -928,32 +1037,12 @@ public class AuthService extends BaseService {
                         } else {
                             // 신규 사용자: 계정 생성
                             log.info("New user registration via Google: {}", email);
-                            CreateUserDto createUserDto = CreateUserDto.builder()
-                                .loginId(email)
-                                .password(UUID.randomUUID().toString()) // 임시 비밀번호 (소셜 로그인은 비밀번호 불필요)
-                                .build();
-                            
-                            return userService.createUser(createUserDto)
-                                .compose(newUser -> {
-                                    // 소셜 링크 연동
-                                    return socialLinkRepository.createSocialLink(pool, newUser.getId(), "GOOGLE", googleId, email)
-                                        .compose(linked -> {
-                                            // JWT 토큰 생성
-                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, newUser.getId(), UserRole.USER);
-                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, newUser.getId(), UserRole.USER);
-                                            
-                                            return Future.succeededFuture(
-                                                GoogleLoginResponseDto.builder()
-                                                    .accessToken(jwtAccessToken)
-                                                    .refreshToken(jwtRefreshToken)
-                                                    .userId(newUser.getId())
-                                                    .loginId(newUser.getLoginId())
-                                                    .isNewUser(true)
-                                                    .isTest(newUser.getIsTest())
-                                                    .build()
-                                            );
-                                        });
-                                });
+                            return createSocialSignupToken("GOOGLE", googleId, email)
+                                .map(signupToken -> GoogleLoginResponseDto.builder()
+                                    .loginId(email)
+                                    .isNewUser(true)
+                                    .signupToken(signupToken)
+                                    .build());
                         }
                     });
             })

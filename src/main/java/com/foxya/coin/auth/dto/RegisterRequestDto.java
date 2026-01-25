@@ -16,6 +16,7 @@ public class RegisterRequestDto {
     private String code;
     private String password;
     private Boolean seedConfirmed;
+    private String signupToken;
     private String referralCode;
     private String nickname;
     private String name;

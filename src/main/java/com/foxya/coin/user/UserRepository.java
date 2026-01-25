@@ -53,6 +53,17 @@ public class UserRepository extends BaseRepository {
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 조회 실패 - loginId: {}", loginId));
     }
+
+    public Future<User> getUserByLoginIdIncludingDeleted(SqlClient client, String loginId) {
+        String sql = QueryBuilder
+            .select("users")
+            .where("login_id", Op.Equal, "login_id")
+            .build();
+
+        return query(client, sql, Collections.singletonMap("login_id", loginId))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 조회 실패(삭제 포함) - loginId: {}", loginId));
+    }
     
     public Future<User> getUserById(SqlClient client, Long id) {
         String sql = QueryBuilder
