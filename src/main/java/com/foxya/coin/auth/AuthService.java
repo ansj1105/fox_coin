@@ -798,8 +798,8 @@ public class AuthService extends BaseService {
             return Future.succeededFuture();
         }
         return redisApi.del(java.util.List.of(SOCIAL_SIGNUP_PREFIX + token))
-            .mapEmpty()
-            .recover(e -> Future.succeededFuture((Void) null));
+            .recover(e -> Future.succeededFuture())
+            .mapEmpty();
     }
     
     /**
