@@ -123,6 +123,9 @@ components:
       type: object
       required:
         - code
+        - deviceId
+        - deviceType
+        - deviceOs
       properties:
         code:
           type: string
@@ -135,6 +138,16 @@ components:
           type: string
           description: 클라이언트 플랫폼 (WEB 또는 ANDROID)
           example: ANDROID
+        deviceId:
+          type: string
+        deviceType:
+          type: string
+          enum: [WEB, MOBILE]
+        deviceOs:
+          type: string
+          enum: [WEB, IOS, ANDROID]
+        appVersion:
+          type: string
 
     GoogleLoginResponseData:
       type: object
@@ -1657,7 +1670,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, code, password, seedConfirmed, nickname, name, country]
+              required: [email, code, password, seedConfirmed, nickname, name, country, deviceId, deviceType, deviceOs]
               properties:
                 email:
                   type: string
@@ -1702,6 +1715,18 @@ paths:
                 gender:
                   type: string
                   description: M / F / O 또는 빈 문자열(미선택)
+                deviceId:
+                  type: string
+                  description: 디바이스 고유 ID
+                deviceType:
+                  type: string
+                  enum: [WEB, MOBILE]
+                deviceOs:
+                  type: string
+                  enum: [WEB, IOS, ANDROID]
+                appVersion:
+                  type: string
+                  description: 앱 버전
       responses:
         '200':
           description: 회원가입 성공
@@ -1749,7 +1774,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [loginId, password]
+              required: [loginId, password, deviceId, deviceType, deviceOs]
               properties:
                 loginId:
                   type: string
@@ -1759,6 +1784,16 @@ paths:
                   type: string
                   description: 8자 이상. 소셜 전용은 "" 허용
                   example: password123!
+                deviceId:
+                  type: string
+                deviceType:
+                  type: string
+                  enum: [WEB, MOBILE]
+                deviceOs:
+                  type: string
+                  enum: [WEB, IOS, ANDROID]
+                appVersion:
+                  type: string
       responses:
         '200':
           description: 로그인 성공
@@ -1798,7 +1833,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [address, chain, signature]
+              required: [address, chain, signature, deviceId, deviceType, deviceOs]
               properties:
                 address:
                   type: string
@@ -1809,6 +1844,16 @@ paths:
                 signature:
                   type: string
                   example: "0xabc..."
+                deviceId:
+                  type: string
+                deviceType:
+                  type: string
+                  enum: [WEB, MOBILE]
+                deviceOs:
+                  type: string
+                  enum: [WEB, IOS, ANDROID]
+                appVersion:
+                  type: string
       responses:
         '200':
           description: 로그인 성공

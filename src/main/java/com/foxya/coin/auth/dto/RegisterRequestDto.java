@@ -23,4 +23,10 @@ public class RegisterRequestDto {
     private String country;
     private String countryCode;
     private String gender;
+    private String deviceId;
+    private String deviceType;
+    private String deviceOs;
+    private String appVersion;
+    private String clientIp;
+    private String userAgent;
 }

@@ -24,6 +24,7 @@ import com.foxya.coin.auth.dto.ApiKeyDto;
 import com.foxya.coin.auth.dto.RecoveryChallengeRequestDto;
 import com.foxya.coin.auth.dto.RecoveryResetRequestDto;
 import com.foxya.coin.auth.dto.LoginWithSeedRequestDto;
+import com.foxya.coin.auth.dto.LogoutRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -109,6 +110,10 @@ public class AuthHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", stringSchema().with(minLength(0), maxLength(256)))
+                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -217,6 +222,10 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("country", stringSchema().with(minLength(2), maxLength(3)))
                     .optionalProperty("country_code", stringSchema().with(minLength(2), maxLength(3)))
                     .optionalProperty("gender", stringSchema().with(maxLength(1)))
+                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -300,6 +309,10 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("code", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
+                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -315,6 +328,10 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("address", stringSchema().with(minLength(1)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
+                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -353,7 +370,9 @@ public class AuthHandler extends BaseHandler {
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             LoginDto.class
         );
-        
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
         log.info("Login attempt for user: {}", dto.getLoginId());
         authService.login(dto)
             .onSuccess(data -> {
@@ -489,9 +508,20 @@ public class AuthHandler extends BaseHandler {
         
         // 모든 디바이스 로그아웃 여부 확인 (쿼리 파라미터)
         boolean allDevices = Boolean.parseBoolean(ctx.request().getParam("allDevices", "false"));
-        
+
+        LogoutRequestDto dto = null;
+        if (ctx.getBodyAsJson() != null) {
+            dto = getObjectMapper().convertValue(
+                Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+                LogoutRequestDto.class
+            );
+        }
+
+        String deviceId = dto != null ? dto.getDeviceId() : null;
+        String deviceType = dto != null ? dto.getDeviceType() : null;
+
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
-        response(ctx, authService.logout(userId, token, allDevices), data -> {
+        response(ctx, authService.logout(userId, token, allDevices, deviceId, deviceType), data -> {
             clearRefreshTokenCookie(ctx);
             return data;
         });
@@ -533,7 +563,9 @@ public class AuthHandler extends BaseHandler {
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             com.foxya.coin.auth.dto.GoogleLoginRequestDto.class
         );
-        
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
         log.info("Google login attempt");
         authService.googleLogin(dto)
             .onSuccess(data -> {
@@ -551,8 +583,10 @@ public class AuthHandler extends BaseHandler {
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             LoginWithSeedRequestDto.class
         );
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
         log.info("Login with seed attempt");
-        authService.loginWithSeed(dto.getAddress(), dto.getChain(), dto.getSignature())
+        authService.loginWithSeed(dto)
             .onSuccess(data -> {
                 setRefreshTokenCookie(ctx, data.getRefreshToken());
                 success(ctx, data);
@@ -630,6 +664,21 @@ public class AuthHandler extends BaseHandler {
         }
         String proto = ctx.request().getHeader("X-Forwarded-Proto");
         return proto != null && "https".equalsIgnoreCase(proto);
+    }
+
+    private String extractClientIp(RoutingContext ctx) {
+        String forwarded = ctx.request().getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = ctx.request().getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        if (ctx.request().remoteAddress() != null) {
+            return ctx.request().remoteAddress().host();
+        }
+        return null;
     }
     
     /**

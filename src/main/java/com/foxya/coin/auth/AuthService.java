@@ -19,6 +19,8 @@ import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
 import com.foxya.coin.user.UserRepository;
+import com.foxya.coin.device.DeviceRepository;
+import com.foxya.coin.device.entities.Device;
 import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.auth.dto.LoginDto;
@@ -61,6 +63,7 @@ import org.mindrot.jbcrypt.BCrypt;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Slf4j
 public class AuthService extends BaseService {
@@ -90,6 +93,7 @@ public class AuthService extends BaseService {
     private final EmailVerificationRepository emailVerificationRepository;
     private final SignupEmailCodeRepository signupEmailCodeRepository;
     private final ReferralRepository referralRepository;
+    private final DeviceRepository deviceRepository;
     private final EmailService emailService;
     private final WebClient webClient;
     private final JsonObject googleConfig;
@@ -109,7 +113,7 @@ public class AuthService extends BaseService {
                       ExchangeRepository exchangeRepository, PaymentDepositRepository paymentDepositRepository,
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
-                      SignupEmailCodeRepository signupEmailCodeRepository,
+                      SignupEmailCodeRepository signupEmailCodeRepository, DeviceRepository deviceRepository,
                       ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig) {
         super(pool);
         this.userRepository = userRepository;
@@ -136,6 +140,7 @@ public class AuthService extends BaseService {
         this.inquiryRepository = inquiryRepository;
         this.emailVerificationRepository = emailVerificationRepository;
         this.signupEmailCodeRepository = signupEmailCodeRepository;
+        this.deviceRepository = deviceRepository;
         this.referralRepository = referralRepository;
         this.emailService = emailService;
         this.webClient = webClient;
@@ -172,37 +177,69 @@ public class AuthService extends BaseService {
                     }
                 }
                 
-                // Access Token & Refresh Token 생성
-                String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                
-                return Future.succeededFuture(
-                    LoginResponseDto.builder()
-                        .accessToken(accessToken)
-                        .refreshToken(refreshToken)
-                        .userId(user.getId())
-                        .loginId(user.getLoginId())
-                        .isTest(user.getIsTest())
-                        .build()
-                );
+                return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                    .compose(ignored -> {
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
+                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                        return Future.succeededFuture(
+                            LoginResponseDto.builder()
+                                .accessToken(accessToken)
+                                .refreshToken(refreshToken)
+                                .userId(user.getId())
+                                .loginId(user.getLoginId())
+                                .isTest(user.getIsTest())
+                                .build()
+                        );
+                    });
+            });
+    }
+
+    private Future<Void> registerOrUpdateDevice(Long userId, String deviceId, String deviceType, String deviceOs, String appVersion, String clientIp, String userAgent) {
+        if (deviceId == null || deviceId.isBlank() || deviceType == null || deviceType.isBlank() || deviceOs == null || deviceOs.isBlank()) {
+            return Future.failedFuture(new BadRequestException("디바이스 정보가 필요합니다."));
+        }
+        String normalizedType = deviceType.toUpperCase();
+        String normalizedOs = deviceOs.toUpperCase();
+        LocalDateTime now = LocalDateTime.now();
+        return deviceRepository.getActiveDeviceByUserAndType(pool, userId, normalizedType)
+            .compose(existing -> {
+                if (existing == null) {
+                    Device device = Device.builder()
+                        .userId(userId)
+                        .deviceId(deviceId)
+                        .deviceType(normalizedType)
+                        .deviceOs(normalizedOs)
+                        .appVersion(appVersion)
+                        .userAgent(userAgent)
+                        .lastIp(clientIp)
+                        .lastLoginAt(now)
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build();
+                    return deviceRepository.createDevice(pool, device).mapEmpty();
+                }
+                if (!deviceId.equals(existing.getDeviceId())) {
+                    return Future.failedFuture(new ConflictException("해당 기기 유형으로 이미 로그인 중입니다."));
+                }
+                return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
             });
     }
 
     /**
      * 시드 구문 로그인 (챌린지 서명 기반)
      */
-    public Future<LoginResponseDto> loginWithSeed(String address, String chain, String signature) {
-        if (address == null || address.isBlank()) {
+    public Future<LoginResponseDto> loginWithSeed(com.foxya.coin.auth.dto.LoginWithSeedRequestDto dto) {
+        if (dto == null || dto.getAddress() == null || dto.getAddress().isBlank()) {
             return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
         }
-        if (signature == null || signature.isBlank()) {
+        if (dto.getSignature() == null || dto.getSignature().isBlank()) {
             return Future.failedFuture(new BadRequestException("서명 값이 필요합니다."));
         }
-        String normalizedChain = normalizeRecoveryChain(chain);
+        String normalizedChain = normalizeRecoveryChain(dto.getChain());
         if (normalizedChain == null) {
             return Future.failedFuture(new BadRequestException("지원하지 않는 네트워크입니다."));
         }
-        String normalizedAddress = normalizeAddress(normalizedChain, address);
+        String normalizedAddress = normalizeAddress(normalizedChain, dto.getAddress());
         if (redisApi == null) {
             return Future.failedFuture(new BadRequestException("복구 기능을 사용할 수 없습니다."));
         }
@@ -214,7 +251,7 @@ public class AuthService extends BaseService {
                 }
                 String nonce = res.toString();
                 String message = buildRecoveryMessage(normalizedChain, normalizedAddress, nonce);
-                boolean verified = verifyRecoverySignature(normalizedChain, message, signature, normalizedAddress);
+                boolean verified = verifyRecoverySignature(normalizedChain, message, dto.getSignature(), normalizedAddress);
                 if (!verified) {
                     return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
                 }
@@ -228,22 +265,25 @@ public class AuthService extends BaseService {
                                 if (user == null) {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                                 }
-                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                                String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                                return redisApi.del(java.util.List.of(key))
-                                    .recover(e -> Future.succeededFuture())
-                                    .map(v -> LoginResponseDto.builder()
-                                        .accessToken(accessToken)
-                                        .refreshToken(refreshToken)
-                                        .userId(user.getId())
-                                        .loginId(user.getLoginId())
-                                        .isTest(user.getIsTest())
-                                        .build());
+                                return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                                    .compose(ignored -> {
+                                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
+                                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                                        return redisApi.del(java.util.List.of(key))
+                                            .recover(e -> Future.succeededFuture())
+                                            .map(v -> LoginResponseDto.builder()
+                                                .accessToken(accessToken)
+                                                .refreshToken(refreshToken)
+                                                .userId(user.getId())
+                                                .loginId(user.getLoginId())
+                                                .isTest(user.getIsTest())
+                                                .build());
+                                    });
                             });
                     });
             });
     }
-    
+
     /**
      * 아이디 찾기 (가입 이메일로 로그인 아이디 조회)
      * loginId의 3·4번째 자리 2글자를 *로 마스킹하여 반환.
@@ -621,6 +661,8 @@ public class AuthService extends BaseService {
                         }
                         return Future.succeededFuture(user);
                     })
+                    .compose(user -> registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                        .map(ignored -> user))
                     .compose(user -> {
                         String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
                         String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
@@ -825,19 +867,28 @@ public class AuthService extends BaseService {
      * @param allDevices 모든 디바이스 로그아웃 여부
      * @return 로그아웃 응답
      */
-    public Future<LogoutResponseDto> logout(Long userId, String token, boolean allDevices) {
+    public Future<LogoutResponseDto> logout(Long userId, String token, boolean allDevices, String deviceId, String deviceType) {
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
         
+        Future<Void> deviceCleanup;
+        if (allDevices) {
+            deviceCleanup = deviceRepository.softDeleteDevicesByUserId(pool, userId);
+        } else if (deviceId != null && !deviceId.isBlank()) {
+            deviceCleanup = deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, deviceId);
+        } else if (deviceType != null && !deviceType.isBlank()) {
+            deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, deviceType.toUpperCase());
+        } else {
+            deviceCleanup = Future.succeededFuture();
+        }
+
         if (redisApi == null) {
             log.warn("Redis API is not available, skipping token blacklist");
-            return Future.succeededFuture(
-                LogoutResponseDto.builder()
-                    .status("OK")
-                    .message("Logged out successfully")
-                    .build()
-            );
+            return deviceCleanup.map(v -> LogoutResponseDto.builder()
+                .status("OK")
+                .message("Logged out successfully")
+                .build());
         }
-        
+
         // 현재 토큰을 블랙리스트에 추가
         if (token != null && !token.isEmpty()) {
             return addTokenToBlacklist(token)
@@ -845,10 +896,10 @@ public class AuthService extends BaseService {
                     if (allDevices) {
                         // 모든 디바이스 로그아웃: 사용자의 모든 토큰을 블랙리스트에 추가
                         return logoutAllDevices(userId);
-                    } else {
-                        return Future.succeededFuture();
                     }
+                    return Future.succeededFuture();
                 })
+                .compose(v -> deviceCleanup)
                 .map(v -> LogoutResponseDto.builder()
                     .status("OK")
                     .message("Logged out successfully")
@@ -857,18 +908,17 @@ public class AuthService extends BaseService {
             // 토큰이 없으면 사용자 정보만 로그
             if (allDevices) {
                 return logoutAllDevices(userId)
+                    .compose(v -> deviceCleanup)
                     .map(v -> LogoutResponseDto.builder()
                         .status("OK")
                         .message("Logged out from all devices")
                         .build());
-            } else {
-                return Future.succeededFuture(
-                    LogoutResponseDto.builder()
-                        .status("OK")
-                        .message("Logged out successfully")
-                        .build()
-                );
             }
+            return deviceCleanup
+                .map(v -> LogoutResponseDto.builder()
+                    .status("OK")
+                    .message("Logged out successfully")
+                    .build());
         }
     }
     
@@ -1019,20 +1069,21 @@ public class AuthService extends BaseService {
                                         log.warn("Failed to link Google account, but continuing login");
                                     }
                                     
-                                    // JWT 토큰 생성
-                                    String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                    String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                    
-                                    return Future.succeededFuture(
-                                        GoogleLoginResponseDto.builder()
-                                            .accessToken(jwtAccessToken)
-                                            .refreshToken(jwtRefreshToken)
-                                            .userId(existingUser.getId())
-                                            .loginId(existingUser.getLoginId())
-                                            .isNewUser(false)
-                                            .isTest(existingUser.getIsTest())
-                                            .build()
-                                    );
+                                    return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                                        .compose(ignored -> {
+                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            return Future.succeededFuture(
+                                                GoogleLoginResponseDto.builder()
+                                                    .accessToken(jwtAccessToken)
+                                                    .refreshToken(jwtRefreshToken)
+                                                    .userId(existingUser.getId())
+                                                    .loginId(existingUser.getLoginId())
+                                                    .isNewUser(false)
+                                                    .isTest(existingUser.getIsTest())
+                                                    .build()
+                                            );
+                                        });
                                 });
                         } else {
                             // 신규 사용자: 계정 생성
@@ -1135,7 +1186,9 @@ public class AuthService extends BaseService {
                         .compose(v -> inquiryRepository.softDeleteInquiriesByUserId(client, userId))
                         // 2-21. 레퍼럴 관계 Soft Delete (referrer_id 또는 referred_id가 userId인 경우)
                         .compose(v -> referralRepository.softDeleteReferralRelationsByUserId(client, userId))
-                        // 2-22. 사용자 Soft Delete (마지막)
+                        // 2-22. 디바이스 Soft Delete
+                        .compose(v -> deviceRepository.softDeleteDevicesByUserId(client, userId))
+                        // 2-23. 사용자 Soft Delete (마지막)
                         .compose(v -> userRepository.softDeleteUser(client, userId));
                 }))
                 .map(deletedUser -> {

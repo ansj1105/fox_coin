@@ -30,6 +30,7 @@ import com.foxya.coin.user.UserHandler;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.UserExternalIdRepository;
+import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -153,6 +154,7 @@ public class ApiVerticle extends AbstractVerticle {
         PhoneVerificationRepository phoneVerificationRepository = new PhoneVerificationRepository();
         EmailVerificationRepository emailVerificationRepository = new EmailVerificationRepository();
         SignupEmailCodeRepository signupEmailCodeRepository = new SignupEmailCodeRepository();
+        DeviceRepository deviceRepository = new DeviceRepository();
         SubscriptionRepository subscriptionRepository = new SubscriptionRepository();
         ReviewRepository reviewRepository = new ReviewRepository();
         AgencyRepository agencyRepository = new AgencyRepository();
@@ -232,7 +234,7 @@ public class ApiVerticle extends AbstractVerticle {
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            signupEmailCodeRepository, referralRepository, emailService, webClient, googleConfig);
+            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig);
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
         MissionService missionService = new MissionService(

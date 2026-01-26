@@ -9,14 +9,9 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class LoginWithSeedRequestDto {
-    private String address;
-    private String chain;
-    private String signature;
+public class LogoutRequestDto {
     private String deviceId;
     private String deviceType;
     private String deviceOs;
     private String appVersion;
-    private String clientIp;
-    private String userAgent;
 }

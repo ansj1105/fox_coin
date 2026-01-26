@@ -139,7 +139,8 @@ public class AuthHandlerTest extends HandlerTestBase {
                                 .put("seedConfirmed", true)
                                 .put("nickname", "nickreg1")
                                 .put("name", "DisplayOne")
-                                .put("country", "KR");
+                                .put("country", "KR")
+                                .mergeIn(deviceInfo("register-device-web-1", "WEB", "WEB"));
                             reqPost(getUrl("/register"))
                                 .sendJson(reg, tc.succeeding(regRes -> tc.verify(() -> {
                                     LoginResponseDto dto = expectSuccessAndGetResponse(regRes, refLoginResponse);
@@ -161,9 +162,11 @@ public class AuthHandlerTest extends HandlerTestBase {
                 .put("email", "no-code@test.com")
                 .put("code", "999999")
                 .put("password", "Test1234!@")
+                .put("seedConfirmed", true)
                 .put("nickname", "nickfail")
                 .put("name", "DN")
-                .put("country", "KR");
+                .put("country", "KR")
+                .mergeIn(deviceInfo("register-device-web-2", "WEB", "WEB"));
             reqPost(getUrl("/register"))
                 .sendJson(reg, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 400);
@@ -179,9 +182,11 @@ public class AuthHandlerTest extends HandlerTestBase {
                 .put("email", "pwfail@test.com")
                 .put("code", "000000")
                 .put("password", "short")
+                .put("seedConfirmed", true)
                 .put("nickname", "nicknam1")
                 .put("name", "D")
-                .put("country", "KR");
+                .put("country", "KR")
+                .mergeIn(deviceInfo("register-device-web-3", "WEB", "WEB"));
             reqPost(getUrl("/register"))
                 .sendJson(reg, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 400);
@@ -200,7 +205,8 @@ public class AuthHandlerTest extends HandlerTestBase {
         void success(VertxTestContext tc) {
             JsonObject data = new JsonObject()
                 .put("loginId", "testuser")
-                .put("password", "Test1234!@");
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("test-device-web-1", "WEB", "WEB"));
             
             reqPost(getUrl("/login"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
@@ -221,12 +227,45 @@ public class AuthHandlerTest extends HandlerTestBase {
         void failWrongPassword(VertxTestContext tc) {
             JsonObject data = new JsonObject()
                 .put("loginId", "testuser")
-                .put("password", "WrongPassword123!");
+                .put("password", "WrongPassword123!")
+                .mergeIn(deviceInfo("test-device-web-2", "WEB", "WEB"));
             
             reqPost(getUrl("/login"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(26)
+        @DisplayName("실패 - 동일 타입 다른 디바이스 로그인 제한")
+        void failDuplicateDeviceType(VertxTestContext tc) {
+            JsonObject first = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("limit-device-web-1", "WEB", "WEB"));
+            JsonObject second = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("limit-device-web-2", "WEB", "WEB"));
+            JsonObject mobile = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("limit-device-mobile-1", "MOBILE", "ANDROID"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(first, tc.succeeding(firstRes -> tc.verify(() -> {
+                    expectSuccessAndGetResponse(firstRes, refLoginResponse);
+                    reqPost(getUrl("/login"))
+                        .sendJson(second, tc.succeeding(secondRes -> tc.verify(() -> {
+                            expectError(secondRes, 409);
+                            reqPost(getUrl("/login"))
+                                .sendJson(mobile, tc.succeeding(mobileRes -> tc.verify(() -> {
+                                    expectSuccessAndGetResponse(mobileRes, refLoginResponse);
+                                    tc.completeNow();
+                                })));
+                        })));
                 })));
         }
     }
@@ -281,7 +320,8 @@ public class AuthHandlerTest extends HandlerTestBase {
                             JsonObject loginRequest = new JsonObject()
                                 .put("address", address)
                                 .put("chain", "ETH")
-                                .put("signature", signature);
+                                .put("signature", signature)
+                                .mergeIn(deviceInfo("seed-device-mobile-1", "MOBILE", "ANDROID"));
 
                             reqPost(getUrl("/login-with-seed"))
                                 .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
@@ -305,6 +345,14 @@ public class AuthHandlerTest extends HandlerTestBase {
         System.arraycopy(signatureData.getS(), 0, signature, 32, 32);
         signature[64] = signatureData.getV()[0];
         return Numeric.toHexString(signature);
+    }
+
+    private static JsonObject deviceInfo(String deviceId, String deviceType, String deviceOs) {
+        return new JsonObject()
+            .put("deviceId", deviceId)
+            .put("deviceType", deviceType)
+            .put("deviceOs", deviceOs)
+            .put("appVersion", "1.0.0");
     }
 
     @Nested
@@ -384,7 +432,10 @@ public class AuthHandlerTest extends HandlerTestBase {
         @DisplayName("성공 - refreshToken으로 accessToken·refreshToken 재발급")
         void success(VertxTestContext tc) {
             // 1) 로그인으로 refreshToken 획득
-            JsonObject login = new JsonObject().put("loginId", "testuser").put("password", "Test1234!@");
+            JsonObject login = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("refresh-device-web-1", "WEB", "WEB"));
             reqPost(getUrl("/login"))
                 .sendJson(login, tc.succeeding(loginRes -> tc.verify(() -> {
                     LoginResponseDto loginDto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
@@ -690,7 +741,8 @@ public class AuthHandlerTest extends HandlerTestBase {
                     // 삭제된 사용자로 로그인 시도
                     JsonObject loginData = new JsonObject()
                         .put("loginId", "testuser")
-                        .put("password", "Test1234!@");
+                        .put("password", "Test1234!@")
+                        .mergeIn(deviceInfo("deleted-device-web-1", "WEB", "WEB"));
                     
                     reqPost(getUrl("/login"))
                         .sendJson(loginData, tc.succeeding(loginRes -> tc.verify(() -> {

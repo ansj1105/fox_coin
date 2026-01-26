@@ -384,7 +384,10 @@ public class UserService extends BaseService {
         return emailVerificationRepository.getLatestByUserId(pool, userId)
             .compose(ev -> {
                 if (ev == null || ev.verificationCode == null) {
-                    return Future.failedFuture(new BadRequestException("이메일 인증 정보가 없습니다."));
+                    return Future.failedFuture(new BadRequestException("이메일 인증이 필요합니다."));
+                }
+                if (ev.email == null || ev.email.isBlank()) {
+                    return Future.failedFuture(new BadRequestException("이메일 인증이 필요합니다."));
                 }
                 if (!ev.verificationCode.equals(code) || ev.expiresAt == null || ev.expiresAt.isBefore(java.time.LocalDateTime.now())) {
                     return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));

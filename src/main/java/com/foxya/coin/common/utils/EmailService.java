@@ -123,11 +123,11 @@ public class EmailService {
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>KORION network 이메일 인증</h1>
+                        <h1>KORION WALLET 이메일 인증</h1>
                     </div>
                     <div class="content">
                         <p>안녕하세요,</p>
-                        <p>KORION network 서비스 이메일 인증을 위한 인증 코드입니다.</p>
+                        <p>KORION WALLET 서비스 이메일 인증을 위한 인증 코드입니다.</p>
                         <div class="code-box">
                             <div class="code">%s</div>
                         </div>
@@ -136,7 +136,7 @@ public class EmailService {
                         <p>본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.</p>
                     </div>
                     <div class="footer">
-                        <p>© 2026 KORION Network. All rights reserved.</p>
+                        <p>© 2026 KORION. All rights reserved.</p>
                     </div>
                 </div>
             </body>
@@ -211,7 +211,7 @@ public class EmailService {
             <div class="code-box"><div class="code">%s</div></div>
             <p>보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.</p>
             </div>
-            <div class="footer"><p>© 2026 KORION Network. All rights reserved.</p></div>
+            <div class="footer"><p>© 2026 KORION. All rights reserved.</p></div>
             </div></body></html>
             """.formatted(tempPassword);
     }
