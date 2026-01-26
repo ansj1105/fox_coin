@@ -24,6 +24,7 @@ public class UserRepository extends BaseRepository {
         .status(getStringColumnValue(row, "status"))
         .level(getIntegerColumnValue(row, "level"))
         .exp(getBigDecimalColumnValue(row, "exp"))
+        .transactionPasswordHash(getStringColumnValue(row, "transaction_password_hash"))
         .countryCode(getStringColumnValue(row, "country_code"))
         .nickname(getStringColumnValue(row, "nickname"))
         .name(getStringColumnValue(row, "name"))

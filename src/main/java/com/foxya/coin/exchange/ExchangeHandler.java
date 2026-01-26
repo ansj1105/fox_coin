@@ -50,6 +50,11 @@ public class ExchangeHandler extends BaseHandler {
         router.get("/info")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getExchangeInfo);
+
+        // 환전 예상 수량 조회
+        router.get("/quote")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getExchangeQuote);
         
         // 환전 상세 조회
         router.get("/:exchangeId")
@@ -67,6 +72,7 @@ public class ExchangeHandler extends BaseHandler {
             .body(json(
                 objectSchema()
                     .requiredProperty("fromAmount", numberSchema())
+                    .requiredProperty("transactionPassword", stringSchema().with(minLength(6), maxLength(6)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -101,6 +107,23 @@ public class ExchangeHandler extends BaseHandler {
         
         response(ctx, exchangeService.getExchangeInfo(currencyCode));
     }
+
+    /**
+     * 환전 예상 수량 조회
+     */
+    private void getExchangeQuote(RoutingContext ctx) {
+        String fromAmountParam = ctx.queryParams().get("fromAmount");
+        if (fromAmountParam == null || fromAmountParam.isBlank()) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("fromAmount가 필요합니다."));
+            return;
+        }
+        try {
+            java.math.BigDecimal fromAmount = new java.math.BigDecimal(fromAmountParam);
+            response(ctx, exchangeService.getExchangeQuote(fromAmount));
+        } catch (NumberFormatException e) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("fromAmount 형식이 올바르지 않습니다."));
+        }
+    }
     
     /**
      * 환전 상세 조회
@@ -114,4 +137,3 @@ public class ExchangeHandler extends BaseHandler {
         response(ctx, exchangeService.getExchange(userId, exchangeId));
     }
 }
-

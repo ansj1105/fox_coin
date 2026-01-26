@@ -32,10 +32,10 @@ public class SwapService extends BaseService {
     private final CurrencyService currencyService;
     private final TransferRepository transferRepository;
     
-    // 스왑 수수료 (0.0%)
-    private static final BigDecimal SWAP_FEE_RATE = BigDecimal.ZERO;
-    // 스프레드 (0.0%)
-    private static final BigDecimal SWAP_SPREAD_RATE = BigDecimal.ZERO;
+    // 스왑 수수료 (0.2%)
+    private static final BigDecimal SWAP_FEE_RATE = new BigDecimal("0.002");
+    // 스프레드 (0.3%)
+    private static final BigDecimal SWAP_SPREAD_RATE = new BigDecimal("0.003");
     // 최소 스왑 금액
     private static final BigDecimal MIN_SWAP_AMOUNT = new BigDecimal("0.000001");
     // KRWT 최소 스왑 금액
@@ -309,4 +309,3 @@ public class SwapService extends BaseService {
     }
     
 }
-

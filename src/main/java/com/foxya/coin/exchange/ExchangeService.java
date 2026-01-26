@@ -9,17 +9,19 @@ import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.exchange.dto.ExchangeRequestDto;
 import com.foxya.coin.exchange.dto.ExchangeResponseDto;
 import com.foxya.coin.exchange.dto.ExchangeInfoDto;
+import com.foxya.coin.exchange.dto.ExchangeQuoteDto;
 import com.foxya.coin.exchange.entities.Exchange;
+import com.foxya.coin.exchange.entities.ExchangeSetting;
 import com.foxya.coin.transfer.TransferRepository;
+import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
+import org.mindrot.jbcrypt.BCrypt;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -28,64 +30,90 @@ public class ExchangeService extends BaseService {
     private final ExchangeRepository exchangeRepository;
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
+    private final UserRepository userRepository;
     
-    // 환전 비율 (KRWT 1.0 = BLUEDIA 0.8)
-    private static final BigDecimal EXCHANGE_RATE = new BigDecimal("0.8");
-    // 최소 환전 금액
-    private static final BigDecimal MIN_EXCHANGE_AMOUNT = new BigDecimal("1.0");
+    private static final String EXCHANGE_CHAIN = "INTERNAL";
     
     public ExchangeService(PgPool pool, ExchangeRepository exchangeRepository,
                           CurrencyRepository currencyRepository,
-                          TransferRepository transferRepository) {
+                          TransferRepository transferRepository,
+                          UserRepository userRepository) {
         super(pool);
         this.exchangeRepository = exchangeRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
+        this.userRepository = userRepository;
     }
     
     /**
-     * 환전 실행 (KRWT → BLUEDIA)
+     * 환전 실행 (KORI → F_COIN)
      */
     public Future<ExchangeResponseDto> executeExchange(Long userId, ExchangeRequestDto request, String requestIp) {
         log.info("환전 실행 요청 - userId: {}, fromAmount: {}", userId, request.getFromAmount());
-        
-        // 1. 유효성 검사
-        if (request.getFromAmount() == null || request.getFromAmount().compareTo(MIN_EXCHANGE_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + MIN_EXCHANGE_AMOUNT + " 입니다."));
+
+        if (request.getTransactionPassword() == null || !request.getTransactionPassword().matches("^\\d{6}$")) {
+            return Future.failedFuture(new BadRequestException("거래 비밀번호는 숫자 6자리여야 합니다."));
         }
-        
-        // 2. 통화 조회 (KRWT, BLUEDIA) - 환전은 항상 INTERNAL 체인 사용
-        return currencyRepository.getCurrencyByCodeAndChain(pool, "KRWT", "INTERNAL")
-            .compose(krwtCurrency -> {
-                if (krwtCurrency == null) {
-                    return Future.failedFuture(new NotFoundException("KRWT 통화를 찾을 수 없습니다."));
+
+        return loadActiveSetting()
+            .compose(setting -> {
+                if (request.getFromAmount() == null || request.getFromAmount().compareTo(setting.getMinExchangeAmount()) < 0) {
+                    return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + setting.getMinExchangeAmount() + " 입니다."));
                 }
-                
-                return currencyRepository.getCurrencyByCodeAndChain(pool, "BLUEDIA", "INTERNAL")
-                    .compose(blueDiamondCurrency -> {
-                        if (blueDiamondCurrency == null) {
-                            return Future.failedFuture(new NotFoundException("BLUEDIA 통화를 찾을 수 없습니다."));
+                return userRepository.getUserById(pool, userId)
+                    .compose(user -> {
+                        if (user == null) {
+                            return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
                         }
-                        
-                        // 3. 사용자 지갑 조회
-                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, krwtCurrency.getId())
-                            .compose(krwtWallet -> {
-                                if (krwtWallet == null) {
-                                    return Future.failedFuture(new NotFoundException("KRWT 지갑을 찾을 수 없습니다."));
+                        if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
+                            return Future.failedFuture(new BadRequestException("거래 비밀번호를 설정해주세요."));
+                        }
+                        if (!matchesTransactionPassword(request.getTransactionPassword(), user.getTransactionPasswordHash())) {
+                            return Future.failedFuture(new BadRequestException("거래 비밀번호가 올바르지 않습니다."));
+                        }
+                        // 2. 통화 조회 (설정 기준) - 환전은 항상 INTERNAL 체인 사용
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getFromCurrencyCode(), EXCHANGE_CHAIN)
+                            .compose(fromCurrency -> {
+                                if (fromCurrency == null) {
+                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 통화를 찾을 수 없습니다."));
                                 }
-                                
-                                // 4. TO 금액 계산
-                                BigDecimal toAmount = request.getFromAmount().multiply(EXCHANGE_RATE)
-                                    .setScale(18, RoundingMode.DOWN);
-                                
-                                // 5. 잔액 확인
-                                if (krwtWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
-                                    return Future.failedFuture(new BadRequestException("잔액이 부족합니다."));
-                                }
-                                
-                                // 6. 환전 실행
-                                return executeExchangeTransaction(userId, krwtCurrency, blueDiamondCurrency, 
-                                    krwtWallet, request.getFromAmount(), toAmount, requestIp);
+
+                                return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getToCurrencyCode(), EXCHANGE_CHAIN)
+                                    .compose(toCurrency -> {
+                                        if (toCurrency == null) {
+                                            return Future.failedFuture(new NotFoundException(setting.getToCurrencyCode() + " 통화를 찾을 수 없습니다."));
+                                        }
+
+                                        // 3. 사용자 지갑 조회
+                                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, fromCurrency.getId())
+                                            .compose(fromWallet -> {
+                                                if (fromWallet == null) {
+                                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 지갑을 찾을 수 없습니다."));
+                                                }
+
+                                                // 4. TO 금액 계산
+                                                BigDecimal feeAmount = request.getFromAmount()
+                                                    .multiply(setting.getFee())
+                                                    .setScale(18, RoundingMode.DOWN);
+                                                BigDecimal netFromAmount = request.getFromAmount().subtract(feeAmount);
+                                                BigDecimal toAmount = netFromAmount
+                                                    .multiply(setting.getExchangeRate())
+                                                    .setScale(18, RoundingMode.DOWN);
+
+                                                if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                                                    return Future.failedFuture(new BadRequestException("환전 금액이 유효하지 않습니다."));
+                                                }
+
+                                                // 5. 잔액 확인
+                                                if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
+                                                    return Future.failedFuture(new BadRequestException("잔액이 부족합니다."));
+                                                }
+
+                                                // 6. 환전 실행
+                                                return executeExchangeTransaction(userId, fromCurrency, toCurrency,
+                                                    fromWallet, request.getFromAmount(), toAmount, requestIp);
+                                            });
+                                    });
                             });
                     });
             });
@@ -112,7 +140,7 @@ public class ExchangeService extends BaseService {
                     return transferRepository.getWalletByUserIdAndCurrencyId(client, userId, toCurrency.getId())
                         .compose(toWallet -> {
                             if (toWallet == null) {
-                                return Future.failedFuture(new NotFoundException("BLUEDIA 지갑을 찾을 수 없습니다."));
+                                return Future.failedFuture(new NotFoundException("환전 받을 지갑을 찾을 수 없습니다."));
                             }
                             
                             // 3. TO 지갑 잔액 추가
@@ -181,19 +209,71 @@ public class ExchangeService extends BaseService {
      * 환전 정보 조회
      */
     public Future<ExchangeInfoDto> getExchangeInfo(String currencyCode) {
-        Map<String, BigDecimal> minExchangeAmountByCurrency = new HashMap<>();
-        if (currencyCode != null && "KRWT".equals(currencyCode)) {
-            minExchangeAmountByCurrency.put("KRWT", MIN_EXCHANGE_AMOUNT);
+        return loadActiveSetting()
+            .map(setting -> ExchangeInfoDto.builder()
+                .exchangeRate(setting.getExchangeRate())
+                .feeRate(setting.getFee())
+                .minExchangeAmount(setting.getMinExchangeAmount())
+                .fromCurrencyCode(setting.getFromCurrencyCode())
+                .toCurrencyCode(setting.getToCurrencyCode())
+                .note(setting.getNote())
+                .build());
+    }
+
+    /**
+     * 환전 예상 수량 조회
+     */
+    public Future<ExchangeQuoteDto> getExchangeQuote(BigDecimal fromAmount) {
+        return loadActiveSetting()
+            .compose(setting -> {
+                if (fromAmount == null || fromAmount.compareTo(setting.getMinExchangeAmount()) < 0) {
+                    return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + setting.getMinExchangeAmount() + " 입니다."));
+                }
+                BigDecimal feeAmount = fromAmount
+                    .multiply(setting.getFee())
+                    .setScale(18, RoundingMode.DOWN);
+                BigDecimal netFromAmount = fromAmount.subtract(feeAmount);
+                BigDecimal toAmount = netFromAmount
+                    .multiply(setting.getExchangeRate())
+                    .setScale(18, RoundingMode.DOWN);
+                if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    return Future.failedFuture(new BadRequestException("환전 금액이 유효하지 않습니다."));
+                }
+                return Future.succeededFuture(ExchangeQuoteDto.builder()
+                    .fromCurrencyCode(setting.getFromCurrencyCode())
+                    .toCurrencyCode(setting.getToCurrencyCode())
+                    .fromAmount(fromAmount)
+                    .exchangeRate(setting.getExchangeRate())
+                    .feeRate(setting.getFee())
+                    .feeAmount(feeAmount)
+                    .toAmount(toAmount)
+                    .build());
+            });
+    }
+
+    private Future<ExchangeSetting> loadActiveSetting() {
+        return exchangeRepository.getActiveExchangeSetting(pool)
+            .compose(setting -> {
+                if (setting == null) {
+                    return Future.failedFuture(new BadRequestException("환전 설정이 없습니다."));
+                }
+                return Future.succeededFuture(setting);
+            });
+    }
+
+    private boolean matchesTransactionPassword(String rawPassword, String hashedPassword) {
+        if (rawPassword == null || hashedPassword == null || hashedPassword.isBlank()) {
+            return false;
         }
-        
-        return Future.succeededFuture(ExchangeInfoDto.builder()
-            .exchangeRate(EXCHANGE_RATE)
-            .minExchangeAmount(MIN_EXCHANGE_AMOUNT)
-            .minExchangeAmountByCurrency(minExchangeAmountByCurrency.isEmpty() ? null : minExchangeAmountByCurrency)
-            .fromCurrency("KRWT")
-            .toCurrency("BLUEDIA")
-            .note("환전 비율: 1 KRWT = " + EXCHANGE_RATE + " BLUEDIA")
-            .build());
+        String normalizedHash = hashedPassword;
+        if (normalizedHash.startsWith("$2y$")) {
+            normalizedHash = "$2a$" + normalizedHash.substring(4);
+        }
+        try {
+            return BCrypt.checkpw(rawPassword, normalizedHash);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid transaction password hash format.");
+            return false;
+        }
     }
 }
-

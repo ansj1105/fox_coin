@@ -1,6 +1,5 @@
 package com.foxya.coin.exchange.dto;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,17 +8,19 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 
 /**
- * 환전 요청 DTO
+ * 환전 예상 수량 조회 응답 DTO
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ExchangeRequestDto {
+public class ExchangeQuoteDto {
     
-    @JsonProperty("fromAmount")
+    private String fromCurrencyCode;
+    private String toCurrencyCode;
     private BigDecimal fromAmount;
-
-    @JsonProperty("transactionPassword")
-    private String transactionPassword;
+    private BigDecimal exchangeRate;
+    private BigDecimal feeRate;
+    private BigDecimal feeAmount;
+    private BigDecimal toAmount;
 }

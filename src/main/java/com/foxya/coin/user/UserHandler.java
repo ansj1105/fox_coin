@@ -126,6 +126,8 @@ public class UserHandler extends BaseHandler {
                     .optionalProperty("name", stringSchema().with(maxLength(50)))
                     .optionalProperty("nickname", stringSchema().with(maxLength(20)))
                     .optionalProperty("phone", stringSchema().with(maxLength(20)))
+                    .optionalProperty("gender", stringSchema().with(maxLength(1)))
+                    .optionalProperty("country", stringSchema().with(minLength(2), maxLength(3)))
                     .allowAdditionalProperties(false)
             ))
             .build();

@@ -30,6 +30,7 @@ public enum CountryCode {
     SG("SG", "싱가포르", "🇸🇬"),
     TW("TW", "대만", "🇹🇼"),
     HK("HK", "홍콩", "🇭🇰"),
+    ETC("ETC", "기타", "🏳️"),
     UNKNOWN("UNKNOWN", "알 수 없음", "🏳️");
     
     private final String code;
@@ -54,4 +55,3 @@ public enum CountryCode {
         return UNKNOWN;
     }
 }
-

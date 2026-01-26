@@ -82,6 +82,8 @@ import com.foxya.coin.swap.SwapHandler;
 import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
+import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.security.SecurityHandler;
@@ -218,7 +220,7 @@ public class ApiVerticle extends AbstractVerticle {
             pool, swapRepository, currencyRepository, currencyService, transferRepository);
         ExchangeRepository exchangeRepository = new ExchangeRepository();
         ExchangeService exchangeService = new ExchangeService(
-            pool, exchangeRepository, currencyRepository, transferRepository);
+            pool, exchangeRepository, currencyRepository, transferRepository, userRepository);
         PaymentDepositRepository paymentDepositRepository = new PaymentDepositRepository();
         PaymentDepositService paymentDepositService = new PaymentDepositService(
             pool, paymentDepositRepository, currencyRepository, transferRepository);
@@ -237,6 +239,7 @@ public class ApiVerticle extends AbstractVerticle {
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
             signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig);
+        AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
         MissionService missionService = new MissionService(

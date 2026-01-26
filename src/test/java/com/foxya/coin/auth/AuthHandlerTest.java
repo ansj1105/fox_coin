@@ -6,6 +6,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import io.vertx.ext.web.client.HttpRequest;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.auth.dto.LoginResponseDto;
@@ -239,8 +240,8 @@ public class AuthHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(26)
-        @DisplayName("실패 - 동일 타입 다른 디바이스 로그인 제한")
-        void failDuplicateDeviceType(VertxTestContext tc) {
+        @DisplayName("성공 - 동일 슬롯 로그인 시 기존 기기 교체")
+        void replaceDeviceOnSameSlot(VertxTestContext tc) {
             JsonObject first = new JsonObject()
                 .put("loginId", "testuser")
                 .put("password", "Test1234!@")
@@ -256,14 +257,32 @@ public class AuthHandlerTest extends HandlerTestBase {
 
             reqPost(getUrl("/login"))
                 .sendJson(first, tc.succeeding(firstRes -> tc.verify(() -> {
-                    expectSuccessAndGetResponse(firstRes, refLoginResponse);
+                    LoginResponseDto firstDto = expectSuccessAndGetResponse(firstRes, refLoginResponse);
                     reqPost(getUrl("/login"))
                         .sendJson(second, tc.succeeding(secondRes -> tc.verify(() -> {
-                            expectError(secondRes, 409);
-                            reqPost(getUrl("/login"))
-                                .sendJson(mobile, tc.succeeding(mobileRes -> tc.verify(() -> {
-                                    expectSuccessAndGetResponse(mobileRes, refLoginResponse);
-                                    tc.completeNow();
+                            LoginResponseDto secondDto = expectSuccessAndGetResponse(secondRes, refLoginResponse);
+                            reqGetWithCustomHeaders(
+                                "/api/v1/users/me",
+                                firstDto.getAccessToken(),
+                                "limit-device-web-1",
+                                "WEB",
+                                "WEB"
+                            ).send(tc.succeeding(oldRes -> tc.verify(() -> {
+                                    expectError(oldRes, 401);
+                                    reqGetWithCustomHeaders(
+                                        "/api/v1/users/me",
+                                        secondDto.getAccessToken(),
+                                        "limit-device-web-2",
+                                        "WEB",
+                                        "WEB"
+                                    ).send(tc.succeeding(newRes -> tc.verify(() -> {
+                                            expectSuccess(newRes);
+                                            reqPost(getUrl("/login"))
+                                                .sendJson(mobile, tc.succeeding(mobileRes -> tc.verify(() -> {
+                                                    expectSuccessAndGetResponse(mobileRes, refLoginResponse);
+                                                    tc.completeNow();
+                                                })));
+                                        })));
                                 })));
                         })));
                 })));
@@ -353,6 +372,24 @@ public class AuthHandlerTest extends HandlerTestBase {
             .put("deviceType", deviceType)
             .put("deviceOs", deviceOs)
             .put("appVersion", "1.0.0");
+    }
+
+    private static HttpRequest<io.vertx.core.buffer.Buffer> withDeviceHeaders(HttpRequest<io.vertx.core.buffer.Buffer> req, String token, String deviceId, String deviceType, String deviceOs) {
+        return req
+            .putHeader("Authorization", "Bearer " + token)
+            .putHeader("X-Device-Id", deviceId)
+            .putHeader("X-Device-Type", deviceType)
+            .putHeader("X-Device-Os", deviceOs);
+    }
+    
+    private HttpRequest<io.vertx.core.buffer.Buffer> reqGetWithCustomHeaders(String url, String token, String deviceId, String deviceType, String deviceOs) {
+        return withDeviceHeaders(
+            webClient.get(port, "localhost", url),
+            token,
+            deviceId,
+            deviceType,
+            deviceOs
+        );
     }
 
     @Nested

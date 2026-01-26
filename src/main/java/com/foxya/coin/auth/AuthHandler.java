@@ -519,9 +519,10 @@ public class AuthHandler extends BaseHandler {
 
         String deviceId = dto != null ? dto.getDeviceId() : null;
         String deviceType = dto != null ? dto.getDeviceType() : null;
+        String deviceOs = dto != null ? dto.getDeviceOs() : null;
 
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
-        response(ctx, authService.logout(userId, token, allDevices, deviceId, deviceType), data -> {
+        response(ctx, authService.logout(userId, token, allDevices, deviceId, deviceType, deviceOs), data -> {
             clearRefreshTokenCookie(ctx);
             return data;
         });

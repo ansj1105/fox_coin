@@ -46,6 +46,21 @@ public class DeviceRepository extends BaseRepository {
             .map(rows -> fetchOne(deviceMapper, rows));
     }
 
+    public Future<Device> getActiveDeviceByUserAndDeviceOs(SqlClient client, Long userId, String deviceOs) {
+        String sql = QueryBuilder.select("devices")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("device_os", Op.Equal, "deviceOs")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deviceOs", deviceOs);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(deviceMapper, rows));
+    }
+
     public Future<Device> getActiveDeviceByUserAndDeviceId(SqlClient client, Long userId, String deviceId) {
         String sql = QueryBuilder.select("devices")
             .where("user_id", Op.Equal, "userId")
@@ -109,6 +124,23 @@ public class DeviceRepository extends BaseRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         params.put("deviceType", deviceType);
+        params.put("deleted_at", LocalDateTime.now());
+        params.put("updated_at", LocalDateTime.now());
+
+        return query(client, sql, params)
+            .mapEmpty();
+    }
+
+    public Future<Void> softDeleteDeviceByUserAndDeviceOs(SqlClient client, Long userId, String deviceOs) {
+        String sql = QueryBuilder.update("devices", "deleted_at", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("device_os", Op.Equal, "deviceOs")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deviceOs", deviceOs);
         params.put("deleted_at", LocalDateTime.now());
         params.put("updated_at", LocalDateTime.now());
 

@@ -3,6 +3,7 @@ package com.foxya.coin.exchange;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.exchange.entities.Exchange;
+import com.foxya.coin.exchange.entities.ExchangeSetting;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import com.foxya.coin.utils.QueryBuilder;
 import io.vertx.core.Future;
@@ -30,6 +31,19 @@ public class ExchangeRepository extends BaseRepository {
         .completedAt(getLocalDateTimeColumnValue(row, "completed_at"))
         .failedAt(getLocalDateTimeColumnValue(row, "failed_at"))
         .errorMessage(getStringColumnValue(row, "error_message"))
+        .build();
+
+    private final RowMapper<ExchangeSetting> exchangeSettingMapper = row -> ExchangeSetting.builder()
+        .id(getLongColumnValue(row, "id"))
+        .fromCurrencyCode(getStringColumnValue(row, "from_currency_code"))
+        .toCurrencyCode(getStringColumnValue(row, "to_currency_code"))
+        .exchangeRate(getBigDecimalColumnValue(row, "exchange_rate"))
+        .fee(getBigDecimalColumnValue(row, "fee"))
+        .minExchangeAmount(getBigDecimalColumnValue(row, "min_exchange_amount"))
+        .note(getStringColumnValue(row, "note"))
+        .isActive(getBooleanColumnValue(row, "is_active"))
+        .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+        .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
     
     /**
@@ -66,6 +80,16 @@ public class ExchangeRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("exchange_id", exchangeId))
             .map(rows -> fetchOne(exchangeMapper, rows))
             .onFailure(e -> log.error("환전 조회 실패 - exchangeId: {}", exchangeId));
+    }
+
+    public Future<ExchangeSetting> getActiveExchangeSetting(SqlClient client) {
+        String sql = QueryBuilder
+            .select("exchange_settings")
+            .where("is_active", Op.Equal, "is_active")
+            .build() + " ORDER BY id DESC LIMIT 1";
+
+        return query(client, sql, Collections.singletonMap("is_active", true))
+            .map(rows -> fetchOne(exchangeSettingMapper, rows));
     }
     
     /**
@@ -129,4 +153,3 @@ public class ExchangeRepository extends BaseRepository {
             .onFailure(throwable -> log.error("환전 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

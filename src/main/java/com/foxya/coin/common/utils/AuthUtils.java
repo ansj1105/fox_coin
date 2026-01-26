@@ -8,6 +8,7 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.RoutingContext;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.ForbiddenException;
+import com.foxya.coin.common.DeviceGuard;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
@@ -17,27 +18,43 @@ public abstract class AuthUtils {
     
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_ROLE = "role";
+    private static volatile DeviceGuard deviceGuard;
+
+    public static void configureDeviceGuard(DeviceGuard guard) {
+        deviceGuard = guard;
+    }
     
     /**
      * 요청 클라이언트의 권한을 확인하는 handler 반환
      */
     public static Handler<RoutingContext> hasRole(UserRole... roles) {
         return ctx -> {
-            User user = ctx.user();
-            if (user == null) {
-                throw new ForbiddenException("인증이 필요합니다.");
+            DeviceGuard guard = deviceGuard;
+            if (guard != null) {
+                guard.validate(ctx)
+                    .onSuccess(v -> checkRole(ctx, roles))
+                    .onFailure(ctx::fail);
+                return;
             }
-            
-            String userRole = getUserRoleOf(user);
-            boolean hasPermission = Arrays.stream(roles)
-                .anyMatch(role -> role.name().equalsIgnoreCase(userRole));
-            
-            if (hasPermission) {
-                ctx.next();
-            } else {
-                throw new ForbiddenException("접근 권한이 없습니다.");
-            }
+            checkRole(ctx, roles);
         };
+    }
+
+    private static void checkRole(RoutingContext ctx, UserRole... roles) {
+        User user = ctx.user();
+        if (user == null) {
+            throw new ForbiddenException("인증이 필요합니다.");
+        }
+
+        String userRole = getUserRoleOf(user);
+        boolean hasPermission = Arrays.stream(roles)
+            .anyMatch(role -> role.name().equalsIgnoreCase(userRole));
+
+        if (hasPermission) {
+            ctx.next();
+        } else {
+            throw new ForbiddenException("접근 권한이 없습니다.");
+        }
     }
     
     /**
@@ -97,4 +114,3 @@ public abstract class AuthUtils {
         return generateToken(jwtAuth, userId, role, 864000); // 10일
     }
 }
-

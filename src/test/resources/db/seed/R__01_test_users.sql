@@ -28,6 +28,11 @@ VALUES
     ('no_code_user', '$2a$10$W84fmGkwKoh6wyU83VwQ8Ovw1wqZYxZ8E6RvWZzpwwZMLGNlSGtwa', NULL, 'ACTIVE', NOW(), NOW())
 ON CONFLICT (login_id) DO NOTHING;
 
+-- testuser 거래 비밀번호(123456) 설정
+UPDATE users
+SET transaction_password_hash = '$2y$05$0t.D4AHR2raDheFBwUfFTOPNc3xjZ8QL0tTV89KyIGEakdMdj4vNK'
+WHERE login_id = 'testuser';
+
 -- 시퀀스 리셋 (ID 순서 보장)
 SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users));
 

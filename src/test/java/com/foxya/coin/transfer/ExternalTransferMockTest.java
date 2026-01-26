@@ -116,6 +116,16 @@ public class ExternalTransferMockTest {
             pool.close();
         }
     }
+
+    private Future<Wallet> getTronWallet(Long userId) {
+        return currencyRepository.getCurrencyByCodeAndChain(pool, "FOXYA", "TRON")
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new IllegalStateException("FOXYA TRON currency not found"));
+                }
+                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId());
+            });
+    }
     
     @Nested
     @DisplayName("외부 전송 요청 테스트")
@@ -174,8 +184,11 @@ public class ExternalTransferMockTest {
         @DisplayName("성공 - 외부 전송 후 잔액 잠금 확인")
         void successBalanceLocked(VertxTestContext tc) {
             // 초기 잔액 조회
-            transferRepository.getWalletByUserIdAndCurrencyId(pool, TEST_USER_ID, 1) // FOXYA TRON currency_id
+            getTronWallet(TEST_USER_ID)
                 .compose(initialWallet -> {
+                    if (initialWallet == null) {
+                        return Future.failedFuture(new IllegalStateException("Test user TRON wallet not found"));
+                    }
                     BigDecimal initialBalance = initialWallet.getBalance();
                     BigDecimal initialLockedBalance = initialWallet.getLockedBalance();
                     log.info("Initial balance: {}, locked: {}", initialBalance, initialLockedBalance);
@@ -191,8 +204,11 @@ public class ExternalTransferMockTest {
                     return transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1")
                         .compose(response -> {
                             // 전송 후 잔액 조회
-                            return transferRepository.getWalletByUserIdAndCurrencyId(pool, TEST_USER_ID, 1)
+                            return getTronWallet(TEST_USER_ID)
                                 .map(updatedWallet -> {
+                                    if (updatedWallet == null) {
+                                        throw new IllegalStateException("Updated TRON wallet not found");
+                                    }
                                     BigDecimal expectedFee = new BigDecimal("50").multiply(new BigDecimal("0.001")); // 0.1% 수수료
                                     BigDecimal totalDeduct = new BigDecimal("50").add(expectedFee);
                                     
@@ -294,8 +310,11 @@ public class ExternalTransferMockTest {
             AtomicReference<String> transferIdRef = new AtomicReference<>();
             
             // 1. 초기 잔액 저장
-            transferRepository.getWalletByUserIdAndCurrencyId(pool, TEST_USER_ID, 1)
+            getTronWallet(TEST_USER_ID)
                 .compose(wallet -> {
+                    if (wallet == null) {
+                        return Future.failedFuture(new IllegalStateException("Test user TRON wallet not found"));
+                    }
                     initialBalance.set(wallet.getBalance().add(wallet.getLockedBalance()));
                     log.info("Total initial balance (available + locked): {}", initialBalance.get());
                     
@@ -334,9 +353,12 @@ public class ExternalTransferMockTest {
                 })
                 .compose(restoredWallet -> {
                     // 5. 잔액 복구 확인
-                    return transferRepository.getWalletByUserIdAndCurrencyId(pool, TEST_USER_ID, 1);
+                    return getTronWallet(TEST_USER_ID);
                 })
                 .onSuccess(finalWallet -> tc.verify(() -> {
+                    if (finalWallet == null) {
+                        throw new IllegalStateException("Final TRON wallet not found");
+                    }
                     BigDecimal finalTotal = finalWallet.getBalance().add(finalWallet.getLockedBalance());
                     log.info("Final total balance: {}", finalTotal);
                     
@@ -446,4 +468,3 @@ public class ExternalTransferMockTest {
         }
     }
 }
-

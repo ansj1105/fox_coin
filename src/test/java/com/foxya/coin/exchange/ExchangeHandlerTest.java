@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ExchangeHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<ExchangeResponseDto>> refExchange = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<com.foxya.coin.exchange.dto.ExchangeInfoDto>> refExchangeInfo = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<com.foxya.coin.exchange.dto.ExchangeQuoteDto>> refExchangeQuote = new TypeReference<>() {};
     
     // 테스트용 사용자 ID
     private static final Long TESTUSER_ID = 1L;
@@ -39,7 +41,8 @@ public class ExchangeHandlerTest extends HandlerTestBase {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
             JsonObject data = new JsonObject()
-                .put("fromAmount", 100.0);
+                .put("fromAmount", 100.0)
+                .put("transactionPassword", "123456");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
@@ -50,8 +53,8 @@ public class ExchangeHandlerTest extends HandlerTestBase {
                     assertThat(response).isNotNull();
                     assertThat(response.getExchangeId()).isNotNull();
                     assertThat(response.getOrderNumber()).isNotNull();
-                    assertThat(response.getFromCurrencyCode()).isEqualTo("KRWT");
-                    assertThat(response.getToCurrencyCode()).isEqualTo("BLUEDIA");
+                    assertThat(response.getFromCurrencyCode()).isEqualTo("KORI");
+                    assertThat(response.getToCurrencyCode()).isEqualTo("F_COIN");
                     assertThat(response.getFromAmount()).isNotNull();
                     assertThat(response.getToAmount()).isNotNull();
                     assertThat(response.getStatus()).isEqualTo("COMPLETED");
@@ -65,7 +68,8 @@ public class ExchangeHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 인증 없이 실행")
         void failNoAuth(VertxTestContext tc) {
             JsonObject data = new JsonObject()
-                .put("fromAmount", 100.0);
+                .put("fromAmount", 100.0)
+                .put("transactionPassword", "123456");
             
             reqPost(getUrl("/"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
@@ -81,12 +85,54 @@ public class ExchangeHandlerTest extends HandlerTestBase {
             String accessToken = getAccessTokenOfUser(TESTUSER_ID);
             
             JsonObject data = new JsonObject()
-                .put("fromAmount", 0.5);
+                .put("fromAmount", 1.0)
+                .put("transactionPassword", "123456");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("환전 정보/견적 조회 테스트")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class ExchangeInfoQuoteTest {
+
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 환전 정보 조회")
+        void successGetInfo(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    com.foxya.coin.exchange.dto.ExchangeInfoDto info = expectSuccessAndGetResponse(res, refExchangeInfo);
+                    assertThat(info.getFromCurrencyCode()).isEqualTo("KORI");
+                    assertThat(info.getToCurrencyCode()).isEqualTo("F_COIN");
+                    assertThat(info.getFeeRate()).isNotNull();
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(2)
+        @DisplayName("성공 - 환전 견적 조회")
+        void successGetQuote(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+
+            reqGet(getUrl("/quote"))
+                .bearerTokenAuthentication(accessToken)
+                .addQueryParam("fromAmount", "100.0")
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    com.foxya.coin.exchange.dto.ExchangeQuoteDto quote = expectSuccessAndGetResponse(res, refExchangeQuote);
+                    assertThat(quote.getFromCurrencyCode()).isEqualTo("KORI");
+                    assertThat(quote.getToCurrencyCode()).isEqualTo("F_COIN");
+                    assertThat(quote.getToAmount()).isNotNull();
                     tc.completeNow();
                 })));
         }
@@ -105,7 +151,8 @@ public class ExchangeHandlerTest extends HandlerTestBase {
             
             // 먼저 환전 실행
             JsonObject data = new JsonObject()
-                .put("fromAmount", 100.0);
+                .put("fromAmount", 100.0)
+                .put("transactionPassword", "123456");
             
             reqPost(getUrl("/"))
                 .bearerTokenAuthentication(accessToken)
@@ -142,4 +189,3 @@ public class ExchangeHandlerTest extends HandlerTestBase {
         }
     }
 }
-

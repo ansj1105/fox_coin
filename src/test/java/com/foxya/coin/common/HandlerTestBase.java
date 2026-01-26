@@ -177,35 +177,42 @@ public class HandlerTestBase {
      * GET 요청
      */
     protected HttpRequest<Buffer> reqGet(String url) {
-        return webClient.get(port, "localhost", url);
+        return withDeviceHeaders(webClient.get(port, "localhost", url));
     }
     
     /**
      * POST 요청
      */
     protected HttpRequest<Buffer> reqPost(String url) {
-        return webClient.post(port, "localhost", url);
+        return withDeviceHeaders(webClient.post(port, "localhost", url));
     }
     
     /**
      * PUT 요청
      */
     protected HttpRequest<Buffer> reqPut(String url) {
-        return webClient.put(port, "localhost", url);
+        return withDeviceHeaders(webClient.put(port, "localhost", url));
     }
     
     /**
      * DELETE 요청
      */
     protected HttpRequest<Buffer> reqDelete(String url) {
-        return webClient.delete(port, "localhost", url);
+        return withDeviceHeaders(webClient.delete(port, "localhost", url));
     }
     
     /**
      * PATCH 요청
      */
     protected HttpRequest<Buffer> reqPatch(String url) {
-        return webClient.patch(port, "localhost", url);
+        return withDeviceHeaders(webClient.patch(port, "localhost", url));
+    }
+
+    private HttpRequest<Buffer> withDeviceHeaders(HttpRequest<Buffer> request) {
+        return request
+            .putHeader("X-Device-Id", "test-device-default")
+            .putHeader("X-Device-Type", "WEB")
+            .putHeader("X-Device-Os", "WEB");
     }
     
     /**

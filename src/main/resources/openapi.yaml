@@ -612,13 +612,18 @@ components:
       type: object
       required:
         - fromAmount
+        - transactionPassword
       properties:
         fromAmount:
           type: number
           format: decimal
-          description: FROM 금액 (KRWT)
+          description: FROM 금액 (KORI)
           example: 100.0
-          minimum: 1.0
+          minimum: 10.0
+        transactionPassword:
+          type: string
+          description: 거래 비밀번호 (6자리 숫자)
+          example: "123456"
 
     ExchangeResponse:
       type: object
@@ -631,10 +636,10 @@ components:
           description: 주문번호
         fromCurrencyCode:
           type: string
-          example: KRWT
+          example: KORI
         toCurrencyCode:
           type: string
-          example: BLUEDIA
+          example: F_COIN
         fromAmount:
           type: number
           format: decimal
@@ -647,6 +652,58 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    ExchangeInfo:
+      type: object
+      properties:
+        exchangeRate:
+          type: number
+          format: decimal
+          description: 환전 비율 (1 KORI = 21.5 F_COIN)
+        feeRate:
+          type: number
+          format: decimal
+          description: 환전 수수료율 (fromAmount 기준)
+        minExchangeAmount:
+          type: number
+          format: decimal
+          description: 최소 환전 금액 (KORI)
+        fromCurrencyCode:
+          type: string
+          example: KORI
+        toCurrencyCode:
+          type: string
+          example: F_COIN
+        note:
+          type: string
+          example: 여우야(F코인) → 코인 : 1000:1 비율로 즉시 환전
+
+    ExchangeQuote:
+      type: object
+      properties:
+        fromCurrencyCode:
+          type: string
+          example: KORI
+        toCurrencyCode:
+          type: string
+          example: F_COIN
+        fromAmount:
+          type: number
+          format: decimal
+        exchangeRate:
+          type: number
+          format: decimal
+        feeRate:
+          type: number
+          format: decimal
+          description: 환전 수수료율 (fromAmount 기준)
+        feeAmount:
+          type: number
+          format: decimal
+          description: 환전 수수료 (KORI)
+        toAmount:
+          type: number
+          format: decimal
 
     # Payment Deposit 관련 스키마
     PaymentDepositRequest:
@@ -2687,7 +2744,7 @@ paths:
   /api/v1/users/me:
     get:
       summary: 내 정보 조회
-      description: 설정/내정보수정용. gender·country는 변경 불가(읽기 전용).
+      description: 설정/내정보수정용. 내 정보 변경은 7일에 1회만 가능.
       tags: [User]
       security:
         - BearerAuth: []
@@ -2721,7 +2778,7 @@ paths:
           description: 인증 실패
     patch:
       summary: 내 정보 수정
-      description: 이름(name), 닉네임(nickname), 연락처(phone)만 수정 가능. 성별·국가는 변경 불가. 빈 문자열 시 name·nickname은 미변경, phone은 삭제. 부분 수정(해당 필드만 전송) 허용.
+      description: 이름(name), 닉네임(nickname), 연락처(phone), 성별(gender), 국가(country) 수정 가능. 내 정보 변경은 7일에 1회만 가능. 빈 문자열 시 name·nickname은 미변경, phone은 삭제. 부분 수정(해당 필드만 전송) 허용.
       tags: [User]
       security:
         - BearerAuth: []
@@ -2741,6 +2798,12 @@ paths:
                   type: string
                   maxLength: 20
                   nullable: true
+                gender:
+                  type: string
+                  description: M / F / O
+                country:
+                  type: string
+                  description: 국가 코드 (KR, US 등)
       responses:
         '200':
           description: 성공
@@ -3930,8 +3993,8 @@ paths:
     post:
       summary: 환전 실행
       description: |
-        KRWT를 BLUEDIA로 환전합니다.
-        환전 비율은 1 KRWT = 0.8 BLUEDIA 입니다.
+        KORI를 F_COIN으로 환전합니다.
+        환전 비율은 1 KORI = 21.5 F_COIN 입니다.
       tags: [Transfer]
       security:
         - BearerAuth: []
@@ -3943,6 +4006,7 @@ paths:
               $ref: '#/components/schemas/ExchangeRequest'
             example:
               fromAmount: 100.0
+              transactionPassword: "123456"
       responses:
         '200':
           description: 환전 성공
@@ -3957,6 +4021,60 @@ paths:
                         $ref: '#/components/schemas/ExchangeResponse'
         '400':
           description: 잘못된 요청 (잔액 부족, 최소 금액 미달 등)
+        '401':
+          description: 인증 실패
+
+  /api/v1/exchange/info:
+    get:
+      summary: 환전 정보 조회
+      description: 환율, 수수료, 최소 환전 금액 정보를 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeInfo'
+        '401':
+          description: 인증 실패
+
+  /api/v1/exchange/quote:
+    get:
+      summary: 환전 예상 수량 조회
+      description: 입력 금액 기준 예상 환전 수량을 조회합니다.
+      tags: [Transfer]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fromAmount
+          in: query
+          required: true
+          schema:
+            type: number
+            format: decimal
+          description: FROM 금액 (KORI)
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeQuote'
+        '400':
+          description: 잘못된 요청
         '401':
           description: 인증 실패
 

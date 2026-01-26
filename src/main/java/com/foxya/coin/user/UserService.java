@@ -10,7 +10,9 @@ import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.EmailService;
+import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
+import com.foxya.coin.common.enums.CountryCode;
 import com.foxya.coin.user.dto.ExternalLinkCodeResponseDto;
 import com.foxya.coin.user.dto.ExternalLinkStatusResponseDto;
 import com.foxya.coin.user.dto.CreateUserDto;
@@ -155,7 +157,6 @@ public class UserService extends BaseService {
 
     /**
      * 내 정보 조회 (설정/내정보수정용). name, nickname, phone, gender, country.
-     * gender·country는 변경 불가(읽기 전용).
      */
     public Future<MeResponseDto> getMe(Long userId) {
         return userRepository.getUserById(pool, userId)
@@ -174,7 +175,8 @@ public class UserService extends BaseService {
     }
 
     /**
-     * 내 정보 수정. name, nickname, phone 만 수정 가능. 성별·국가는 변경 불가.
+     * 내 정보 수정. name, nickname, phone, gender, country 수정 가능.
+     * 내 정보 설정은 7일에 1회만 변경 가능.
      * body에 포함된 필드만 반영. 빈 문자열: name·nickname은 변경 안 함, phone은 삭제(null).
      */
     public Future<Void> updateMe(Long userId, JsonObject body) {
@@ -200,16 +202,16 @@ public class UserService extends BaseService {
                             return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
                         }
                         updates.put("nickname", v);
-                        return doUpdateMePhone(userId, body, updates);
+                        return applyProfileUpdates(userId, body, updates);
                     });
             } else {
-                return doUpdateMePhone(userId, body, updates);
+                return applyProfileUpdates(userId, body, updates);
             }
         }
-        return doUpdateMePhone(userId, body, updates);
+        return applyProfileUpdates(userId, body, updates);
     }
 
-    private Future<Void> doUpdateMePhone(Long userId, JsonObject body, Map<String, Object> updates) {
+    private Future<Void> applyProfileUpdates(Long userId, JsonObject body, Map<String, Object> updates) {
         if (body.containsKey("phone")) {
             String v = body.getString("phone");
             if (v == null || v.isBlank()) {
@@ -221,10 +223,39 @@ public class UserService extends BaseService {
                 updates.put("phone", v);
             }
         }
+        if (body.containsKey("country")) {
+            String country = body.getString("country");
+            if (country != null && !country.isBlank()) {
+                String normalizedCountry = country.trim().toUpperCase();
+                if (CountryCode.fromCode(normalizedCountry) == CountryCode.UNKNOWN) {
+                    return Future.failedFuture(new BadRequestException("유효하지 않은 국가 코드입니다."));
+                }
+                updates.put("country_code", normalizedCountry);
+            }
+        }
+        if (body.containsKey("gender")) {
+            String gender = body.getString("gender");
+            if (gender != null && !gender.isBlank()) {
+                String normalizedGender = gender.trim().toUpperCase();
+                if (!"M".equals(normalizedGender) && !"F".equals(normalizedGender) && !"O".equals(normalizedGender)) {
+                    return Future.failedFuture(new BadRequestException("gender는 M, F, O 또는 비워두세요."));
+                }
+                updates.put("gender", normalizedGender);
+            }
+        }
         if (updates.isEmpty()) {
             return Future.succeededFuture();
         }
-        return userRepository.updateMeProfile(pool, userId, updates);
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                if (user.getUpdatedAt() != null && user.getUpdatedAt().isAfter(DateUtils.now().minusDays(7))) {
+                    return Future.failedFuture(new BadRequestException("내 정보는 7일에 한 번만 변경할 수 있습니다."));
+                }
+                return userRepository.updateMeProfile(pool, userId, updates);
+            });
     }
     
     /**

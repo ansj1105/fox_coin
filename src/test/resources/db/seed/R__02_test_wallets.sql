@@ -6,7 +6,7 @@ DELETE FROM mining_history WHERE user_id IN (SELECT id FROM users WHERE login_id
 DELETE FROM internal_transfers;
 DELETE FROM external_transfers;
 DELETE FROM user_wallets WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
-DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX', 'ETH', 'KRWT', 'BLUEDIA', 'KRC', 'KORI');
+DELETE FROM currency WHERE code IN ('FOXYA', 'USDT', 'TRX', 'ETH', 'KRWT', 'BLUEDIA', 'KRC', 'KORI', 'F_COIN');
 -- testuser (ID:1)의 레퍼럴 관계 삭제 (테스트를 위해 레퍼럴 관계가 없어야 함)
 DELETE FROM referral_relations WHERE referred_id = (SELECT id FROM users WHERE login_id = 'testuser');
 
@@ -22,7 +22,8 @@ VALUES
     ('KRWT', 'Korean Won Token', 'INTERNAL', true, NOW(), NOW()),
     ('BLUEDIA', 'Blue Diamond', 'INTERNAL', true, NOW(), NOW()),
     ('KRC', 'Korean Coin', 'INTERNAL', true, NOW(), NOW()),
-    ('KORI', 'Kori Token', 'INTERNAL', true, NOW(), NOW())
+    ('KORI', 'Kori Token', 'INTERNAL', true, NOW(), NOW()),
+    ('F_COIN', 'Foxya Coin', 'INTERNAL', true, NOW(), NOW())
 ON CONFLICT (code, chain) DO NOTHING;
 
 -- 시퀀스 리셋
@@ -184,13 +185,13 @@ WHERE NOT EXISTS (
     AND currency_id = (SELECT id FROM currency WHERE code = 'BLUEDIA' AND chain = 'INTERNAL')
 );
 
--- testuser (ID:1) KORI 지갑 - 잔액 0 KORI (에어드랍 전송용)
+-- testuser (ID:1) KORI 지갑 - 잔액 1000 KORI (환전 테스트용)
 INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
-SELECT
+SELECT 
     (SELECT id FROM users WHERE login_id = 'testuser'),
     (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL'),
     'TADDR_TESTUSER_KORI_001',
-    0.000000000000000000,
+    1000.000000000000000000,
     0.000000000000000000,
     'ACTIVE',
     NOW(),
@@ -199,6 +200,23 @@ WHERE NOT EXISTS (
     SELECT 1 FROM user_wallets
     WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
     AND currency_id = (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'INTERNAL')
+);
+
+-- testuser (ID:1) F_COIN 지갑 - 잔액 0 F_COIN (환전 후 받을 지갑)
+INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+SELECT
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    (SELECT id FROM currency WHERE code = 'F_COIN' AND chain = 'INTERNAL'),
+    'TADDR_TESTUSER_FCOIN_001',
+    0.000000000000000000,
+    0.000000000000000000,
+    'ACTIVE',
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM user_wallets
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND currency_id = (SELECT id FROM currency WHERE code = 'F_COIN' AND chain = 'INTERNAL')
 );
 
 -- 스왑 테스트용 지갑
@@ -440,4 +458,3 @@ WHERE NOT EXISTS (
 -- 주의: testuser (ID:1)는 직접 추천인이 없어야 통계 조회 테스트와 레퍼럴 코드 등록 테스트가 정상 동작합니다.
 -- testuser2 (ID:2)이 testuser (ID:1)를 추천한 관계는 제거됨 (테스트를 위해)
 -- 대신 referrer_user (ID:5)가 no_code_user (ID:6)를 추천한 관계만 유지
-

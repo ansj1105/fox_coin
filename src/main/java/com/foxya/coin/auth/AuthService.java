@@ -200,14 +200,18 @@ public class AuthService extends BaseService {
         }
         String normalizedType = deviceType.toUpperCase();
         String normalizedOs = deviceOs.toUpperCase();
+        String slotType = "WEB".equals(normalizedType) ? "WEB" : normalizedOs;
         LocalDateTime now = LocalDateTime.now();
-        return deviceRepository.getActiveDeviceByUserAndType(pool, userId, normalizedType)
+        Future<Device> existingFuture = "WEB".equals(slotType)
+            ? deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
+            : deviceRepository.getActiveDeviceByUserAndDeviceOs(pool, userId, slotType);
+        return existingFuture
             .compose(existing -> {
                 if (existing == null) {
                     Device device = Device.builder()
                         .userId(userId)
                         .deviceId(deviceId)
-                        .deviceType(normalizedType)
+                        .deviceType(slotType)
                         .deviceOs(normalizedOs)
                         .appVersion(appVersion)
                         .userAgent(userAgent)
@@ -219,7 +223,22 @@ public class AuthService extends BaseService {
                     return deviceRepository.createDevice(pool, device).mapEmpty();
                 }
                 if (!deviceId.equals(existing.getDeviceId())) {
-                    return Future.failedFuture(new ConflictException("해당 기기 유형으로 이미 로그인 중입니다."));
+                    return deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, existing.getDeviceId())
+                        .compose(v -> {
+                            Device device = Device.builder()
+                                .userId(userId)
+                                .deviceId(deviceId)
+                                .deviceType(slotType)
+                                .deviceOs(normalizedOs)
+                                .appVersion(appVersion)
+                                .userAgent(userAgent)
+                                .lastIp(clientIp)
+                                .lastLoginAt(now)
+                                .createdAt(now)
+                                .updatedAt(now)
+                                .build();
+                            return deviceRepository.createDevice(pool, device).mapEmpty();
+                        });
                 }
                 return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
             });
@@ -867,16 +886,24 @@ public class AuthService extends BaseService {
      * @param allDevices 모든 디바이스 로그아웃 여부
      * @return 로그아웃 응답
      */
-    public Future<LogoutResponseDto> logout(Long userId, String token, boolean allDevices, String deviceId, String deviceType) {
+    public Future<LogoutResponseDto> logout(Long userId, String token, boolean allDevices, String deviceId, String deviceType, String deviceOs) {
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
-        
+
         Future<Void> deviceCleanup;
         if (allDevices) {
             deviceCleanup = deviceRepository.softDeleteDevicesByUserId(pool, userId);
         } else if (deviceId != null && !deviceId.isBlank()) {
             deviceCleanup = deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, deviceId);
         } else if (deviceType != null && !deviceType.isBlank()) {
-            deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, deviceType.toUpperCase());
+            String normalizedType = deviceType.toUpperCase();
+            String normalizedOs = deviceOs != null ? deviceOs.toUpperCase() : null;
+            if ("WEB".equals(normalizedType)) {
+                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, "WEB");
+            } else if (normalizedOs != null && !normalizedOs.isBlank()) {
+                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndDeviceOs(pool, userId, normalizedOs);
+            } else {
+                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, normalizedType);
+            }
         } else {
             deviceCleanup = Future.succeededFuture();
         }
