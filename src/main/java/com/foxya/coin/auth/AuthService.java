@@ -778,7 +778,7 @@ public class AuthService extends BaseService {
      * Authorization 헤더 없이 body의 refreshToken만으로 호출.
      * 실패 시 UnauthorizedException("Invalid or expired refresh token") → 401.
      */
-    public Future<RefreshResponseDto> refresh(String refreshToken) {
+    public Future<RefreshResponseDto> refresh(String refreshToken, String deviceId, String deviceType, String deviceOs) {
         // Vert.x 4.x JWTAuth.authenticate: TokenCredentials 사용 (JsonObject "jwt"/"token"은 내부 구현에 따라 동작 안 할 수 있음)
         return jwtAuth.authenticate(new TokenCredentials(refreshToken))
             .compose(user -> {
@@ -792,15 +792,18 @@ public class AuthService extends BaseService {
                         if (Boolean.TRUE.equals(blacklisted)) {
                             return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
                         }
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role));
-                        String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role));
-                        RefreshResponseDto dto = RefreshResponseDto.builder()
-                            .accessToken(accessToken)
-                            .refreshToken(newRefresh)
-                            .build();
-                        // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
-                        return addToBlacklist(refreshToken, REFRESH_TOKEN_EXPIRE_SECONDS)
-                            .map(v -> dto);
+                        return ensureActiveDevice(userId, deviceId, deviceType, deviceOs)
+                            .compose(ignored -> {
+                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role));
+                                String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role));
+                                RefreshResponseDto dto = RefreshResponseDto.builder()
+                                    .accessToken(accessToken)
+                                    .refreshToken(newRefresh)
+                                    .build();
+                                // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
+                                return addToBlacklist(refreshToken, REFRESH_TOKEN_EXPIRE_SECONDS)
+                                    .map(v -> dto);
+                            });
                     });
             })
             .recover(t -> {
@@ -808,6 +811,44 @@ public class AuthService extends BaseService {
                 log.warn("Refresh token verification failed: {}", t.getMessage());
                 return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
             });
+    }
+
+    private Future<Void> ensureActiveDevice(Long userId, String deviceId, String deviceType, String deviceOs) {
+        if (userId == null) {
+            return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+        }
+        if (deviceId != null && !deviceId.isBlank()) {
+            return deviceRepository.getActiveDeviceByUserAndDeviceId(pool, userId, deviceId)
+                .compose(device -> {
+                    if (device == null) {
+                        return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
+                    }
+                    return Future.succeededFuture();
+                });
+        }
+        if (deviceType != null && !deviceType.isBlank()) {
+            String normalizedType = deviceType.toUpperCase();
+            if ("WEB".equals(normalizedType)) {
+                return deviceRepository.getActiveDeviceByUserAndType(pool, userId, "WEB")
+                    .compose(device -> {
+                        if (device == null) {
+                            return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
+                        }
+                        return Future.succeededFuture();
+                    });
+            }
+            if (deviceOs != null && !deviceOs.isBlank()) {
+                String normalizedOs = deviceOs.toUpperCase();
+                return deviceRepository.getActiveDeviceByUserAndDeviceOs(pool, userId, normalizedOs)
+                    .compose(device -> {
+                        if (device == null) {
+                            return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
+                        }
+                        return Future.succeededFuture();
+                    });
+            }
+        }
+        return Future.succeededFuture();
     }
 
     /**

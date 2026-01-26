@@ -626,7 +626,10 @@ public class AuthHandler extends BaseHandler {
             ctx.fail(new com.foxya.coin.common.exceptions.UnauthorizedException("Invalid or expired refresh token"));
             return;
         }
-        authService.refresh(refreshToken)
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        String deviceType = ctx.request().getHeader("X-Device-Type");
+        String deviceOs = ctx.request().getHeader("X-Device-Os");
+        authService.refresh(refreshToken, deviceId, deviceType, deviceOs)
             .onSuccess(data -> {
                 if (data.getRefreshToken() != null) {
                     setRefreshTokenCookie(ctx, data.getRefreshToken());
