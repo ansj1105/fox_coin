@@ -10,6 +10,7 @@ import io.vertx.ext.web.handler.JWTAuthHandler;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
 import com.foxya.coin.client.dto.RefreshTokenRequestDto;
+import com.foxya.coin.client.dto.LinkExternalUserRequestDto;
 import com.foxya.coin.client.dto.TokenRequestDto;
 import com.foxya.coin.client.dto.UserTokenRequestDto;
 import com.foxya.coin.common.BaseHandler;
@@ -55,6 +56,13 @@ public class ClientHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(userDataValidation(parser))
             .handler(this::receiveUserData);
+
+        // 외부 서비스 연동 (클라이언트 토큰 필요)
+        router.post("/external-ids/link")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(this::requireClientToken)
+            .handler(linkExternalUserValidation(parser))
+            .handler(this::linkExternalUser);
         
         return router;
     }
@@ -108,6 +116,21 @@ public class ClientHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("provider", stringSchema().with(minLength(1)))
                     .requiredProperty("externalId", stringSchema().with(minLength(1)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 외부 연동 Validation
+     */
+    private Handler<RoutingContext> linkExternalUserValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("provider", stringSchema().with(minLength(1), maxLength(50)))
+                    .requiredProperty("externalId", stringSchema().with(minLength(1), maxLength(255)))
+                    .requiredProperty("linkCode", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -187,5 +210,18 @@ public class ClientHandler extends BaseHandler {
             .put("receivedData", userData);
         
         success(ctx, responseData);
+    }
+
+    /**
+     * 외부 서비스 연동 (linkCode 기반)
+     */
+    private void linkExternalUser(RoutingContext ctx) {
+        LinkExternalUserRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            LinkExternalUserRequestDto.class
+        );
+
+        log.info("External link request - provider: {}, externalId: {}", dto.getProvider(), dto.getExternalId());
+        response(ctx, clientService.linkExternalUser(dto));
     }
 }

@@ -4,12 +4,15 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
+import com.foxya.coin.user.dto.ExternalLinkCodeResponseDto;
+import com.foxya.coin.user.dto.ExternalLinkStatusResponseDto;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.LoginResponseDto;
@@ -31,6 +34,9 @@ public class UserService extends BaseService {
 
     private static final Pattern NICKNAME_PATTERN = Pattern.compile("^[가-힣a-zA-Z0-9]{1,8}$");
     private static final Pattern PHONE_PATTERN = Pattern.compile("^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$");
+    private static final String EXTERNAL_LINK_CODE_PREFIX = "external-link:code:";
+    private static final int EXTERNAL_LINK_CODE_TTL_SECONDS = 300;
+    private static final int EXTERNAL_LINK_CODE_LENGTH = 8;
     
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
@@ -38,6 +44,8 @@ public class UserService extends BaseService {
     private final String frontendBaseUrl;
     private final EmailVerificationRepository emailVerificationRepository;
     private final EmailService emailService;
+    private final RedisAPI redisApi;
+    private final UserExternalIdRepository userExternalIdRepository;
     
     public UserService(PgPool pool,
                        UserRepository userRepository,
@@ -45,7 +53,9 @@ public class UserService extends BaseService {
                        JsonObject jwtConfig,
                        JsonObject frontendConfig,
                        EmailVerificationRepository emailVerificationRepository,
-                       EmailService emailService) {
+                       EmailService emailService,
+                       RedisAPI redisApi,
+                       UserExternalIdRepository userExternalIdRepository) {
         super(pool);
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
@@ -53,6 +63,8 @@ public class UserService extends BaseService {
         this.frontendBaseUrl = frontendConfig != null ? frontendConfig.getString("baseUrl", "http://localhost") : "http://localhost";
         this.emailVerificationRepository = emailVerificationRepository;
         this.emailService = emailService;
+        this.redisApi = redisApi;
+        this.userExternalIdRepository = userExternalIdRepository;
     }
     
     public Future<User> createUser(CreateUserDto dto) {
@@ -276,6 +288,60 @@ public class UserService extends BaseService {
         }
         
         return code.toString();
+    }
+
+    private Future<String> generateUniqueExternalLinkCode(int attempt) {
+        if (attempt >= 5) {
+            return Future.failedFuture(new BadRequestException("연동 코드 생성에 실패했습니다."));
+        }
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("연동 코드 생성 기능을 사용할 수 없습니다."));
+        }
+        String code = generateRandomCode(EXTERNAL_LINK_CODE_LENGTH);
+        String key = EXTERNAL_LINK_CODE_PREFIX + code;
+        return redisApi.get(key)
+            .compose(res -> {
+                if (res != null && res.toString() != null && !res.toString().isBlank()) {
+                    return generateUniqueExternalLinkCode(attempt + 1);
+                }
+                return Future.succeededFuture(code);
+            });
+    }
+
+    public Future<ExternalLinkCodeResponseDto> issueExternalLinkCode(Long userId, String provider) {
+        if (provider == null || provider.isBlank()) {
+            return Future.failedFuture(new BadRequestException("provider가 필요합니다."));
+        }
+        if (redisApi == null) {
+            return Future.failedFuture(new BadRequestException("연동 코드 생성 기능을 사용할 수 없습니다."));
+        }
+        String normalizedProvider = provider.trim().toUpperCase();
+        return generateUniqueExternalLinkCode(0)
+            .compose(code -> {
+                String key = EXTERNAL_LINK_CODE_PREFIX + code;
+                JsonObject payload = new JsonObject()
+                    .put("userId", userId)
+                    .put("provider", normalizedProvider);
+                return redisApi.setex(key, String.valueOf(EXTERNAL_LINK_CODE_TTL_SECONDS), payload.encode())
+                    .map(res -> ExternalLinkCodeResponseDto.builder()
+                        .linkCode(code)
+                        .expiresIn(EXTERNAL_LINK_CODE_TTL_SECONDS)
+                        .provider(normalizedProvider)
+                        .build());
+            });
+    }
+
+    public Future<ExternalLinkStatusResponseDto> getExternalLinkStatus(Long userId, String provider) {
+        if (provider == null || provider.isBlank()) {
+            return Future.failedFuture(new BadRequestException("provider가 필요합니다."));
+        }
+        String normalizedProvider = provider.trim().toUpperCase();
+        return userExternalIdRepository.getExternalIdByUserIdAndProvider(pool, userId, normalizedProvider)
+            .map(externalId -> ExternalLinkStatusResponseDto.builder()
+                .linked(externalId != null && !externalId.isBlank())
+                .provider(normalizedProvider)
+                .externalId(externalId)
+                .build());
     }
     
     /**

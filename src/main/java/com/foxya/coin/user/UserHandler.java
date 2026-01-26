@@ -16,6 +16,7 @@ import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.MeResponseDto;
+import com.foxya.coin.user.dto.ExternalLinkCodeRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -76,6 +77,18 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(verifyEmailValidation(parser))
             .handler(this::verifyEmail);
+
+        // 외부 연동 코드 발급
+        router.post("/external-ids/link-code")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(externalLinkCodeValidation(parser))
+            .handler(this::issueExternalLinkCode);
+
+        router.get("/external-ids/status")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getExternalLinkStatus);
         
         // 레퍼럴 코드 관련 API
         router.get("/referral-code")
@@ -113,6 +126,16 @@ public class UserHandler extends BaseHandler {
                     .optionalProperty("name", stringSchema().with(maxLength(50)))
                     .optionalProperty("nickname", stringSchema().with(maxLength(20)))
                     .optionalProperty("phone", stringSchema().with(maxLength(20)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> externalLinkCodeValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("provider", stringSchema().with(minLength(1), maxLength(50)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -282,5 +305,28 @@ public class UserHandler extends BaseHandler {
         log.info("Verifying email - userId: {}, email: {}", userId, email);
         response(ctx, userService.verifyEmail(userId, email, code));
     }
-}
 
+    /**
+     * 외부 연동 코드 발급
+     */
+    private void issueExternalLinkCode(RoutingContext ctx) {
+        ExternalLinkCodeRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            ExternalLinkCodeRequestDto.class
+        );
+
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("External link code issue - userId: {}, provider: {}", userId, dto.getProvider());
+        response(ctx, userService.issueExternalLinkCode(userId, dto.getProvider()));
+    }
+
+    /**
+     * 외부 연동 상태 조회
+     */
+    private void getExternalLinkStatus(RoutingContext ctx) {
+        String provider = ctx.request().getParam("provider");
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("External link status - userId: {}, provider: {}", userId, provider);
+        response(ctx, userService.getExternalLinkStatus(userId, provider));
+    }
+}

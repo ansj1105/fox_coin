@@ -161,6 +161,8 @@ public class ApiVerticle extends AbstractVerticle {
         InquiryRepository inquiryRepository = new InquiryRepository();
         MissionRepository missionRepository = new MissionRepository();
         AirdropRepository airdropRepository = new AirdropRepository();
+        ClientRepository clientRepository = new ClientRepository();
+        UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
         
         // 이메일 서비스 (SMTP 설정은 선택 사항)
         EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
@@ -171,7 +173,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // UserService를 먼저 생성 (AuthService에서 사용)
         UserService userService = new UserService(
-            pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService);
+            pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService, redisApi, userExternalIdRepository);
         
         // WebClient 초기화 (외부 API 호출용)
         WebClient webClient = WebClient.create(vertx);
@@ -241,10 +243,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, missionRepository);
         AirdropService airdropService = new AirdropService(
             pool, airdropRepository, currencyRepository, transferRepository, walletRepository);
-        ClientRepository clientRepository = new ClientRepository();
-        UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
         ClientService clientService = new ClientService(
-            pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth);
+            pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
