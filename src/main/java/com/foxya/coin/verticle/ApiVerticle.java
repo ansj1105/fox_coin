@@ -436,6 +436,7 @@ public class ApiVerticle extends AbstractVerticle {
             .allowedHeader("Accept")
             .allowedHeader("Origin")
             .allowedHeader("X-Requested-With")
+            .allowedHeader("X-Device-Id")
             .exposedHeader("Content-Length")
             .exposedHeader("Content-Type"));
         
