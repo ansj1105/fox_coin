@@ -15,6 +15,7 @@ import io.vertx.json.schema.SchemaParser;
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
+import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.auth.dto.EmailRequestDto;
 import com.foxya.coin.auth.dto.EmailVerifyRequestDto;
 import com.foxya.coin.auth.dto.LoginDto;
@@ -309,9 +310,9 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("code", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
-                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
-                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
-                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
                     .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
                     .allowAdditionalProperties(false)
             ))
@@ -564,6 +565,21 @@ public class AuthHandler extends BaseHandler {
             Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
             com.foxya.coin.auth.dto.GoogleLoginRequestDto.class
         );
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()) {
+            dto.setDeviceId(ctx.request().getHeader("X-Device-Id"));
+        }
+        if (dto.getDeviceType() == null || dto.getDeviceType().isBlank()) {
+            dto.setDeviceType(ctx.request().getHeader("X-Device-Type"));
+        }
+        if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
+        }
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
+            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
+            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
+            return;
+        }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));
 
