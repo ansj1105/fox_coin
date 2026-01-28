@@ -21,6 +21,7 @@ public class AirdropPhase {
     private Integer phase;
     private String status;
     private BigDecimal amount;
+    private Boolean claimed;  // true: Release 완료(락업 해제 금액 반영), false: Release 버튼 가능
     private LocalDateTime unlockDate;
     private Integer daysRemaining;
     private LocalDateTime createdAt;

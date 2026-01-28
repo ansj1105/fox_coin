@@ -51,6 +51,8 @@ tags:
     description: 보안 관련 API (거래 비밀번호 등)
   - name: Client
     description: 외부 서비스 연동 API
+  - name: Airdrop
+    description: 에어드랍 (Phase Release, 락업 해제 금액 전송)
 
 components:
   securitySchemes:
@@ -1571,6 +1573,78 @@ components:
           type: string
           format: date-time
         endDate:
+          type: string
+          format: date-time
+
+    AirdropStatus:
+      type: object
+      description: 에어드랍 상태
+      properties:
+        totalReceived:
+          type: number
+          format: decimal
+          description: 락업 해제 금액 (RELEASED && (claimed true 또는 미존재) phase의 amount 합)
+        totalReward:
+          type: number
+          format: decimal
+          description: 전체 보상 금액
+        nextUnlockDays:
+          type: integer
+          nullable: true
+          description: 다음 언락까지 남은 일수
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/AirdropPhase'
+
+    AirdropPhase:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        phase:
+          type: integer
+        status:
+          type: string
+          enum: [RELEASED, PROCESSING]
+        amount:
+          type: number
+          format: decimal
+        claimed:
+          type: boolean
+          nullable: true
+          description: true면 Release 완료, false/미존재면 Release 버튼 노출 가능
+        unlockDate:
+          type: string
+          format: date-time
+        daysRemaining:
+          type: integer
+          nullable: true
+
+    AirdropPhaseReleaseResponse:
+      type: object
+      properties:
+        phaseId:
+          type: integer
+          format: int64
+        amount:
+          type: number
+          format: decimal
+
+    AirdropTransferResponse:
+      type: object
+      properties:
+        transferId:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        currencyCode:
+          type: string
+        status:
+          type: string
+        createdAt:
           type: string
           format: date-time
 
@@ -3414,6 +3488,105 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/TeamInfoResponse'
+        '401':
+          description: 인증 실패
+
+  # ==================== Airdrop ====================
+  /api/v1/airdrop/status:
+    get:
+      summary: 에어드랍 상태 조회
+      description: |
+        totalReceived: 락업 해제 금액 (RELEASED 이면서 claimed true 또는 미존재인 phase의 amount 합)
+        totalReward: 전체 보상 금액
+        nextUnlockDays: 다음 언락까지 남은 일수
+        phases: status(RELEASED/PROCESSING), claimed(선택), unlockDate, daysRemaining 포함
+      tags: [Airdrop]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AirdropStatus'
+        '401':
+          description: 인증 실패
+
+  /api/v1/airdrop/phase/{phaseId}/release:
+    post:
+      summary: Phase Release (락업 해제 반영)
+      description: |
+        보상형 영상(AdMob Rewarded Video) 시청 완료 후에만 호출.
+        status === RELEASED 이고 claimed === false 인 phase만 성공. 성공 시 claimed를 true로 갱신.
+      tags: [Airdrop]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: phaseId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: phase.id
+      responses:
+        '200':
+          description: Release 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AirdropPhaseReleaseResponse'
+        '400':
+          description: 해제 불가 phase, 이미 Release 완료
+        '401':
+          description: 인증 실패
+        '404':
+          description: Phase 없음
+
+  /api/v1/airdrop/transfer:
+    post:
+      summary: 에어드랍 락업 해제 금액 전송
+      description: 락업 해제 금액(RELEASED && claimed true 인 phase 합)을 코리온 지갑으로 전송.
+      tags: [Airdrop]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount:
+                  type: number
+                  format: decimal
+                  description: 전송 금액
+      responses:
+        '200':
+          description: 전송 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AirdropTransferResponse'
+        '400':
+          description: 금액 부족/잘못된 금액
         '401':
           description: 인증 실패
 

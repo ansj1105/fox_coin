@@ -44,6 +44,10 @@ public class AirdropHandler extends BaseHandler {
         router.get("/status")
             .handler(this::getAirdropStatus);
         
+        // Phase Release (보상형 영상 시청 완료 후 락업 해제 반영)
+        router.post("/phase/:phaseId/release")
+            .handler(this::releasePhase);
+        
         // 에어드랍 전송
         router.post("/transfer")
             .handler(transferValidation(parser))
@@ -72,6 +76,28 @@ public class AirdropHandler extends BaseHandler {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("에어드랍 상태 조회 요청 - userId: {}", userId);
         response(ctx, airdropService.getAirdropStatus(userId));
+    }
+    
+    /**
+     * Phase Release: 보상형 영상 시청 완료 후 해당 Phase를 락업 해제 금액에 반영.
+     * POST /api/v1/airdrop/phase/:phaseId/release
+     */
+    private void releasePhase(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String phaseIdParam = ctx.pathParam("phaseId");
+        if (phaseIdParam == null || phaseIdParam.isBlank()) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("phaseId가 필요합니다."));
+            return;
+        }
+        Long phaseId;
+        try {
+            phaseId = Long.parseLong(phaseIdParam);
+        } catch (NumberFormatException e) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("phaseId는 숫자여야 합니다."));
+            return;
+        }
+        log.info("에어드랍 Phase Release 요청 - userId: {}, phaseId: {}", userId, phaseId);
+        response(ctx, airdropService.releasePhase(userId, phaseId));
     }
     
     /**

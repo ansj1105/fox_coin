@@ -496,8 +496,8 @@ public class UserService extends BaseService {
     }
 
     /**
-     * 로그인 비밀번호 변경 (이메일 인증 코드 기반, 일반 회원 전용)
-     * 소셜 전용 계정(비밀번호 미설정)은 변경 불가.
+     * 로그인 비밀번호 변경 (이메일 인증 코드 기반)
+     * 소셜 계정도 이메일 인증 후 비밀번호 설정 가능.
      */
     public Future<Void> changeLoginPassword(Long userId, String code, String newPassword) {
         // newPassword: 8자 이상
@@ -509,10 +509,6 @@ public class UserService extends BaseService {
             .compose(user -> {
                 if (user == null) {
                     return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
-                }
-                // 소셜 전용 계정(비밀번호 미설정) 거부
-                if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
-                    return Future.failedFuture(new BadRequestException("소셜 전용 계정(비밀번호 미설정)입니다. 로그인 비밀번호를 변경할 수 없습니다."));
                 }
 
                 return emailVerificationRepository.getLatestByUserId(pool, userId)

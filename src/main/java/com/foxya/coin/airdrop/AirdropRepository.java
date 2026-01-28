@@ -25,6 +25,7 @@ public class AirdropRepository extends BaseRepository {
         .phase(getIntegerColumnValue(row, "phase"))
         .status(getStringColumnValue(row, "status"))
         .amount(getBigDecimalColumnValue(row, "amount"))
+        .claimed(getBooleanColumnValue(row, "claimed"))
         .unlockDate(getLocalDateTimeColumnValue(row, "unlock_date"))
         .daysRemaining(getIntegerColumnValue(row, "days_remaining"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
@@ -65,6 +66,38 @@ public class AirdropRepository extends BaseRepository {
      */
     public Future<List<AirdropPhase>> getPhasesByUserIdNotDeleted(SqlClient client, Long userId) {
         return getPhasesByUserId(client, userId);
+    }
+    
+    /**
+     * phaseId + userId로 Phase 단건 조회 (삭제되지 않은 것만)
+     */
+    public Future<AirdropPhase> getPhaseByIdAndUserId(SqlClient client, Long phaseId, Long userId) {
+        String sql = QueryBuilder
+            .select("airdrop_phases")
+            .where("id", Op.Equal, "phase_id")
+            .andWhere("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("phase_id", phaseId);
+        params.put("user_id", userId);
+        return query(client, sql, params)
+            .map(rows -> fetchOne(phaseMapper, rows))
+            .onFailure(throwable -> log.error("Phase 조회 실패 - phaseId: {}, userId: {}", phaseId, userId, throwable));
+    }
+    
+    /**
+     * Phase의 claimed를 true로 갱신 (Release 완료 처리)
+     */
+    public Future<AirdropPhase> updatePhaseClaimed(SqlClient client, Long phaseId, Long userId) {
+        String sql = "UPDATE airdrop_phases SET claimed = TRUE, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE id = #{phase_id} AND user_id = #{user_id} AND deleted_at IS NULL AND claimed = FALSE RETURNING *";
+        Map<String, Object> params = new HashMap<>();
+        params.put("phase_id", phaseId);
+        params.put("user_id", userId);
+        return query(client, sql, params)
+            .map(rows -> fetchOne(phaseMapper, rows))
+            .onFailure(throwable -> log.error("Phase claimed 갱신 실패 - phaseId: {}, userId: {}", phaseId, userId, throwable));
     }
     
     /**

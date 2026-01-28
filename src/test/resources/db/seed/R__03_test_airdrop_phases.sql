@@ -54,6 +54,23 @@ WHERE NOT EXISTS (
     AND phase = 3
 );
 
+-- phase 4: 이미 언락일 도래 (Release 후 전송 테스트용으로 두 번째 RELEASED)
+INSERT INTO airdrop_phases (user_id, phase, status, amount, unlock_date, days_remaining, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'testuser'),
+    4,
+    'RELEASED',
+    20000.0,
+    NOW() - INTERVAL '5 days',
+    NULL,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM airdrop_phases 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'testuser')
+    AND phase = 4
+);
+
 -- 시퀀스 리셋 (ID 순서 보장)
 SELECT setval('airdrop_phases_id_seq', (SELECT COALESCE(MAX(id), 1) FROM airdrop_phases));
 SELECT setval('airdrop_transfers_id_seq', (SELECT COALESCE(MAX(id), 1) FROM airdrop_transfers));

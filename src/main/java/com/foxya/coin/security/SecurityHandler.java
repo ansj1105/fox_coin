@@ -51,7 +51,7 @@ public class SecurityHandler extends BaseHandler {
             .handler(setTransactionPasswordValidation(parser))
             .handler(this::setTransactionPassword);
 
-        // 로그인 비밀번호 변경 (이메일 인증 코드 기반, 일반 회원 전용)
+        // 로그인 비밀번호 변경 (이메일 인증 코드 기반)
         router.post("/login-password")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(changeLoginPasswordValidation(parser))
@@ -97,7 +97,7 @@ public class SecurityHandler extends BaseHandler {
     }
 
     /**
-     * 로그인 비밀번호 변경 (이메일 인증 코드 기반, 일반 회원 전용)
+     * 로그인 비밀번호 변경 (이메일 인증 코드 기반)
      */
     private void changeLoginPassword(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
@@ -110,5 +110,4 @@ public class SecurityHandler extends BaseHandler {
         response(ctx, userService.changeLoginPassword(userId, code, newPassword));
     }
 }
-
 

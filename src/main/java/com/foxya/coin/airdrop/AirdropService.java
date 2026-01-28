@@ -1,6 +1,7 @@
 package com.foxya.coin.airdrop;
 
 import com.foxya.coin.airdrop.dto.AirdropPhaseDto;
+import com.foxya.coin.airdrop.dto.AirdropPhaseReleaseResponseDto;
 import com.foxya.coin.airdrop.dto.AirdropStatusDto;
 import com.foxya.coin.airdrop.dto.AirdropTransferRequestDto;
 import com.foxya.coin.airdrop.dto.AirdropTransferResponseDto;
@@ -9,6 +10,7 @@ import com.foxya.coin.airdrop.entities.AirdropTransfer;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
+import com.foxya.coin.common.exceptions.ForbiddenException;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.transfer.TransferRepository;
@@ -96,11 +98,14 @@ public class AirdropService extends BaseService {
                             daysRemaining = (int) Math.max(0, days);
                         }
                         
+                        Boolean claimed = phase.getClaimed() != null ? phase.getClaimed() : Boolean.FALSE;
+                        
                         return AirdropPhaseDto.builder()
                             .id(phase.getId())
                             .phase(phase.getPhase())
                             .status(status)
                             .amount(phase.getAmount())
+                            .claimed(claimed)
                             .unlockDate(phase.getUnlockDate())
                             .daysRemaining(daysRemaining)
                             .build();
@@ -108,9 +113,10 @@ public class AirdropService extends BaseService {
                     .sorted(Comparator.comparing(AirdropPhaseDto::getPhase))
                     .collect(Collectors.toList());
                 
-                // totalReceived 계산 (RELEASED 상태인 Phase들의 합)
+                // totalReceived: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
                 BigDecimal totalReceived = phaseDtos.stream()
-                    .filter(p -> AirdropPhase.STATUS_RELEASED.equals(p.getStatus()))
+                    .filter(p -> AirdropPhase.STATUS_RELEASED.equals(p.getStatus())
+                        && !Boolean.FALSE.equals(p.getClaimed()))
                     .map(AirdropPhaseDto::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 
@@ -132,6 +138,40 @@ public class AirdropService extends BaseService {
                     .nextUnlockDays(nextUnlockDays)
                     .phases(phaseDtos)
                     .build());
+            });
+    }
+    
+    /**
+     * Phase Release: 보상형 영상 시청 완료 후 해당 Phase를 락업 해제 금액에 반영.
+     * status === RELEASED && claimed === false 인 경우만 성공.
+     */
+    public Future<AirdropPhaseReleaseResponseDto> releasePhase(Long userId, Long phaseId) {
+        if (phaseId == null) {
+            return Future.failedFuture(new BadRequestException("phaseId가 필요합니다."));
+        }
+        return airdropRepository.getPhaseByIdAndUserId(pool, phaseId, userId)
+            .compose(phase -> {
+                if (phase == null) {
+                    return Future.failedFuture(new NotFoundException("해당 Phase를 찾을 수 없습니다."));
+                }
+                LocalDateTime now = LocalDateTime.now();
+                boolean isReleased = phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now);
+                if (!isReleased) {
+                    return Future.failedFuture(new BadRequestException("해제 가능한 Phase가 아닙니다. (언락일 도래 후 Release 가능)"));
+                }
+                if (Boolean.TRUE.equals(phase.getClaimed())) {
+                    return Future.failedFuture(new BadRequestException("이미 Release 완료된 Phase입니다."));
+                }
+                return airdropRepository.updatePhaseClaimed(pool, phaseId, userId)
+                    .map(updated -> {
+                        if (updated == null) {
+                            throw new ForbiddenException("Release 처리에 실패했습니다.");
+                        }
+                        return AirdropPhaseReleaseResponseDto.builder()
+                            .phaseId(updated.getId())
+                            .amount(updated.getAmount())
+                            .build();
+                    });
             });
     }
     
@@ -170,11 +210,13 @@ public class AirdropService extends BaseService {
                         
                         LocalDateTime now = LocalDateTime.now();
                         
-                        // RELEASED 상태인 Phase들의 총 금액 계산
+                        // 락업 해제 금액: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
                         BigDecimal availableAmount = phases.stream()
                             .filter(phase -> {
                                 boolean isReleased = phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now);
-                                return isReleased && AirdropPhase.STATUS_RELEASED.equals(phase.getStatus());
+                                boolean claimed = Boolean.TRUE.equals(phase.getClaimed());
+                                return isReleased && AirdropPhase.STATUS_RELEASED.equals(phase.getStatus())
+                                    && claimed;
                             })
                             .map(AirdropPhase::getAmount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);

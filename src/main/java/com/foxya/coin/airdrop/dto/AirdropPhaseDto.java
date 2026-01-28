@@ -17,6 +17,7 @@ public class AirdropPhaseDto {
     private Integer phase;
     private String status;
     private BigDecimal amount;
+    private Boolean claimed;  // true: Release 완료, false/미존재: Release 버튼 노출 가능
     private LocalDateTime unlockDate;
     private Integer daysRemaining;
 }
