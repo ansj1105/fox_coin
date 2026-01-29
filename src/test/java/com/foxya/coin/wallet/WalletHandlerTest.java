@@ -77,6 +77,26 @@ public class WalletHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(4)
+        @DisplayName("deviceType=MOBILE, deviceOs=WEB 시 WEB로 처리되어 디바이스 정보 오류가 나지 않음")
+        void deviceOsWebTreatedAsWeb(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            webClient.get(port, "localhost", getUrl("/my"))
+                .putHeader("Authorization", "Bearer " + accessToken)
+                .putHeader("X-Device-Id", "test-device-default")
+                .putHeader("X-Device-Type", "MOBILE")
+                .putHeader("X-Device-Os", "WEB")
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    int code = res.statusCode();
+                    String body = res.bodyAsString();
+                    if (code == 401) {
+                        assertThat(body).doesNotContain("디바이스 정보가 올바르지 않습니다");
+                    }
+                    tc.completeNow();
+                })));
+        }
     }
     
     @Nested

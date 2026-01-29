@@ -75,7 +75,8 @@ public class DeviceGuard implements Handler<RoutingContext> {
     private Future<Void> ensureActiveDevice(Long userId, String deviceId, String deviceType, String deviceOs) {
         String normalizedType = deviceType.toUpperCase();
         String normalizedOs = deviceOs.toUpperCase();
-        if ("WEB".equals(normalizedType)) {
+        // 웹 사용: deviceType=WEB 또는 deviceOs=WEB 이면 WEB 디바이스로 처리
+        if ("WEB".equals(normalizedType) || "WEB".equals(normalizedOs)) {
             return deviceRepository.getActiveDeviceByUserAndType(pool, userId, "WEB")
                 .compose(device -> validateDevice(device, deviceId));
         }

@@ -2,14 +2,19 @@ package com.foxya.coin.common.utils;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.mail.LoginOption;
+import io.vertx.ext.mail.MailAttachment;
 import io.vertx.ext.mail.MailClient;
 import io.vertx.ext.mail.MailConfig;
 import io.vertx.ext.mail.MailMessage;
 import io.vertx.ext.mail.StartTLSOptions;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.SecureRandom;
 
 /**
@@ -21,8 +26,14 @@ public class EmailService {
     private final String fromAddress;
     private final MailClient mailClient;
     private final boolean smtpEnabled;
+    private final String ctaBaseUrl;
+    private final Buffer logoBuffer;
+    private final String logoContentId;
 
-    public EmailService(Vertx vertx, JsonObject smtpConfig) {
+    private static final String DEFAULT_LOGO_PATH = "public/images/korion_b.png";
+    private static final String DEFAULT_LOGO_CONTENT_ID = "korion-logo";
+
+    public EmailService(Vertx vertx, JsonObject smtpConfig, JsonObject frontendConfig) {
         if (smtpConfig != null && smtpConfig.containsKey("host") && !smtpConfig.getString("host").isEmpty()) {
             // SMTP 설정이 있으면 MailClient 생성
             this.smtpEnabled = true;
@@ -60,6 +71,12 @@ public class EmailService {
             this.mailClient = null;
             log.warn("[EmailService] SMTP not configured. Email sending will be logged only.");
         }
+
+        String baseUrl = frontendConfig != null ? frontendConfig.getString("baseUrl", "") : "";
+        this.ctaBaseUrl = normalizeBaseUrl(baseUrl);
+        String configuredLogoPath = smtpConfig != null ? smtpConfig.getString("logoPath", DEFAULT_LOGO_PATH) : DEFAULT_LOGO_PATH;
+        this.logoBuffer = loadLogoBuffer(configuredLogoPath);
+        this.logoContentId = DEFAULT_LOGO_CONTENT_ID;
     }
 
     /**
@@ -81,7 +98,9 @@ public class EmailService {
         message.setFrom(fromAddress);
         message.setTo(email);
         message.setSubject("[KORION] 이메일 인증 코드");
+        message.setText(getVerificationEmailText(code));
         message.setHtml(getEmailTemplate(code));
+        addLogoInlineAttachmentIfAvailable(message);
 
         log.info("[EmailService] Sending mail via SMTP. Host: {}, Port: {}", 
             mailClient.getClass().getName(), "checking...");
@@ -107,41 +126,57 @@ public class EmailService {
     private String getEmailTemplate(String code) {
         return """
             <!DOCTYPE html>
-            <html>
+            <html lang="ko">
             <head>
-                <meta charset="UTF-8">
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
-                    .content { padding: 20px; background-color: #f9f9f9; }
-                    .code-box { background-color: #fff; border: 2px dashed #4CAF50; padding: 20px; text-align: center; margin: 20px 0; }
-                    .code { font-size: 32px; font-weight: bold; color: #4CAF50; letter-spacing: 5px; }
-                    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-                </style>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta http-equiv="x-apple-disable-message-reformatting">
+              <title>KORION 이메일 인증</title>
             </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>KORION WALLET 이메일 인증</h1>
+            <body style="margin:0; padding:0; background-color:#0d0a1b;">
+              <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
+                KORION WALLET 이메일 인증 코드입니다.
+              </div>
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+                <tr>
+                  <td align="center">
+                    <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">
+                      <tr>
+                        <td style="padding:28px 32px; background:linear-gradient(135deg,#6c5cff,#8b5cf6); color:#ffffff; font-family:Helvetica,Arial,sans-serif;">
+                          %s
+                          <div style="font-size:14px; letter-spacing:2px; text-transform:uppercase; opacity:0.9;">KORION WALLET</div>
+                          <div style="font-size:24px; font-weight:700; margin-top:6px;">이메일 인증 코드</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:28px 32px; font-family:Helvetica,Arial,sans-serif; color:#e5e7eb; font-size:15px; line-height:1.6;">
+                          <p style="margin:0 0 10px;">안녕하세요,</p>
+                          <p style="margin:0 0 16px;">아래 인증 코드를 입력하여 이메일 인증을 완료해주세요.</p>
+                          <div style="text-align:center; margin:20px 0 22px;">
+                            <div style="display:inline-block; padding:14px 22px; background-color:#0b1020; border:1px dashed #7c3aed; border-radius:12px;">
+                              <span style="font-size:28px; font-weight:700; letter-spacing:6px; color:#c4b5fd;">%s</span>
+                            </div>
+                          </div>
+                          <p style="margin:0 0 6px; color:#cbd5f5;">인증 코드는 <strong>10분간 유효</strong>합니다.</p>
+                          <p style="margin:0; color:#9ca3af;">본인이 요청하지 않았다면 이 메일을 무시해 주세요.</p>
+                          %s
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:18px 32px 24px; font-family:Helvetica,Arial,sans-serif; color:#9ca3af; font-size:12px; text-align:center;">
+                          © 2026 KORION. All rights reserved.
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="font-family:Helvetica,Arial,sans-serif; color:#6b7280; font-size:11px; margin-top:14px;">
+                      이 메일은 발신 전용입니다.
                     </div>
-                    <div class="content">
-                        <p>안녕하세요,</p>
-                        <p>KORION WALLET 서비스 이메일 인증을 위한 인증 코드입니다.</p>
-                        <div class="code-box">
-                            <div class="code">%s</div>
-                        </div>
-                        <p>위 인증 코드를 입력하여 이메일 인증을 완료해주세요.</p>
-                        <p><strong>인증 코드는 10분간 유효합니다.</strong></p>
-                        <p>본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 KORION. All rights reserved.</p>
-                    </div>
-                </div>
+                  </td>
+                </tr>
+              </table>
             </body>
             </html>
-            """.formatted(code);
+            """.formatted(buildLogoImgHtml(), code, buildCtaButtonHtml("KORION WALLET 열기", ctaBaseUrl));
     }
 
     /**
@@ -181,7 +216,9 @@ public class EmailService {
         message.setFrom(fromAddress);
         message.setTo(email);
         message.setSubject("[KORION] 임시 비밀번호 안내");
+        message.setText(getTemporaryPasswordText(tempPassword));
         message.setHtml(getTemporaryPasswordTemplate(tempPassword));
+        addLogoInlineAttachmentIfAvailable(message);
         return mailClient.sendMail(message)
             .map(ok -> (Void) null)
             .recover(throwable -> {
@@ -193,28 +230,176 @@ public class EmailService {
     private String getTemporaryPasswordTemplate(String tempPassword) {
         return """
             <!DOCTYPE html>
-            <html>
-            <head><meta charset="UTF-8"><style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
-            .content { padding: 20px; background-color: #f9f9f9; }
-            .code-box { background-color: #fff; border: 2px dashed #4CAF50; padding: 20px; text-align: center; margin: 20px 0; }
-            .code { font-size: 24px; font-weight: bold; color: #4CAF50; letter-spacing: 3px; }
-            .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-            </style></head>
-            <body><div class="container">
-            <div class="header"><h1>KORION 임시 비밀번호</h1></div>
-            <div class="content">
-            <p>안녕하세요,</p>
-            <p>요청하신 임시 비밀번호입니다. 로그인 후 반드시 비밀번호를 변경해주세요.</p>
-            <div class="code-box"><div class="code">%s</div></div>
-            <p>보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.</p>
-            </div>
-            <div class="footer"><p>© 2026 KORION. All rights reserved.</p></div>
-            </div></body></html>
-            """.formatted(tempPassword);
+            <html lang="ko">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta http-equiv="x-apple-disable-message-reformatting">
+              <title>KORION 임시 비밀번호</title>
+            </head>
+            <body style="margin:0; padding:0; background-color:#0d0a1b;">
+              <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
+                KORION WALLET 임시 비밀번호 안내입니다.
+              </div>
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+                <tr>
+                  <td align="center">
+                    <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">
+                      <tr>
+                        <td style="padding:28px 32px; background:linear-gradient(135deg,#6c5cff,#8b5cf6); color:#ffffff; font-family:Helvetica,Arial,sans-serif;">
+                          %s
+                          <div style="font-size:14px; letter-spacing:2px; text-transform:uppercase; opacity:0.9;">KORION WALLET</div>
+                          <div style="font-size:24px; font-weight:700; margin-top:6px;">임시 비밀번호 안내</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:28px 32px; font-family:Helvetica,Arial,sans-serif; color:#e5e7eb; font-size:15px; line-height:1.6;">
+                          <p style="margin:0 0 10px;">안녕하세요,</p>
+                          <p style="margin:0 0 16px;">요청하신 임시 비밀번호입니다. 로그인 후 반드시 비밀번호를 변경해주세요.</p>
+                          <div style="text-align:center; margin:20px 0 22px;">
+                            <div style="display:inline-block; padding:12px 18px; background-color:#0b1020; border:1px dashed #7c3aed; border-radius:12px;">
+                              <span style="font-size:22px; font-weight:700; letter-spacing:3px; color:#c4b5fd;">%s</span>
+                            </div>
+                          </div>
+                          <p style="margin:0; color:#9ca3af;">보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.</p>
+                          %s
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:18px 32px 24px; font-family:Helvetica,Arial,sans-serif; color:#9ca3af; font-size:12px; text-align:center;">
+                          © 2026 KORION. All rights reserved.
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="font-family:Helvetica,Arial,sans-serif; color:#6b7280; font-size:11px; margin-top:14px;">
+                      이 메일은 발신 전용입니다.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </body>
+            </html>
+            """.formatted(buildLogoImgHtml(), tempPassword, buildCtaButtonHtml("로그인하기", buildCtaUrl("/login")));
+    }
+
+    private String getVerificationEmailText(String code) {
+        String ctaLine = buildCtaTextLine("앱 열기", ctaBaseUrl);
+        return """
+            KORION WALLET 이메일 인증 코드
+
+            안녕하세요.
+            아래 인증 코드를 입력하여 이메일 인증을 완료해주세요.
+
+            인증 코드: %s
+
+            인증 코드는 10분간 유효합니다.
+            본인이 요청하지 않았다면 이 메일을 무시해 주세요.
+
+            %s
+
+            © 2026 KORION. All rights reserved.
+            """.formatted(code, ctaLine);
+    }
+
+    private String getTemporaryPasswordText(String tempPassword) {
+        String ctaLine = buildCtaTextLine("로그인", buildCtaUrl("/login"));
+        return """
+            KORION WALLET 임시 비밀번호 안내
+
+            안녕하세요.
+            요청하신 임시 비밀번호입니다. 로그인 후 반드시 비밀번호를 변경해주세요.
+
+            임시 비밀번호: %s
+
+            보안을 위해 로그인 후 즉시 비밀번호를 변경하시기 바랍니다.
+
+            %s
+
+            © 2026 KORION. All rights reserved.
+            """.formatted(tempPassword, ctaLine);
+    }
+
+    private void addLogoInlineAttachmentIfAvailable(MailMessage message) {
+        if (logoBuffer == null || logoBuffer.length() == 0) {
+            return;
+        }
+        MailAttachment attachment = MailAttachment.create()
+            .setData(logoBuffer)
+            .setContentType("image/png")
+            .setName("korion_b.png")
+            .setDisposition("inline")
+            .setContentId(logoContentId);
+        message.setInlineAttachment(attachment);
+    }
+
+    private String buildLogoImgHtml() {
+        if (logoBuffer == null || logoBuffer.length() == 0) {
+            return "";
+        }
+        return """
+          <div style="margin-bottom:10px;">
+            <img src="cid:%s" width="120" alt="KORION" style="display:block; height:auto; border:0;">
+          </div>
+          """.formatted(logoContentId);
+    }
+
+    private String buildCtaButtonHtml(String label, String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        return """
+          <div style="margin-top:22px;">
+            <a href="%s" style="display:inline-block; background:#6c5cff; color:#ffffff; text-decoration:none; padding:12px 22px; border-radius:10px; font-weight:600;">
+              %s
+            </a>
+          </div>
+          """.formatted(url, label);
+    }
+
+    private String buildCtaTextLine(String label, String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        return label + ": " + url;
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        if (baseUrl == null) {
+            return "";
+        }
+        return baseUrl.replaceAll("/+$", "");
+    }
+
+    private String buildCtaUrl(String path) {
+        if (ctaBaseUrl == null || ctaBaseUrl.isBlank()) {
+            return "";
+        }
+        if (path == null || path.isBlank()) {
+            return ctaBaseUrl;
+        }
+        if (path.startsWith("/")) {
+            return ctaBaseUrl + path;
+        }
+        return ctaBaseUrl + "/" + path;
+    }
+
+    private Buffer loadLogoBuffer(String logoPath) {
+        if (logoPath == null || logoPath.isBlank()) {
+            return null;
+        }
+        try {
+            Path path = Paths.get(logoPath);
+            if (!path.isAbsolute()) {
+                path = Paths.get(logoPath).toAbsolutePath();
+            }
+            if (!Files.exists(path)) {
+                log.warn("[EmailService] Logo not found at path: {}", path);
+                return null;
+            }
+            return Buffer.buffer(Files.readAllBytes(path));
+        } catch (Exception e) {
+            log.warn("[EmailService] Failed to load logo image: {}", e.getMessage());
+            return null;
+        }
     }
 }
-
-

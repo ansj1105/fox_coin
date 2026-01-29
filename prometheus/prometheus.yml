@@ -12,9 +12,11 @@ global:
 
 # 스크랩 설정
 scrape_configs:
-  # API 서버 메트릭
+  # API 서버 메트릭 (5분마다 수집해 로그/부하 완화)
   - job_name: 'foxya-api'
     metrics_path: '/metrics'
+    scrape_interval: 5m
+    scrape_timeout: 30s
     static_configs:
       - targets: ['app:8080']
         labels:

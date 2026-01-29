@@ -194,6 +194,30 @@ public class AuthHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(33)
+        @DisplayName("실패 - 소셜 가입 토큰 만료 (signupToken 없음/만료 시 400 + errorCode SOCIAL_SIGNUP_EXPIRED)")
+        void failSocialSignupExpired(VertxTestContext tc) {
+            JsonObject reg = new JsonObject()
+                .put("email", "social-expired@test.com")
+                .put("code", "")
+                .put("password", "Test1234!@")
+                .put("seedConfirmed", true)
+                .put("signupToken", "nonexistent-or-expired-token-12345")
+                .put("nickname", "nickexp")
+                .put("name", "Expired")
+                .put("country", "KR")
+                .mergeIn(deviceInfo("register-device-web-exp", "WEB", "WEB"));
+            reqPost(getUrl("/register"))
+                .sendJson(reg, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    JsonObject body = res.bodyAsJsonObject();
+                    assertThat(body.getString("errorCode")).isEqualTo("SOCIAL_SIGNUP_EXPIRED");
+                    assertThat(body.getString("status")).isEqualTo("ERROR");
+                    tc.completeNow();
+                })));
+        }
     }
     
     @Nested

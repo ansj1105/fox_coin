@@ -13,6 +13,7 @@ import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.ConflictException;
 import com.foxya.coin.common.exceptions.NotFoundException;
+import com.foxya.coin.common.exceptions.SocialSignupExpiredException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
@@ -889,7 +890,7 @@ public class AuthService extends BaseService {
         return redisApi.get(key)
             .compose(res -> {
                 if (res == null || res.toString() == null || res.toString().isBlank()) {
-                    return Future.failedFuture(new BadRequestException("소셜 가입 정보가 만료되었습니다."));
+                    return Future.failedFuture(new SocialSignupExpiredException("소셜 가입 정보가 만료되었습니다. 스토리지를 비우고 소셜 로그인을 다시 시도해 주세요."));
                 }
                 return Future.succeededFuture(new JsonObject(res.toString()));
             });
@@ -994,7 +995,7 @@ public class AuthService extends BaseService {
      * Access Token을 블랙리스트에 추가 (로그아웃 시)
      */
     private Future<Void> addTokenToBlacklist(String token) {
-        int accessTokenExpireMinutes = jwtConfig.getInteger("access_token_expire_minutes", 30);
+        int accessTokenExpireMinutes = jwtConfig.getInteger("access_token_expire_minutes", 60);
         long expireSeconds = accessTokenExpireMinutes * 60L;
         return addToBlacklist(token, expireSeconds);
     }

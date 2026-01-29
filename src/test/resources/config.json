@@ -14,7 +14,7 @@
     },
     "jwt": {
       "secret": "test-secret-key-for-foxya-coin-service",
-      "access_token_expire_minutes": 30,
+      "access_token_expire_minutes": 60,
       "refresh_token_expire_minutes": 14400
     },
     "flyway": {

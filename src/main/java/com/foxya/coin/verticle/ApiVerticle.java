@@ -167,7 +167,11 @@ public class ApiVerticle extends AbstractVerticle {
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
         
         // 이메일 서비스 (SMTP 설정은 선택 사항)
-        EmailService emailService = new EmailService(vertx, config().getJsonObject("smtp", new JsonObject()));
+        EmailService emailService = new EmailService(
+            vertx,
+            config().getJsonObject("smtp", new JsonObject()),
+            frontendConfig
+        );
 
         // Redis 초기화 (토큰 블랙리스트용)
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
@@ -420,11 +424,11 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private void setupGlobalHandlers(Router router) {
-        // CORS
+        // CORS - 웹 사용 시 널널하게 (preflight 캐시, 노출 헤더 확대)
         router.route().handler(CorsHandler.create()
-            //.addOrigin("https://app.korion.io.kr")
             .addRelativeOrigin(".*")
             .allowCredentials(true)
+            .maxAgeSeconds(86400)
             .allowedMethod(HttpMethod.GET)
             .allowedMethod(HttpMethod.POST)
             .allowedMethod(HttpMethod.PUT)
@@ -455,20 +459,24 @@ public class ApiVerticle extends AbstractVerticle {
             .allowedHeader("If-None-Match")
             .allowedHeader("Accept-Language")
             .allowedHeader("Accept-Encoding")
+            .allowedHeader("Access-Control-Request-Method")
+            .allowedHeader("Access-Control-Request-Headers")
             .exposedHeader("Content-Length")
-            .exposedHeader("Content-Type"));
+            .exposedHeader("Content-Type")
+            .exposedHeader("Authorization"));
         
         // Body Handler
         router.route().handler(BodyHandler.create());
         
-        // Request 로깅 및 메트릭 수집
+        // Request 로깅 및 메트릭 수집 (/health, /metrics는 로그 생략해 다른 로그 확인 용이)
         router.route().handler(ctx -> {
             long startTime = System.currentTimeMillis();
             String method = ctx.request().method().toString();
             String path = ctx.request().path();
-            
-            log.info("[REQUEST] {} {} from {}", method, path, ctx.request().remoteAddress());
-            
+            boolean skipRequestLog = "/health".equals(path) || "/metrics".equals(path);
+            if (!skipRequestLog) {
+                log.info("[REQUEST] {} {} from {}", method, path, ctx.request().remoteAddress());
+            }
             // 시작 시간을 컨텍스트에 저장 (failure handler에서 사용)
             ctx.put("startTime", startTime);
             
@@ -488,12 +496,10 @@ public class ApiVerticle extends AbstractVerticle {
             if (startTime == null) {
                 startTime = System.currentTimeMillis();
             }
-            
             String method = ctx.request().method().toString();
             String path = ctx.request().path();
             int statusCode = ctx.statusCode() > 0 ? ctx.statusCode() : 500;
             long duration = System.currentTimeMillis() - startTime;
-            
             metricsCollector.recordRequest(method, path, statusCode, duration);
             ErrorHandler.handle(ctx);
         });

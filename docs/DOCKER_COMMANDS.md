@@ -102,6 +102,21 @@ docker-compose -f docker-compose.prod.yml logs -f nginx
 docker-compose -f docker-compose.prod.yml logs --tail=100 app
 ```
 
+## 📁 로그 파일 경로 및 보관 기준
+
+### API 서버(app) 로그
+
+| 구분 | 경로 (서버 기준) | 보관 기준 |
+|------|------------------|-----------|
+| **애플리케이션 로그 (Log4j2)** | `<프로젝트 디렉터리>/logs/`<br>예: `/var/www/foxya_coin_service/logs/` | • `foxya-coin-service.log`: 현재 로그<br>• 롤링: 일별 또는 100MB마다, 압축 보관 **최대 30개**<br>• `error.log`: ERROR 이상만, 50MB마다 롤링, **최대 30개** |
+| **Docker 컨테이너 로그 (stdout)** | `/var/lib/docker/containers/<컨테이너ID>/<컨테이너ID>-json.log` | • **파일당 최대 100MB**, **최대 5개** (docker-compose.prod.yml `logging` 설정) |
+
+- **프로젝트 디렉터리**: `docker-compose -f docker-compose.prod.yml` 실행 위치(예: `/var/www/foxya_coin_service`).
+- **컨테이너ID**: `docker ps --no-trunc` 또는 `docker inspect foxya-api` 에서 확인 가능.
+- **참고**: `/health`, `/metrics` 요청은 요청 로그에서 제외되어 다른 로그 확인이 쉽습니다. Health/Metrics 호출 주기는 Prometheus·EKS·Docker healthcheck에서 5분으로 설정됩니다.
+
+자세한 설정은 `src/main/resources/log4j2.xml`, `docker-compose.prod.yml`의 `logging` 항목을 참고하세요.
+
 ## 🌐 Swagger 접근
 
 ### Swagger UI

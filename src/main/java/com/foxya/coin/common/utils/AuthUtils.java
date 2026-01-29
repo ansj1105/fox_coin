@@ -101,10 +101,10 @@ public abstract class AuthUtils {
     }
     
     /**
-     * Access Token 생성 (30분)
+     * Access Token 생성 (1시간)
      */
     public static String generateAccessToken(JWTAuth jwtAuth, Long userId, UserRole role) {
-        return generateToken(jwtAuth, userId, role, 1800); // 30분
+        return generateToken(jwtAuth, userId, role, 3600); // 1시간
     }
     
     /**

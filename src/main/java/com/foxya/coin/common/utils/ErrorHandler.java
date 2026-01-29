@@ -12,7 +12,9 @@ public class ErrorHandler {
         Throwable failure = ctx.failure();
         int statusCode = ctx.statusCode();
         
-        if (failure instanceof BadRequestException) {
+        if (failure instanceof SocialSignupExpiredException) {
+            statusCode = 400;
+        } else if (failure instanceof BadRequestException) {
             statusCode = 400;
         } else if (failure instanceof UnauthorizedException) {
             statusCode = 401;
@@ -34,7 +36,10 @@ public class ErrorHandler {
             .put("status", "ERROR")
             .put("message", message)
             .put("code", statusCode);
-        
+        if (failure instanceof SocialSignupExpiredException) {
+            error.put("errorCode", SocialSignupExpiredException.ERROR_CODE);
+        }
+
         ctx.response()
             .setStatusCode(statusCode)
             .putHeader("Content-Type", "application/json")
