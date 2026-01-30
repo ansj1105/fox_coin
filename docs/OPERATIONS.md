@@ -274,6 +274,12 @@ docker exec foxya-api wget -q -O- --timeout=2 http://prometheus:9090/-/healthy |
 
 → `/6s9ex74204/grafana/` 접속 시 Grafana는 `/login`을 받아 로그인 페이지(또는 로그인 후 대시보드)를 내려주고, 같은 URL로 301을 보내지 않아 루프가 사라집니다.
 
+**ERR_TOO_MANY_REDIRECTS on `/6s9ex74204/grafana/login`:**  
+Grafana가 `/login`과 `/login/` 사이를 301로 왔다 갔다 하면 루프가 납니다.  
+Nginx에서 (1) **`/6s9ex74204/grafana/login`(슬래시 없음) 요청은 301로 `/6s9ex74204/grafana/login/`으로만 보내고**, (2) **Grafana 응답의 `Location`이 `.../grafana/login`(끝에 슬래시 없음)이면 `.../grafana/login/`으로 덮어쓰기** 해서 항상 `/login/` 한 형태만 쓰도록 했습니다.  
+- `location = /6s9ex74204/grafana/login { return 301 .../grafana/login/; }`  
+- `proxy_redirect .../grafana/login .../grafana/login/;` (https·http 둘 다)
+
 **다른 도메인/IP로 접속 시 리다이렉트·빈 화면:**  
 Grafana가 보내는 `Location`을 Nginx에서 요청 호스트로 덮어쓰려면 `proxy_redirect https://korion.io.kr/ $scheme://$host/;` (및 http 동일)가 있어야 합니다.  
 `GF_SERVER_ROOT_URL`에 다른 도메인을 쓰면, 그 도메인에 대한 `proxy_redirect` 한 줄을 같은 형식으로 추가하면 됩니다.
