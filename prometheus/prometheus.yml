@@ -12,11 +12,11 @@ global:
 
 # 스크랩 설정
 scrape_configs:
-  # API 서버 메트릭 (5분마다 수집해 로그/부하 완화)
+  # API 서버 메트릭 (15초마다 수집 — Prometheus 권장, 대시보드·알람에 적합)
   - job_name: 'foxya-api'
     metrics_path: '/metrics'
-    scrape_interval: 5m
-    scrape_timeout: 30s
+    scrape_interval: 15s
+    scrape_timeout: 10s
     static_configs:
       - targets: ['app:8080']
         labels:

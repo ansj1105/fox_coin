@@ -68,7 +68,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost/health
 
 ### 2.1 현재 구성
 
-- **메트릭 수집**: 앱의 `/metrics` (Prometheus 포맷) → Prometheus가 5분마다 스크랩
+- **메트릭 수집**: 앱의 `/metrics` (Prometheus 포맷) → Prometheus가 15초마다 스크랩
 - **저장**: Prometheus (기본 30일 보존)
 - **시각화**: Grafana (Prometheus를 데이터 소스로 사용)
 - **접근 경로**: Grafana **`https://dev.korion.io.kr/`**, Prometheus **`https://dev.korion.io.kr/prometheus/`** (기존 `/6s9ex74204/grafana/`, `/6s9ex74204/prometheus/` 접속 시 dev로 리다이렉트)
