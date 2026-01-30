@@ -73,7 +73,8 @@ curl http://your-domain/metrics
   ```
 
 #### Grafana UI
-- **URL**: http://localhost:3001
+- **프로덕션 URL**: **https://dev.korion.io.kr/** (루트 제공, subpath 없음)
+- **로컬**: http://localhost:3001
 - **로그인**: `admin` / `admin` (또는 `.env`의 `GRAFANA_PASSWORD`)
 - **데이터 소스**: 자동으로 Prometheus가 설정됨
 
@@ -143,8 +144,8 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
 **체크리스트·원인 정리**는 **[OPERATIONS.md § 5. Prometheus / Grafana 연동 및 안 열릴 때](./OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때)**를 참고하세요.
 
 - 컨테이너: `docker compose -f docker-compose.prod.yml up -d prometheus grafana`
-- Grafana **실제 접속 URL**과 `GF_SERVER_ROOT_URL`(예: `https://korion.io.kr/6s9ex74204/grafana/`)이 **완전히 일치**해야 함
-- Nginx에 `location /6s9ex74204/grafana/`, `location /6s9ex74204/prometheus` 존재 여부 확인
+- Grafana 접속: **https://dev.korion.io.kr/** — `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_SERVE_FROM_SUB_PATH=false` 로 설정되어 있어야 함
+- Nginx에 `server_name dev.korion.io.kr`(Grafana용), `location /6s9ex74204/prometheus` 존재 여부 확인
 
 ### 메트릭이 보이지 않을 때
 

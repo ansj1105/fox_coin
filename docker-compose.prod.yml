@@ -178,15 +178,13 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      # nginx subpath: 반드시 접속하는 URL과 동일하게 (끝 슬래시 포함)
-      - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana/
-      - GF_SERVER_DOMAIN=korion.io.kr
-      # 쿠키 (subpath + HTTPS)
+      # dev.korion.io.kr 루트로 서비스 (서브경로 없음 → 리다이렉트 루프 근본 해결)
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+      - GF_SERVER_ROOT_URL=https://dev.korion.io.kr/
+      - GF_SERVER_DOMAIN=dev.korion.io.kr
       - GF_SERVER_COOKIE_SAMESITE=none
       - GF_SERVER_COOKIE_SECURE=true
       - GF_SERVER_ENABLE_GZIP=true
-      # 로그인 등 리다이렉트 시 동일 호스트 사용 (프록시 신뢰)
       - GF_SERVER_ENABLE_ROUTER_LOGGING=false
     volumes:
       - grafana-data:/var/lib/grafana
