@@ -285,20 +285,21 @@ public class MiningService extends BaseService {
     public Future<BigDecimal> creditMiningForVideo(Long userId) {
         LocalDate today = LocalDate.now();
         LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
-        // 1. 채굴 시작 필수: 이메일 인증 완료
+        // 1. 채굴 시작 필수: 이메일 인증 완료만 확인. 이번 호출이 곧 부스터 시청 1회이므로 선행 부스터 횟수 검사 제거.
         return emailVerificationRepository.getLatestByUserId(pool, userId)
             .compose(ev -> {
                 if (ev == null || !Boolean.TRUE.equals(ev.isVerified)) {
                     return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("채굴을 시작하려면 이메일 인증을 완료해 주세요."));
                 }
+                // 2. 이번 시청을 부스터 1회로 적립(첫 시청이면 1, 이후는 누적)
                 return bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
                     .compose(booster -> {
-                        int boosterCount = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
-                        if (boosterCount < 1) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("채굴을 시작하려면 부스터 영상을 1회 시청해 주세요."));
-                        }
-                        return userRepository.getUserById(pool, userId);
-                    });
+                        int current = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
+                        int newCount = current + 1;
+                        int maxCount = Math.max(newCount, 999);
+                        return bonusRepository.createOrUpdateUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, newCount, maxCount, null);
+                    })
+                    .compose(v -> userRepository.getUserById(pool, userId));
             })
             .compose(user -> {
                 if (user == null) {
