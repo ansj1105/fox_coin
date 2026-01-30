@@ -257,7 +257,7 @@ interface MiningInfoData {
 ---
 
 ### 3.5 영상 시청 1회 채굴 적립 (신규)
-**POST** `/mining/credit-video`
+**POST** `/mining/credit-video` (전체 경로: **POST** `/api/v1/mining/credit-video` — 404 발생 시 Nginx `location /api/` 프록시 및 백엔드 `MiningHandler` 라우트 등록 확인)
 
 - **설명**: 부스터 영상 시청 1회당 채굴을 적립합니다.  
   **선행 조건**: 이메일 인증 완료, 부스터 영상 1회 이상 시청(watch-ad 완료).  

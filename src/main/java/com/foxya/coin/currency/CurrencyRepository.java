@@ -60,7 +60,7 @@ public class CurrencyRepository extends BaseRepository {
     }
     
     /**
-     * 통화 코드와 체인으로 조회
+     * 통화 코드와 체인으로 조회 (is_active = true만)
      */
     public Future<Currency> getCurrencyByCodeAndChain(SqlClient client, String code, String chain) {
         String sql = QueryBuilder
@@ -74,6 +74,26 @@ public class CurrencyRepository extends BaseRepository {
         params.put("code", code);
         params.put("chain", chain);
         params.put("is_active", true);
+        
+        return query(client, sql, params)
+            .map(rows -> fetchOne(currencyMapper, rows))
+            .onFailure(e -> log.error("통화 조회 실패 - code: {}, chain: {}", code, chain));
+    }
+
+    /**
+     * 통화 코드와 체인으로 조회 (is_active 무관 — 채굴·래퍼럴 등 내부 적립용 KORI INTERNAL 조회)
+     * DB에 is_active=false/null 이어도 조회 가능.
+     */
+    public Future<Currency> getCurrencyByCodeAndChainAllowInactive(SqlClient client, String code, String chain) {
+        String sql = QueryBuilder
+            .select("currency")
+            .where("code", Op.Equal, "code")
+            .andWhere("chain", Op.Equal, "chain")
+            .build();
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("code", code);
+        params.put("chain", chain);
         
         return query(client, sql, params)
             .map(rows -> fetchOne(currencyMapper, rows))

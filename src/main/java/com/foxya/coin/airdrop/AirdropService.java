@@ -186,8 +186,8 @@ public class AirdropService extends BaseService {
             return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
         }
         
-        // 2. KORI 통화 조회
-        return currencyRepository.getCurrencyByCodeAndChain(pool, KORI_CURRENCY_CODE, INTERNAL_CHAIN)
+        // 2. KORI 통화 조회 (채굴·에어드랍용 — is_active 무관)
+        return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, KORI_CURRENCY_CODE, INTERNAL_CHAIN)
             .recover(throwable -> {
                 log.error("KORI 통화 조회 실패", throwable);
                 return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));

@@ -215,7 +215,10 @@ public class MiningService extends BaseService {
         Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
         Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
         
-        return Future.all(List.of(userFuture, dailyMiningFuture, bonusEfficiencyFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture))
+        // 오늘 부스터 영상 시청(채굴 적립) 횟수 — Tap to boost 잔여 횟수 = maxAdWatchCount - adWatchCount
+        Future<Integer> todayMiningCountFuture = miningRepository.getTodayMiningCount(pool, userId);
+        
+        return Future.all(List.of(userFuture, dailyMiningFuture, bonusEfficiencyFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture, todayMiningCountFuture))
             .compose(compositeFuture -> {
                 com.foxya.coin.user.entities.User user = userFuture.result();
                 if (user == null) {
@@ -226,6 +229,7 @@ public class MiningService extends BaseService {
                 Integer bonusEfficiency = bonusEfficiencyFuture.result();
                 UserBonus adWatchBonus = adWatchBonusFuture.result();
                 BigDecimal totalBalance = totalBalanceFuture.result();
+                Integer todayMiningCount = todayMiningCountFuture.result() != null ? todayMiningCountFuture.result() : 0;
                 
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
                 BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
@@ -251,11 +255,11 @@ public class MiningService extends BaseService {
                         long seconds = remaining.getSeconds() % 60;
                         String remainingTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
                         
-                        // 광고 시청 정보
-                        Integer adWatchCount = adWatchBonus != null && adWatchBonus.getCurrentCount() != null 
-                            ? adWatchBonus.getCurrentCount() : 0;
-                        Integer maxAdWatchCount = adWatchBonus != null && adWatchBonus.getMaxCount() != null 
-                            ? adWatchBonus.getMaxCount() : MAX_AD_WATCH_COUNT;
+                        // 부스터 잔여 횟수: 오늘 채굴(영상) 적립 횟수 / 레벨별 일일 상한 (credit-video 호출 시 감소)
+                        int dailyMaxVideos = miningLevel != null && miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
+                            ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                        Integer adWatchCount = todayMiningCount;
+                        Integer maxAdWatchCount = dailyMaxVideos;
                         
                         BigDecimal inviteBonusMultiplier = inviteBonusFuture.result();
                         Integer validDirectReferralCount = validDirectCountFuture.result();
@@ -336,12 +340,26 @@ public class MiningService extends BaseService {
                                                 if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                                                     return Future.succeededFuture(BigDecimal.ZERO);
                                                 }
-                                                return currencyRepository.getCurrencyByCodeAndChain(pool, "KORI", "INTERNAL")
+                                                return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, "KORI", "INTERNAL")
                                                     .compose(currency -> {
                                                         if (currency == null) {
                                                             return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("KORI 통화를 찾을 수 없습니다."));
                                                         }
+                                                        // 지갑 없으면 KORI(INTERNAL) 자동 생성 — getMiningInfo는 지갑 없어도 되지만 credit-video는 지갑 필수
                                                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                                            .compose(wallet -> {
+                                                                if (wallet == null) {
+                                                                    String dummyAddress = "KORI_" + userId + "_" + currency.getId();
+                                                                    return walletRepository.createWallet(pool, userId, currency.getId(), dummyAddress)
+                                                                        .recover(throwable -> {
+                                                                            if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                                                                                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId());
+                                                                            }
+                                                                            return Future.failedFuture(throwable);
+                                                                        });
+                                                                }
+                                                                return Future.succeededFuture(wallet);
+                                                            })
                                                             .compose(wallet -> {
                                                                 if (wallet == null) {
                                                                     return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("지갑을 찾을 수 없습니다."));

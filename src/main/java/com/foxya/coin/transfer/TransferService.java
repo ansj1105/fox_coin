@@ -54,7 +54,8 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 내부 전송 실행
+     * 내부 전송 실행.
+     * 내부 전송 = DB만 사용. 블록체인 트랜잭션 없음. user_wallets 잔액 증감 + internal_transfers 기록만 수행.
      */
     public Future<TransferResponseDto> executeInternalTransfer(Long senderId, InternalTransferRequestDto request, String requestIp) {
         log.info("내부 전송 요청 - senderId: {}, receiverType: {}, receiverValue: {}, amount: {}", 
@@ -120,7 +121,7 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 내부 전송 트랜잭션 실행
+     * 내부 전송 트랜잭션 실행 (DB만: deductBalance / addBalance / internal_transfers)
      */
     private Future<TransferResponseDto> executeInternalTransferTransaction(
             Long senderId, Long receiverId,
@@ -200,7 +201,7 @@ public class TransferService extends BaseService {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             return Future.failedFuture(new BadRequestException("지급 금액은 0보다 커야 합니다."));
         }
-        return currencyRepository.getCurrencyByCodeAndChain(pool, "KORI", "INTERNAL")
+        return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, "KORI", "INTERNAL")
             .compose(currency -> {
                 if (currency == null) {
                     return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
@@ -261,7 +262,8 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 외부 전송 요청 (출금)
+     * 외부 전송 요청 (출금).
+     * 외부 전송 = DB에 출금 요청 기록 + 사용자 잔액 잠금. 실제 전송은 중앙지갑에서 Node 등 별도 서비스가 PENDING 건을 처리하여 네트워크(TRON/ETH/BTC)로 전송.
      */
     public Future<TransferResponseDto> requestExternalTransfer(Long userId, ExternalTransferRequestDto request, String requestIp) {
         log.info("외부 전송 요청 - userId: {}, toAddress: {}, amount: {}, chain: {}", 
@@ -312,7 +314,7 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 외부 전송 요청 생성
+     * 외부 전송 요청 생성 (external_transfers PENDING + 잔액 잠금; 실제 전송은 중앙지갑 워커가 처리)
      */
     private Future<TransferResponseDto> createExternalTransferRequest(
             Long userId, Wallet wallet, Currency currency,
