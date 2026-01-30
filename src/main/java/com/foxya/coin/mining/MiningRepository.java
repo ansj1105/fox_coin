@@ -5,6 +5,7 @@ import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.mining.entities.DailyMining;
 import com.foxya.coin.mining.entities.MiningHistory;
 import com.foxya.coin.mining.entities.MiningLevel;
+import com.foxya.coin.mining.entities.MiningSession;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import com.foxya.coin.utils.BaseQueryBuilder.Sort;
@@ -51,6 +52,16 @@ public class MiningRepository extends BaseRepository {
         .amount(row.getBigDecimal("amount"))
         .type(row.getString("type"))
         .status(row.getString("status"))
+        .createdAt(row.getLocalDateTime("created_at"))
+        .build();
+
+    private static final RowMapper<MiningSession> MINING_SESSION_MAPPER = row -> MiningSession.builder()
+        .id(row.getLong("id"))
+        .userId(row.getLong("user_id"))
+        .startedAt(row.getLocalDateTime("started_at"))
+        .endsAt(row.getLocalDateTime("ends_at"))
+        .ratePerHour(row.getBigDecimal("rate_per_hour"))
+        .lastSettledAt(row.getLocalDateTime("last_settled_at"))
         .createdAt(row.getLocalDateTime("created_at"))
         .build();
     
@@ -131,7 +142,7 @@ public class MiningRepository extends BaseRepository {
     }
     
     /**
-     * 채굴 내역 1건 추가 (영상 시청 1회당)
+     * 채굴 내역 1건 추가 (1시간 채굴 세션 완료 시 1건, amount = 해당 세션의 1시간 채굴량)
      */
     public Future<MiningHistory> insertMiningHistory(SqlClient client, Long userId, Integer level, BigDecimal amount, String type, String status) {
         Map<String, Object> params = new HashMap<>();
@@ -234,7 +245,7 @@ public class MiningRepository extends BaseRepository {
     }
     
     /**
-     * 오늘 채굴(영상 시청) 횟수 - 레벨별 일일 영상 상한 체크용
+     * 오늘 채굴 내역 건수 (mining_history 기준). 레거시: 일일 영상 상한/잔여 횟수는 countSessionsStartedToday(mining_sessions) 사용.
      */
     public Future<Integer> getTodayMiningCount(SqlClient client, Long userId) {
         LocalDate today = LocalDate.now();
@@ -354,6 +365,85 @@ public class MiningRepository extends BaseRepository {
                 return null;
             })
             .onFailure(throwable -> log.error("채굴 내역 Soft Delete 실패 - userId: {}", userId, throwable));
+    }
+
+    // ========== mining_sessions (1시간 채굴 세션) ==========
+
+    /** 현재 진행 중인 채굴 세션 (ends_at > now) */
+    public Future<MiningSession> getActiveMiningSession(SqlClient client, Long userId) {
+        LocalDateTime now = LocalDateTime.now();
+        String sql = QueryBuilder
+            .select("mining_sessions")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("ends_at", Op.GreaterThan, "now")
+            .orderBy("ends_at", Sort.DESC)
+            .limit(1)
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("now", now);
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return MINING_SESSION_MAPPER.map(rows.iterator().next());
+                }
+                return null;
+            });
+    }
+
+    /** 채굴 세션 생성 (영상 1회 시청 시) */
+    public Future<MiningSession> createMiningSession(SqlClient client, Long userId, LocalDateTime startedAt,
+                                                     LocalDateTime endsAt, BigDecimal ratePerHour, LocalDateTime lastSettledAt) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("started_at", startedAt);
+        params.put("ends_at", endsAt);
+        params.put("rate_per_hour", ratePerHour);
+        params.put("last_settled_at", lastSettledAt);
+        String sql = QueryBuilder.insert("mining_sessions", params, "id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, created_at");
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return MINING_SESSION_MAPPER.map(rows.iterator().next());
+                }
+                return null;
+            })
+            .onFailure(throwable -> log.error("채굴 세션 생성 실패 - userId: {}", userId, throwable));
+    }
+
+    /** 세션의 last_settled_at 업데이트 (settle 후) */
+    public Future<Integer> updateMiningSessionLastSettled(SqlClient client, Long sessionId, LocalDateTime lastSettledAt) {
+        String sql = QueryBuilder
+            .update("mining_sessions", "last_settled_at")
+            .where("id", Op.Equal, "id")
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", sessionId);
+        params.put("last_settled_at", lastSettledAt);
+        return query(client, sql, params)
+            .map(rows -> rows.size())
+            .onFailure(throwable -> log.error("채굴 세션 last_settled_at 업데이트 실패 - sessionId: {}", sessionId, throwable));
+    }
+
+    /** 오늘 시작한 채굴 세션 수 (일일 영상 상한 체크용) */
+    public Future<Integer> countSessionsStartedToday(SqlClient client, Long userId, LocalDate today) {
+        String sql = QueryBuilder
+            .count("mining_sessions", "ms", "total")
+            .where("ms.user_id", Op.Equal, "userId")
+            .andWhere("ms.started_at", Op.GreaterThanOrEqual, "today_start")
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("today_start", today.atStartOfDay());
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Long total = rows.iterator().next().getLong("total");
+                    return total != null ? total.intValue() : 0;
+                }
+                return 0;
+            })
+            .onFailure(throwable -> log.error("오늘 채굴 세션 수 조회 실패 - userId: {}", userId, throwable));
     }
 }
 

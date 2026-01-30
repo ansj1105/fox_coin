@@ -257,7 +257,14 @@ public class MiningHandlerTest extends HandlerTestBase {
                     assertThat(response.getNextLevelRequired()).isNotNull();
                     assertThat(response.getAdWatchCount()).isNotNull();
                     assertThat(response.getMaxAdWatchCount()).isNotNull();
-                    
+                    // miningUntil: 활성 채굴 세션이 있으면 ISO-8601 시각, 없으면 null (1시간 세션 로직)
+                    if (response.getMiningUntil() != null && !response.getMiningUntil().isEmpty()) {
+                        assertThat(response.getMiningUntil()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d+)?");
+                    }
+                    // inviteBonusMultiplier, validDirectReferralCount (선택 필드)
+                    assertThat(response.getInviteBonusMultiplier()).isNotNull();
+                    assertThat(response.getValidDirectReferralCount()).isNotNull();
+
                     // 값 검증
                     assertThat(response.getTodayMiningAmount()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
                     assertThat(response.getTotalBalance()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
@@ -298,15 +305,8 @@ public class MiningHandlerTest extends HandlerTestBase {
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     log.info("Watch ad response: {}", res.bodyAsJsonObject());
                     expectSuccess(res);
-                    
-                    // 광고 시청 후 채굴 정보 조회하여 adWatchCount 증가 확인
-                    reqGet(getUrl("/info"))
-                        .bearerTokenAuthentication(accessToken)
-                        .send(tc.succeeding(infoRes -> tc.verify(() -> {
-                            MiningInfoResponseDto info = expectSuccessAndGetResponse(infoRes, refMiningInfo);
-                            assertThat(info.getAdWatchCount()).isGreaterThanOrEqualTo(1);
-                            tc.completeNow();
-                        })));
+                    // adWatchCount는 오늘 시작한 채굴 세션 수(credit-video 기준)이므로 watch-ad만으로는 증가하지 않음
+                    tc.completeNow();
                 })));
         }
         
@@ -328,14 +328,14 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(14)
-        @DisplayName("성공 - 200 응답 및 amount, credited 필드 존재")
+        @DisplayName("성공 - 200 응답 및 amount, credited 필드 존재 (1시간 세션 생성)")
         void successCreditVideoReturnsStructure(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
             reqPost(getUrl("/credit-video"))
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Credit video response: {}", res.bodyAsJsonObject());
-                    assertThat(res.statusCode()).isEqualTo(200);
+                    log.info("Credit video response: status={}, body={}", res.statusCode(), res.bodyAsString());
+                    assertThat(res.statusCode()).as("credit-video 응답 (200 기대, 테스트 DB에 이메일 인증·KORI 지갑 필요)").isEqualTo(200);
                     try {
                         ApiResponse<?> api = objectMapper.readValue(
                             res.bodyAsString(),
@@ -347,6 +347,12 @@ public class MiningHandlerTest extends HandlerTestBase {
                         assertThat(data).isNotNull();
                         assertThat(data).containsKeys("amount", "credited");
                         assertThat(data.get("credited")).isInstanceOf(Boolean.class);
+                        assertThat(data.get("credited")).isEqualTo(Boolean.TRUE);
+                        Object amount = data.get("amount");
+                        assertThat(amount).isNotNull();
+                        if (amount instanceof Number) {
+                            assertThat(((Number) amount).doubleValue()).isGreaterThan(0);
+                        }
                     } catch (Exception e) {
                         throw new AssertionError("Parse credit-video response failed", e);
                     }
@@ -356,6 +362,57 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(15)
+        @DisplayName("성공 - credit-video 후 getMiningInfo에 miningUntil 존재 및 adWatchCount 1 이상")
+        void successCreditVideoThenMiningInfoHasMiningUntil(VertxTestContext tc) {
+            // user 2 사용 (user 1은 Order 14에서 이미 세션 생성되어 쿨다운 중일 수 있음)
+            String accessToken = getAccessTokenOfUser(2L);
+            reqPost(getUrl("/credit-video"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    if (res.statusCode() != 200) {
+                        tc.completeNow();
+                        return;
+                    }
+                    reqGet(getUrl("/info"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(infoRes -> tc.verify(() -> {
+                            MiningInfoResponseDto info = expectSuccessAndGetResponse(infoRes, refMiningInfo);
+                            // 활성 채굴 세션이 있으면 miningUntil 존재 (1시간 후까지)
+                            assertThat(info.getMiningUntil()).isNotNull();
+                            assertThat(info.getMiningUntil()).isNotEmpty();
+                            assertThat(info.getMiningUntil()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}");
+                            assertThat(info.getAdWatchCount()).isGreaterThanOrEqualTo(1);
+                            tc.completeNow();
+                        })));
+                })));
+        }
+
+        @Test
+        @Order(16)
+        @DisplayName("실패 - 1시간 쿨다운 중 재요청 시 400")
+        void failCreditVideoWithinCooldown(VertxTestContext tc) {
+            // user 3 사용 (Order 14=user1, Order 15=user2 로 이미 세션 생성된 사용자와 분리)
+            String accessToken = getAccessTokenOfUser(3L);
+            reqPost(getUrl("/credit-video"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(firstRes -> tc.verify(() -> {
+                    if (firstRes.statusCode() != 200) {
+                        tc.completeNow();
+                        return;
+                    }
+                    reqPost(getUrl("/credit-video"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(secondRes -> tc.verify(() -> {
+                            assertThat(secondRes.statusCode()).isEqualTo(400);
+                            String body = secondRes.bodyAsString();
+                            assertThat(body).contains("1시간");
+                            tc.completeNow();
+                        })));
+                })));
+        }
+
+        @Test
+        @Order(17)
         @DisplayName("실패 - 인증 없이 요청")
         void failNoAuth(VertxTestContext tc) {
             reqPost(getUrl("/credit-video"))

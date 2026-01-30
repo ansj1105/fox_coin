@@ -932,10 +932,16 @@ components:
           description: 다음 레벨까지 필요한 경험치
         adWatchCount:
           type: integer
-          description: 오늘 광고 시청 횟수
+          description: 오늘 시작한 채굴 세션 수 (부스터 영상 1회 = 1시간 세션 1개). Tap to boost 잔여 횟수 = maxAdWatchCount - adWatchCount
         maxAdWatchCount:
           type: integer
-          description: 일일 최대 광고 시청 횟수
+          description: 레벨별 일일 최대 영상 시청 횟수 (일일 최대 채굴 세션 수)
+        miningUntil:
+          type: string
+          format: date-time
+          description: |
+            현재 채굴 세션 종료 시각 (ISO-8601). 이 시각 이전에는 부스터 버튼 비활성화(다음 영상 시청 불가).
+            없으면 null. 1시간 세션 진행 중일 때만 존재.
         inviteBonusMultiplier:
           type: number
           format: decimal
@@ -4496,7 +4502,11 @@ paths:
   /api/v1/mining/info:
     get:
       summary: 채굴 정보 조회
-      description: 오늘의 채굴량, 총 잔액, 채굴효율, 남은 시간 등 채굴 정보를 조회합니다.
+      description: |
+        채굴 정보를 조회합니다. 호출 시 진행 중인 채굴 세션을 먼저 정산(settle)한 뒤 응답합니다.
+        - todayMiningAmount: 1시간 세션에 걸쳐 적립된 금일 채굴량 합계
+        - adWatchCount: 오늘 시작한 채굴 세션 수 (부스터 잔여 = maxAdWatchCount - adWatchCount)
+        - miningUntil: 활성 채굴 세션이 있으면 세션 종료 시각(ISO-8601). 이 시각까지 다음 영상 시청 불가
       tags: [Mining]
       security:
         - BearerAuth: []
@@ -4536,16 +4546,19 @@ paths:
 
   /api/v1/mining/credit-video:
     post:
-      summary: 영상 시청 1회 채굴 적립
+      summary: 영상 시청 1회 = 1시간 채굴 세션 시작
       description: |
-        부스터 영상 시청 1회당 채굴을 적립합니다. 이메일 인증 완료 및 부스터 영상 1회 이상 시청이 선행되어야 합니다.
-        일일 영상 시청 횟수·일일 최대 채굴량 제한이 적용되며, 초대 보너스 및 래퍼럴 수익이 연동됩니다.
+        부스터 영상 시청 1회당 1시간 채굴 세션을 시작합니다. 채굴량은 즉시 전량 적립되지 않고, 1시간에 걸쳐 시간당 비율로 적립(settle)됩니다.
+        - 이메일 인증 완료 필요
+        - 마지막 영상 시청 후 1시간이 지나야 다음 영상 시청 가능 (miningUntil 이전에는 400)
+        - 일일 영상 시청 횟수(레벨별)·일일 최대 채굴량 제한 적용
+        - 세션 완료 시 채굴 내역(history)에 1건 기록, 래퍼럴 수익 연동
       tags: [Mining]
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: 요청 처리 완료 (credited가 true이면 적립 성공, false이면 조건 미충족 또는 한도 도달)
+          description: 세션 생성 성공 (credited true). amount는 해당 세션의 1시간 채굴량(rate_per_hour)
           content:
             application/json:
               schema:
@@ -4559,12 +4572,15 @@ paths:
                           amount:
                             type: number
                             format: decimal
-                            description: 이번에 적립된 채굴량 (0이면 미적립)
+                            description: 이번 세션의 1시간 채굴량(rate_per_hour). 1시간에 걸쳐 비례 적립됨
                           credited:
                             type: boolean
-                            description: 실제 적립 여부
+                            description: 세션 생성(적립) 여부
         '400':
-          description: 조건 미충족(이메일 미인증, 부스터 영상 미시청) 또는 일일 한도 도달
+          description: |
+            - 이메일 미인증
+            - 1시간이 지나지 않음 (다음 영상 시청 가능 시각은 GET /mining/info 의 miningUntil)
+            - 일일 영상 시청 한도 도달
         '401':
           description: 인증 실패
 
