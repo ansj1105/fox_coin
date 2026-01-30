@@ -129,6 +129,46 @@ public class UserRepository extends BaseRepository {
     }
     
     /**
+     * 경험치(EXP) 증가 (친구 초대 1명당 +1 EXP 등)
+     */
+    public Future<User> addExp(SqlClient client, Long userId, java.math.BigDecimal delta) {
+        if (delta == null || delta.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            return getUserById(client, userId);
+        }
+        String sql = QueryBuilder.update("users")
+            .setCustom("exp = COALESCE(exp, 0) + #{delta}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("delta", delta);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("EXP 증가 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
+     * 레벨 업데이트 (EXP 연동 레벨업용)
+     */
+    public Future<User> updateLevel(SqlClient client, Long userId, int level) {
+        String sql = QueryBuilder
+            .update("users", "level", "updated_at")
+            .whereById()
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("level", level);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("레벨 업데이트 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
      * 레퍼럴 코드로 사용자 조회
      */
     public Future<User> getUserByReferralCode(SqlClient client, String referralCode) {

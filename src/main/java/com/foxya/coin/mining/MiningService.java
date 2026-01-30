@@ -1,10 +1,12 @@
 package com.foxya.coin.mining;
 
+import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
 import com.foxya.coin.bonus.entities.UserBonus;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
+import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.level.LevelService;
 import com.foxya.coin.mining.dto.DailyLimitResponseDto;
 import com.foxya.coin.mining.dto.LevelInfoResponseDto;
@@ -13,6 +15,8 @@ import com.foxya.coin.mining.dto.MiningInfoResponseDto;
 import com.foxya.coin.mining.entities.DailyMining;
 import com.foxya.coin.mining.entities.MiningHistory;
 import com.foxya.coin.mining.entities.MiningLevel;
+import com.foxya.coin.referral.ReferralService;
+import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -21,6 +25,7 @@ import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -36,16 +41,30 @@ public class MiningService extends BaseService {
     private final BonusService bonusService;
     private final BonusRepository bonusRepository;
     private final WalletRepository walletRepository;
+    private final ReferralService referralService;
+    private final TransferRepository transferRepository;
+    private final CurrencyRepository currencyRepository;
+    private final EmailVerificationRepository emailVerificationRepository;
+    private final LevelService levelService;
     private static final int MAX_AD_WATCH_COUNT = 5;
+    /** 부스터 영상 보너스 타입 (채굴 시작 필수: 1회 시청) */
+    private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
     
     public MiningService(PgPool pool, MiningRepository miningRepository, UserRepository userRepository,
-                         BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository) {
+                         BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
+                         ReferralService referralService, TransferRepository transferRepository, CurrencyRepository currencyRepository,
+                         EmailVerificationRepository emailVerificationRepository, LevelService levelService) {
         super(pool);
         this.miningRepository = miningRepository;
         this.userRepository = userRepository;
         this.bonusService = bonusService;
         this.bonusRepository = bonusRepository;
         this.walletRepository = walletRepository;
+        this.referralService = referralService;
+        this.transferRepository = transferRepository;
+        this.currencyRepository = currencyRepository;
+        this.emailVerificationRepository = emailVerificationRepository;
+        this.levelService = levelService;
     }
     
     public Future<DailyLimitResponseDto> getDailyLimit(Long userId) {
@@ -192,7 +211,11 @@ public class MiningService extends BaseService {
                 return wallets.get(0).getBalance() != null ? wallets.get(0).getBalance() : BigDecimal.ZERO;
             });
         
-        return Future.all(userFuture, dailyMiningFuture, bonusEfficiencyFuture, adWatchBonusFuture, totalBalanceFuture)
+        // 초대 보너스 배율·유효 직접 초대 수 (REFERRAL_AND_INVITE_SPEC)
+        Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
+        Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
+        
+        return Future.all(List.of(userFuture, dailyMiningFuture, bonusEfficiencyFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture))
             .compose(compositeFuture -> {
                 com.foxya.coin.user.entities.User user = userFuture.result();
                 if (user == null) {
@@ -207,21 +230,11 @@ public class MiningService extends BaseService {
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
                 BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
                 
-                // 다음 레벨 필요 경험치 계산 (LevelService의 LEVEL_EXP 배열 참조)
-                BigDecimal[] levelExp = {
-                    BigDecimal.ZERO,           // LV1: 0
-                    BigDecimal.valueOf(1000),   // LV2: 1000
-                    BigDecimal.valueOf(3000),   // LV3: 3000
-                    BigDecimal.valueOf(6000),   // LV4: 6000
-                    BigDecimal.valueOf(10000),  // LV5: 10000
-                    BigDecimal.valueOf(15000),  // LV6: 15000
-                    BigDecimal.valueOf(21000),  // LV7: 21000
-                    BigDecimal.valueOf(28000),  // LV8: 28000
-                    BigDecimal.valueOf(36000)   // LV9: 36000
-                };
-                BigDecimal nextLevelRequired = levelExp.length > currentLevel 
-                    ? levelExp[currentLevel] 
-                    : BigDecimal.ZERO;
+                // 다음 레벨 누적 필요 EXP (MINING_AND_LEVEL_SPEC: 5, 15, 35, 70, 130, 220, 350, 520)
+                int[] levelExpCumulative = {5, 15, 35, 70, 130, 220, 350, 520};
+                BigDecimal nextLevelRequired = currentLevel >= 9
+                    ? BigDecimal.valueOf(520)
+                    : BigDecimal.valueOf(levelExpCumulative[currentLevel - 1]);
                 
                 // 일일 최대 채굴량 조회
                 return miningRepository.getMiningLevelByLevel(pool, currentLevel)
@@ -244,6 +257,9 @@ public class MiningService extends BaseService {
                         Integer maxAdWatchCount = adWatchBonus != null && adWatchBonus.getMaxCount() != null 
                             ? adWatchBonus.getMaxCount() : MAX_AD_WATCH_COUNT;
                         
+                        BigDecimal inviteBonusMultiplier = inviteBonusFuture.result();
+                        Integer validDirectReferralCount = validDirectCountFuture.result();
+                        
                         return MiningInfoResponseDto.builder()
                             .todayMiningAmount(todayMiningAmount)
                             .totalBalance(totalBalance)
@@ -255,7 +271,95 @@ public class MiningService extends BaseService {
                             .nextLevelRequired(nextLevelRequired)
                             .adWatchCount(adWatchCount)
                             .maxAdWatchCount(maxAdWatchCount)
+                            .inviteBonusMultiplier(inviteBonusMultiplier != null ? inviteBonusMultiplier : BigDecimal.ONE)
+                            .validDirectReferralCount(validDirectReferralCount != null ? validDirectReferralCount : 0)
                             .build();
+                    });
+            });
+    }
+    
+    /**
+     * 영상 시청 1회당 채굴 적립 (MINING_AND_LEVEL_SPEC)
+     * 필수: 이메일 인증 완료, 부스터 영상 1회 시청. 레벨별 일일 영상 상한·일일 최대 채굴량 적용. 1 KORI = 1 EXP, 레벨 동기화.
+     */
+    public Future<BigDecimal> creditMiningForVideo(Long userId) {
+        LocalDate today = LocalDate.now();
+        LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
+        // 1. 채굴 시작 필수: 이메일 인증 완료
+        return emailVerificationRepository.getLatestByUserId(pool, userId)
+            .compose(ev -> {
+                if (ev == null || !Boolean.TRUE.equals(ev.isVerified)) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("채굴을 시작하려면 이메일 인증을 완료해 주세요."));
+                }
+                return bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
+                    .compose(booster -> {
+                        int boosterCount = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
+                        if (boosterCount < 1) {
+                            return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("채굴을 시작하려면 부스터 영상을 1회 시청해 주세요."));
+                        }
+                        return userRepository.getUserById(pool, userId);
+                    });
+            })
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
+                return miningRepository.getMiningLevelByLevel(pool, userLevel)
+                    .compose(miningLevel -> {
+                        if (miningLevel == null) {
+                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("레벨 정보를 찾을 수 없습니다."));
+                        }
+                        BigDecimal dailyMax = miningLevel.getDailyMaxMining();
+                        int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0 ? miningLevel.getDailyMaxVideos() : 5;
+                        return miningRepository.getTodayMiningCount(pool, userId)
+                            .compose(todayCount -> {
+                                if (todayCount >= dailyMaxVideos) {
+                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
+                                }
+                                return miningRepository.getDailyMining(pool, userId, today)
+                                    .compose(dailyMining -> {
+                                        BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
+                                        return referralService.getInviteMiningBonusMultiplier(userId)
+                                            .map(multiplier -> {
+                                                // 영상 1회당 채굴량 = (일일 최대 / 일일 영상 수) × 초대 보너스
+                                                BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
+                                                BigDecimal rawAmount = perVideoBase.multiply(multiplier != null ? multiplier : BigDecimal.ONE).setScale(18, RoundingMode.DOWN);
+                                                BigDecimal remaining = dailyMax.subtract(todayAmount);
+                                                if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                                                    return BigDecimal.ZERO;
+                                                }
+                                                return rawAmount.min(remaining);
+                                            })
+                                            .compose(amount -> {
+                                                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                                                    return Future.succeededFuture(BigDecimal.ZERO);
+                                                }
+                                                return currencyRepository.getCurrencyByCodeAndChain(pool, "KORI", "INTERNAL")
+                                                    .compose(currency -> {
+                                                        if (currency == null) {
+                                                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("KORI 통화를 찾을 수 없습니다."));
+                                                        }
+                                                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                                            .compose(wallet -> {
+                                                                if (wallet == null) {
+                                                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("지갑을 찾을 수 없습니다."));
+                                                                }
+                                                                BigDecimal newTodayTotal = todayAmount.add(amount);
+                                                                return pool.withTransaction(client ->
+                                                                    miningRepository.createOrUpdateDailyMining(client, userId, today, newTodayTotal, resetAt)
+                                                                        .compose(dm -> miningRepository.insertMiningHistory(client, userId, userLevel, amount, "BROADCAST_WATCH", "COMPLETED"))
+                                                                        .compose(mh -> transferRepository.addBalance(client, wallet.getId(), amount))
+                                                                        .compose(v -> userRepository.addExp(client, userId, amount))
+                                                                )
+                                                                    .compose(v -> referralService.grantReferralRewardForMining(userId, amount))
+                                                                    .compose(v -> levelService.syncLevelFromExp(userId))
+                                                                    .map(v -> amount);
+                                                            });
+                                                    });
+                                            });
+                                    });
+                            });
                     });
             });
     }
@@ -293,7 +397,13 @@ public class MiningService extends BaseService {
                     newCount, 
                     maxCount, 
                     null
-                ).map(bonus -> true);
+                )
+                    .compose(adBonus -> {
+                        // 부스터 영상 1회 시청 처리 (채굴 시작 필수 조건)
+                        return bonusRepository.createOrUpdateUserBonus(
+                            pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, 1, 1, null
+                        ).map(b -> true);
+                    });
             });
     }
 }

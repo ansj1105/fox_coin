@@ -18,6 +18,8 @@ public class MiningLevel {
     private Integer id;
     private Integer level;
     private BigDecimal dailyMaxMining;
+    /** 레벨별 일일 시청 가능 영상 수 (MINING_AND_LEVEL_SPEC) */
+    private Integer dailyMaxVideos;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

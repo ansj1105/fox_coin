@@ -22,5 +22,9 @@ public class MiningInfoResponseDto {
     private BigDecimal nextLevelRequired;
     private Integer adWatchCount;
     private Integer maxAdWatchCount;
+    /** 초대 인원 수에 따른 채굴 보너스 배율 (1.0 ~ 1.22). 영상 1회당 채굴량에 곱함 */
+    private BigDecimal inviteBonusMultiplier;
+    /** 유효 직접 초대 수 (이메일 인증+채굴 기록 있는 referred 수). 채굴 보너스 % 구간용 */
+    private Integer validDirectReferralCount;
 }
 

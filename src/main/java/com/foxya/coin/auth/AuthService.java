@@ -701,9 +701,15 @@ public class AuthService extends BaseService {
                                         return referralRepository.existsReferralRelation(pool, user.getId())
                                             .compose(exists -> {
                                                 if (!Boolean.TRUE.equals(exists)) {
-                                                    return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                        .map(r -> loginDto)
-                                                        .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                                    return referralRepository.hasReferrerAnyReferredWithSameIpOrDevice(pool, referrer.getId(), dto.getClientIp(), dto.getDeviceId())
+                                                        .compose(dup -> {
+                                                            if (Boolean.TRUE.equals(dup)) {
+                                                                return Future.succeededFuture(loginDto); // 동일 IP/기기 중복 초대 무효: 관계 생성 안 함
+                                                            }
+                                                            return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
+                                                                .map(r -> loginDto)
+                                                                .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                                        });
                                                 }
                                                 return Future.succeededFuture(loginDto);
                                             });

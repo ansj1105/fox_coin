@@ -697,6 +697,19 @@ public abstract class QueryBuilder {
         }
 
         /**
+         * UPDATE QueryBuilder 에 커스텀 SET 표현식을 추가합니다.
+         * 예: setCustom("exp = COALESCE(exp, 0) + #{delta}"), setCustom("total_reward = COALESCE(total_reward, 0) + #{amount}")
+         *
+         * @param setExpression SET 절에 들어갈 표현식 (#{param} 플레이스홀더 사용 가능)
+         * @return 표현식이 추가된 UPDATE QueryBuilder
+         */
+        public UpdateQueryBuilder setCustom(String setExpression) {
+            this.commaAppend(setExpression);
+            columnCount++;
+            return this;
+        }
+
+        /**
          * UPDATE QueryBuilder 에 입력된 컬럼의 값을 1 증가 시켜주는 문자열을 추가합니다.
          *
          * @param column 값을 1 증가 시켜줄 컬럼

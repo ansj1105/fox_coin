@@ -190,6 +190,28 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
+     * 래퍼럴 수익 누적 (total_reward, today_reward 증가)
+     */
+    public Future<Void> incrementReward(SqlClient client, Long userId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.succeededFuture();
+        }
+        String sql = QueryBuilder.update("referral_stats_logs")
+            .setCustom("total_reward = COALESCE(total_reward, 0) + #{amount}")
+            .setCustom("today_reward = COALESCE(today_reward, 0) + #{amount}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("user_id", Op.Equal, "user_id")
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("amount", amount);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("래퍼럴 수익 누적 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
      * 레퍼럴 관계 조회 (referred_id로, 삭제되지 않은 것만)
      */
     public Future<ReferralRelation> getReferralRelationByReferredId(SqlClient client, Long referredId) {
@@ -246,13 +268,10 @@ public class ReferralRepository extends BaseRepository {
      * 사용자의 모든 레퍼럴 관계 Soft Delete (referrer_id 또는 referred_id가 userId인 경우)
      */
     public Future<Void> softDeleteReferralRelationsByUserId(SqlClient client, Long userId) {
-        // QueryBuilder는 복잡한 OR 조건을 지원하지 않으므로 직접 SQL 작성
-        String sql = """
-            UPDATE referral_relations
-            SET deleted_at = #{deleted_at}
-            WHERE (referrer_id = #{user_id} OR referred_id = #{user_id})
-              AND deleted_at IS NULL
-            """;
+        String sql = QueryBuilder.update("referral_relations", "deleted_at")
+            .where("(referrer_id = #{user_id} OR referred_id = #{user_id})")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
@@ -294,22 +313,83 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
+     * 유효 직접 초대 수: 이메일 인증 완료 + 채굴 기록 1건 이상인 referred만 카운트 (채굴 보너스 %·수익률 구간용)
+     * JOIN + EXISTS 서브쿼리 구조라 selectStringQuery 사용
+     */
+    public Future<Integer> getValidDirectReferralCount(SqlClient client, Long referrerId) {
+        String sql = """
+            SELECT COUNT(DISTINCT rr.referred_id)::int as cnt
+            FROM referral_relations rr
+            INNER JOIN email_verifications ev ON ev.user_id = rr.referred_id AND ev.is_verified = true AND ev.deleted_at IS NULL
+            WHERE rr.referrer_id = #{referrer_id}
+              AND rr.level = 1
+              AND rr.status = 'ACTIVE'
+              AND rr.deleted_at IS NULL
+              AND (
+                EXISTS (SELECT 1 FROM mining_history mh WHERE mh.user_id = rr.referred_id AND mh.deleted_at IS NULL LIMIT 1)
+                OR EXISTS (SELECT 1 FROM daily_mining dm WHERE dm.user_id = rr.referred_id AND dm.mining_amount > 0 AND dm.deleted_at IS NULL LIMIT 1)
+              )
+            """;
+        String query = QueryBuilder.selectStringQuery(sql).build();
+        return query(client, query, Collections.singletonMap("referrer_id", referrerId))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Object v = rows.iterator().next().getValue("cnt");
+                    if (v instanceof Number) return ((Number) v).intValue();
+                }
+                return 0;
+            })
+            .onFailure(throwable -> log.error("유효 직접 초대 수 조회 실패 - referrerId: {}", referrerId, throwable));
+    }
+    
+    /**
+     * 동일 추천인 하에서, 이미 같은 IP 또는 같은 device_id로 등록된 피추천인이 있는지 (중복 초대 무효 판단용)
+     */
+    public Future<Boolean> hasReferrerAnyReferredWithSameIpOrDevice(SqlClient client, Long referrerId, String clientIp, String deviceId) {
+        if ((clientIp == null || clientIp.isBlank()) && (deviceId == null || deviceId.isBlank())) {
+            return Future.succeededFuture(false);
+        }
+        String ipOrDeviceCondition;
+        Map<String, Object> params = new HashMap<>();
+        params.put("referrer_id", referrerId);
+        if (clientIp != null && !clientIp.isBlank() && deviceId != null && !deviceId.isBlank()) {
+            ipOrDeviceCondition = "(d.last_ip = #{client_ip} OR d.device_id = #{device_id})";
+            params.put("client_ip", clientIp);
+            params.put("device_id", deviceId);
+        } else if (clientIp != null && !clientIp.isBlank()) {
+            ipOrDeviceCondition = "d.last_ip = #{client_ip}";
+            params.put("client_ip", clientIp);
+        } else {
+            ipOrDeviceCondition = "d.device_id = #{device_id}";
+            params.put("device_id", deviceId);
+        }
+        String sql = QueryBuilder.selectAlias("referral_relations", "rr", "1")
+            .innerJoin("devices", "d")
+            .on("d.user_id", Op.Equal, "rr.referred_id")
+            .appendQueryString("AND d.deleted_at IS NULL")
+            .where("rr.referrer_id", Op.Equal, "referrer_id")
+            .andWhere("rr.deleted_at", Op.IsNull)
+            .andWhere(ipOrDeviceCondition)
+            .limit(1)
+            .build();
+        return query(client, sql, params)
+            .map(rows -> rows.iterator().hasNext())
+            .onFailure(throwable -> log.error("중복 IP/기기 조회 실패 - referrerId: {}", referrerId, throwable));
+    }
+    
+    /**
      * 팀 통계 정보 조회
+     * 스칼라 서브쿼리·CASE·INTERVAL 등 집계 구조라 selectStringQuery 사용
      */
     public Future<TeamInfoResponseDto.SummaryInfo> getTeamSummary(SqlClient client, Long referrerId) {
-        // totalRevenue: 팀의 체굴된 총 수익 (래퍼럴 수익) - internal_transfers에서 REFERRAL_REWARD 합계
-        // todayRevenue: 팀의 금일 채굴된 총 수익 - daily_mining에서 오늘 합계
-        // weekRevenue: 최근 7일 채굴 수익
-        // monthRevenue: 최근 30일 채굴 수익
-        // yearRevenue: 최근 1년 채굴 수익
-        // totalMembers: 추천인으로 등록한 총 인원 - referral_relations에서 referrer_id로 카운트
-        // newMembersToday: 금일 추천인 등록한 신규 인원 - referral_relations에서 오늘 생성된 것 카운트
-        
-        // 복잡한 쿼리이므로 selectStringQuery 사용
+        // totalRevenue: 추천인이 받은 래퍼럴 수익 합계 (internal_transfers.receiver_id = referrer_id, REFERRAL_REWARD)
+        // todayRevenue: 팀(하부) 금일 채굴량 합계 - daily_mining
+        // totalMembers / newMembersToday: referral_relations 카운트
         String sql = """
             SELECT 
-                COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' 
-                    THEN it.amount ELSE 0 END), 0) as total_revenue,
+                (SELECT COALESCE(SUM(it.amount), 0) FROM internal_transfers it 
+                 WHERE it.receiver_id = #{referrer_id} AND it.transfer_type = 'REFERRAL_REWARD' 
+                   AND it.status = 'COMPLETED' AND (it.deleted_at IS NULL)) as total_revenue,
                 COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
                 COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '7 days' THEN dm.mining_amount ELSE 0 END), 0) as week_revenue,
                 COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '30 days' THEN dm.mining_amount ELSE 0 END), 0) as month_revenue,
@@ -318,9 +398,7 @@ public class ReferralRepository extends BaseRepository {
                 COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL 
                     AND rr.created_at::date = CURRENT_DATE THEN rr.referred_id END) as new_members_today
             FROM referral_relations rr
-            LEFT JOIN internal_transfers it ON it.receiver_id = rr.referred_id
-                AND it.transfer_type = 'REFERRAL_REWARD'
-            LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id
+            LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id AND (dm.deleted_at IS NULL)
             WHERE rr.referrer_id = #{referrer_id}
                 AND rr.status = 'ACTIVE'
                 AND rr.deleted_at IS NULL
@@ -442,7 +520,7 @@ public class ReferralRepository extends BaseRepository {
     public Future<List<TeamInfoResponseDto.RevenueInfo>> getTeamRevenues(SqlClient client, Long referrerId, String period, Integer limit, Integer offset) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        // 복잡한 쿼리 (JOIN과 집계)이므로 selectStringQuery 사용
+        // JOIN·GROUP BY·HAVING·COALESCE/SUM(CASE) 구조라 QueryBuilder로 표현 어려움 → selectStringQuery, 기간은 revenuePeriodCondition() 사용
         StringBuilder sql = new StringBuilder("""
             SELECT 
                 u.id as user_id,
@@ -462,9 +540,9 @@ public class ReferralRepository extends BaseRepository {
                 AND rr.deleted_at IS NULL
             """);
         
-        // period에 따라 날짜 필터 추가
+        // period에 따라 날짜 필터 추가 (파라미터 start_date 사용)
         if (startDate != null) {
-            sql.append(" AND (dm.mining_date >= #{start_date} OR it.created_at >= #{start_date})");
+            sql.append(revenuePeriodCondition());
         }
         
         sql.append("""
@@ -510,6 +588,13 @@ public class ReferralRepository extends BaseRepository {
                 return revenues;
             })
             .onFailure(throwable -> log.error("팀 수익 목록 조회 실패 - referrerId: {}", referrerId, throwable));
+    }
+    
+    /**
+     * 팀 수익 조회용 기간 조건 절 (getTeamRevenues에서 사용, 파라미터 start_date 필요)
+     */
+    private static String revenuePeriodCondition() {
+        return " AND (dm.mining_date >= #{start_date} OR it.created_at >= #{start_date})";
     }
     
     /**

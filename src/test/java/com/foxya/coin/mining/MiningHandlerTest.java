@@ -321,5 +321,49 @@ public class MiningHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+
+    @Nested
+    @DisplayName("영상 시청 채굴 적립 테스트 (credit-video)")
+    class CreditMiningForVideoTest {
+
+        @Test
+        @Order(14)
+        @DisplayName("성공 - 200 응답 및 amount, credited 필드 존재")
+        void successCreditVideoReturnsStructure(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            reqPost(getUrl("/credit-video"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Credit video response: {}", res.bodyAsJsonObject());
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    try {
+                        ApiResponse<?> api = objectMapper.readValue(
+                            res.bodyAsString(),
+                            new TypeReference<ApiResponse<java.util.Map<String, Object>>>() {}
+                        );
+                        assertThat(api.getStatus()).isEqualTo("OK");
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> data = (java.util.Map<String, Object>) api.getData();
+                        assertThat(data).isNotNull();
+                        assertThat(data).containsKeys("amount", "credited");
+                        assertThat(data.get("credited")).isInstanceOf(Boolean.class);
+                    } catch (Exception e) {
+                        throw new AssertionError("Parse credit-video response failed", e);
+                    }
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(15)
+        @DisplayName("실패 - 인증 없이 요청")
+        void failNoAuth(VertxTestContext tc) {
+            reqPost(getUrl("/credit-video"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
 }
 

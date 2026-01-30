@@ -936,6 +936,13 @@ components:
         maxAdWatchCount:
           type: integer
           description: 일일 최대 광고 시청 횟수
+        inviteBonusMultiplier:
+          type: number
+          format: decimal
+          description: 초대 인원 수에 따른 채굴 보너스 배율 (1.0 ~ 1.22). 영상 1회당 채굴량에 곱함
+        validDirectReferralCount:
+          type: integer
+          description: 유효 직접 초대 수 (이메일 인증+채굴 기록 있는 referred 수). 채굴 보너스 % 구간용
 
     MiningHistoryItem:
       type: object
@@ -3280,10 +3287,31 @@ paths:
   /api/v1/referrals/register:
     post:
       summary: 레퍼럴 코드 등록
-      description: 로그인한 유저가 다른 유저의 추천인 코드를 입력하여 피추천인이 됩니다.
+      description: |
+        로그인한 유저가 다른 유저의 추천인 코드를 입력하여 피추천인이 됩니다.
+        중복 추천 방지를 위해 선택적으로 다음 헤더를 보내면, 동일 추천인 하에서 같은 IP/기기로 이미 등록된 피추천인이 있는지 검사합니다.
       tags: [Referral]
       security:
         - BearerAuth: []
+      parameters:
+        - name: X-Forwarded-For
+          in: header
+          required: false
+          schema:
+            type: string
+          description: 클라이언트 IP (프록시 경유 시)
+        - name: X-Real-IP
+          in: header
+          required: false
+          schema:
+            type: string
+          description: 클라이언트 IP (대안)
+        - name: X-Device-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: 기기 식별자 (중복 추천 판단용)
       requestBody:
         required: true
         content:
@@ -4503,6 +4531,40 @@ paths:
                 $ref: '#/components/schemas/ApiResponse'
         '400':
           description: 일일 최대 광고 시청 횟수 초과
+        '401':
+          description: 인증 실패
+
+  /api/v1/mining/credit-video:
+    post:
+      summary: 영상 시청 1회 채굴 적립
+      description: |
+        부스터 영상 시청 1회당 채굴을 적립합니다. 이메일 인증 완료 및 부스터 영상 1회 이상 시청이 선행되어야 합니다.
+        일일 영상 시청 횟수·일일 최대 채굴량 제한이 적용되며, 초대 보너스 및 래퍼럴 수익이 연동됩니다.
+      tags: [Mining]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 요청 처리 완료 (credited가 true이면 적립 성공, false이면 조건 미충족 또는 한도 도달)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          amount:
+                            type: number
+                            format: decimal
+                            description: 이번에 적립된 채굴량 (0이면 미적립)
+                          credited:
+                            type: boolean
+                            description: 실제 적립 여부
+        '400':
+          description: 조건 미충족(이메일 미인증, 부스터 영상 미시청) 또는 일일 한도 도달
         '401':
           description: 인증 실패
 

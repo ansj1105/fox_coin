@@ -29,6 +29,7 @@ public class MiningRepository extends BaseRepository {
         .id(row.getInteger("id"))
         .level(row.getInteger("level"))
         .dailyMaxMining(row.getBigDecimal("daily_max_mining"))
+        .dailyMaxVideos(row.getInteger("daily_max_videos"))
         .createdAt(row.getLocalDateTime("created_at"))
         .updatedAt(row.getLocalDateTime("updated_at"))
         .build();
@@ -55,7 +56,7 @@ public class MiningRepository extends BaseRepository {
     
     public Future<MiningLevel> getMiningLevelByLevel(SqlClient client, Integer level) {
         String sql = QueryBuilder
-            .select("mining_levels", "id", "level", "daily_max_mining", "created_at", "updated_at")
+            .select("mining_levels", "id", "level", "daily_max_mining", "daily_max_videos", "created_at", "updated_at")
             .where("level", Op.Equal, "level")
             .build();
         
@@ -70,7 +71,7 @@ public class MiningRepository extends BaseRepository {
     
     public Future<List<MiningLevel>> getAllMiningLevels(SqlClient client) {
         String sql = QueryBuilder
-            .select("mining_levels", "id", "level", "daily_max_mining", "created_at", "updated_at")
+            .select("mining_levels", "id", "level", "daily_max_mining", "daily_max_videos", "created_at", "updated_at")
             .orderBy("level", Sort.ASC)
             .build();
         
@@ -127,6 +128,27 @@ public class MiningRepository extends BaseRepository {
                 }
                 return null;
             });
+    }
+    
+    /**
+     * 채굴 내역 1건 추가 (영상 시청 1회당)
+     */
+    public Future<MiningHistory> insertMiningHistory(SqlClient client, Long userId, Integer level, BigDecimal amount, String type, String status) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("level", level != null ? level : 1);
+        params.put("amount", amount);
+        params.put("type", type != null ? type : "BROADCAST_WATCH");
+        params.put("status", status != null ? status : "COMPLETED");
+        String sql = QueryBuilder.insert("mining_history", params, "id, user_id, level, amount, type, status, created_at");
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return MINING_HISTORY_MAPPER.map(rows.iterator().next());
+                }
+                return null;
+            })
+            .onFailure(throwable -> log.error("채굴 내역 추가 실패 - userId: {}", userId, throwable));
     }
     
     /**
@@ -209,6 +231,33 @@ public class MiningRepository extends BaseRepository {
                 return 0L;
             })
             .onFailure(throwable -> log.error("채굴 내역 개수 조회 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
+     * 오늘 채굴(영상 시청) 횟수 - 레벨별 일일 영상 상한 체크용
+     */
+    public Future<Integer> getTodayMiningCount(SqlClient client, Long userId) {
+        LocalDate today = LocalDate.now();
+        String sql = QueryBuilder
+            .count("mining_history", "mh", "total")
+            .where("mh.user_id", Op.Equal, "userId")
+            .andWhere("mh.status", Op.Equal, "status")
+            .andWhere("mh.deleted_at", Op.IsNull)
+            .andWhere("mh.created_at", Op.GreaterThanOrEqual, "today_start")
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("status", "COMPLETED");
+        params.put("today_start", today.atStartOfDay());
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    Long total = rows.iterator().next().getLong("total");
+                    return total != null ? total.intValue() : 0;
+                }
+                return 0;
+            })
+            .onFailure(throwable -> log.error("오늘 채굴 횟수 조회 실패 - userId: {}", userId, throwable));
     }
     
     /**

@@ -56,6 +56,12 @@ public class MiningHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::watchAd);
         
+        // 영상 시청 1회 채굴 적립 (초대 보너스 적용, 래퍼럴 수익 연동)
+        router.post("/credit-video")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::creditMiningForVideo);
+        
         return router;
     }
     
@@ -97,6 +103,17 @@ public class MiningHandler extends BaseHandler {
         log.info("Watching ad for user: {}", userId);
         response(ctx, miningService.watchAd(userId)
             .map(success -> null)); // 성공 시 null 반환 (success 메서드가 ApiResponse 생성)
+    }
+    
+    private void creditMiningForVideo(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Credit mining for video - user: {}", userId);
+        response(ctx, miningService.creditMiningForVideo(userId).map(amount ->
+            new java.util.HashMap<String, Object>() {{
+                put("amount", amount);
+                put("credited", amount != null && amount.compareTo(java.math.BigDecimal.ZERO) > 0);
+            }}
+        ));
     }
 }
 

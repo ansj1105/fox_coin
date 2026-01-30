@@ -130,6 +130,22 @@ public class ReferralHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(6)
+        @DisplayName("성공 - X-Forwarded-For, X-Device-Id 헤더 전달 시 중복 추천 판단에 사용")
+        void successRegisterWithIpAndDeviceHeaders(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(4L); // blocked_user (아직 레퍼럴 미등록 가정)
+            JsonObject data = new JsonObject().put("referralCode", "REFER123");
+            reqPost(getUrl("/register"))
+                .bearerTokenAuthentication(accessToken)
+                .putHeader("X-Forwarded-For", "192.168.1.100")
+                .putHeader("X-Device-Id", "test-device-unique-001")
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    tc.completeNow();
+                })));
+        }
     }
     
     @Nested

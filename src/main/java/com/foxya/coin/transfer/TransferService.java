@@ -194,6 +194,46 @@ public class TransferService extends BaseService {
     }
     
     /**
+     * 래퍼럴 수익 지급 (REFERRAL_REWARD: sender 없음, 수신자 지갑에 KORI 추가)
+     */
+    public Future<InternalTransfer> createReferralRewardTransfer(Long referrerId, BigDecimal amount, String memo) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.failedFuture(new BadRequestException("지급 금액은 0보다 커야 합니다."));
+        }
+        return currencyRepository.getCurrencyByCodeAndChain(pool, "KORI", "INTERNAL")
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
+                }
+                return transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId())
+                    .compose(receiverWallet -> {
+                        if (receiverWallet == null) {
+                            return Future.failedFuture(new NotFoundException("추천인 지갑을 찾을 수 없습니다."));
+                        }
+                        String transferId = UUID.randomUUID().toString();
+                        InternalTransfer transfer = InternalTransfer.builder()
+                            .transferId(transferId)
+                            .senderId(null)
+                            .senderWalletId(null)
+                            .receiverId(referrerId)
+                            .receiverWalletId(receiverWallet.getId())
+                            .currencyId(currency.getId())
+                            .amount(amount)
+                            .fee(BigDecimal.ZERO)
+                            .status(InternalTransfer.STATUS_COMPLETED)
+                            .transferType(InternalTransfer.TYPE_REFERRAL_REWARD)
+                            .orderNumber(com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber())
+                            .transactionType(com.foxya.coin.common.enums.TransactionType.TOKEN_DEPOSIT.getValue())
+                            .memo(memo != null ? memo : "REFERRAL_REWARD")
+                            .requestIp(null)
+                            .build();
+                        return pool.withTransaction(client -> transferRepository.addBalance(client, receiverWallet.getId(), amount)
+                            .compose(updated -> transferRepository.createInternalTransfer(client, transfer)));
+                    });
+            });
+    }
+    
+    /**
      * 수신자 조회 (타입에 따라)
      */
     private Future<User> findReceiver(String receiverType, String receiverValue) {

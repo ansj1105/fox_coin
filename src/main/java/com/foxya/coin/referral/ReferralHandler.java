@@ -91,7 +91,7 @@ public class ReferralHandler extends BaseHandler {
     }
     
     /**
-     * 레퍼럴 코드 등록
+     * 레퍼럴 코드 등록 (안전장치: IP/기기 중복 체크용으로 clientIp, deviceId 전달)
      */
     private void registerReferralCode(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
@@ -101,8 +101,20 @@ public class ReferralHandler extends BaseHandler {
             RegisterReferralDto.class
         );
         
+        String clientIp = ctx.request().getHeader("X-Forwarded-For");
+        if (clientIp != null && clientIp.contains(",")) {
+            clientIp = clientIp.split(",")[0].trim();
+        }
+        if (clientIp == null || clientIp.isEmpty()) {
+            clientIp = ctx.request().getHeader("X-Real-IP");
+        }
+        if (clientIp == null || clientIp.isEmpty()) {
+            clientIp = ctx.request().remoteAddress() != null ? ctx.request().remoteAddress().host() : null;
+        }
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        
         log.info("User {} registering referral code: {}", userId, dto.getReferralCode());
-        response(ctx, referralService.registerReferralCode(userId, dto.getReferralCode()));
+        response(ctx, referralService.registerReferralCode(userId, dto.getReferralCode(), clientIp, deviceId));
     }
     
     /**
