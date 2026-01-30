@@ -275,12 +275,12 @@ docker exec foxya-api wget -q -O- --timeout=2 http://prometheus:9090/-/healthy |
 → `/6s9ex74204/grafana/` 접속 시 Grafana는 `/login`을 받아 로그인 페이지(또는 로그인 후 대시보드)를 내려주고, 같은 URL로 301을 보내지 않아 루프가 사라집니다.
 
 **ERR_TOO_MANY_REDIRECTS on `/6s9ex74204/grafana/login` 또는 `.../grafana/login/`:**  
-Grafana는 **`/login/`(끝 슬래시)을 `/login`으로 301** 보냅니다. Nginx에서 `/login`을 `/login/`으로 바꿔주면 Grafana가 다시 `/login`으로 보내서 **루프**가 납니다.  
-그래서 **항상 `/login`(끝 슬래시 없음)** 으로 통일했습니다.  
-- **`/6s9ex74204/grafana/login/`** 요청 → Nginx가 **301**로 **`/6s9ex74204/grafana/login`** 으로 한 번만 리다이렉트  
-- Grafana가 **Location: .../grafana/login/** 으로 보내면 Nginx **proxy_redirect**로 **.../grafana/login** 으로 덮어쓰기  
-- `location /6s9ex74204/grafana` 로 두어 `/login`·`/login/` 둘 다 프록시하고, 내부적으로는 Grafana에 **`/login`** 만 전달  
-리다이렉트 확인: `curl -sI -L 'https://korion.io.kr/6s9ex74204/grafana/login/' 2>/dev/null | grep -E 'HTTP|Location'`
+Grafana는 **`/login`(끝 슬래시 없음)을 `/login/`으로 301** 보냅니다. Nginx에서 `/login/`을 `/login`으로 바꿔주면 Grafana가 다시 `/login/`으로 보내서 **루프**가 납니다.  
+그래서 **항상 `/login/`(끝 슬래시 있음)** 으로 통일했습니다.  
+- **`/6s9ex74204/grafana/login`**(슬래시 없음) 요청 → Nginx가 **301**로 **`/6s9ex74204/grafana/login/`** 으로 한 번만 리다이렉트  
+- Grafana가 **Location: .../grafana/login**(슬래시 없음) 으로 보내면 Nginx **proxy_redirect**로 **.../grafana/login/** 으로 덮어쓰기  
+- **`.../grafana/login/`** 요청 시 Grafana에 **GET /login/** 전달 (끝 슬래시 유지 → 200 응답)  
+리다이렉트 확인: `curl -sI -L -o /dev/null -w "%{http_code}\n" 'https://korion.io.kr/6s9ex74204/grafana/login/'` → **200**이면 정상.
 
 **다른 도메인/IP로 접속 시 리다이렉트·빈 화면:**  
 Grafana가 보내는 `Location`을 Nginx에서 요청 호스트로 덮어쓰려면 `proxy_redirect https://korion.io.kr/ $scheme://$host/;` (및 http 동일)가 있어야 합니다.  
