@@ -83,6 +83,8 @@ import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.retry.EmailRetryJob;
+import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
@@ -166,16 +168,18 @@ public class ApiVerticle extends AbstractVerticle {
         ClientRepository clientRepository = new ClientRepository();
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
         
-        // 이메일 서비스 (SMTP 설정은 선택 사항)
+        // Redis 초기화 (토큰 블랙리스트·재시도 큐용)
+        JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
+        RedisAPI redisApi = initializeRedis(redisConfig);
+        RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
+
+        // 이메일 서비스 (SMTP 설정은 선택 사항, 실패 시 Redis 재시도 큐 적재)
         EmailService emailService = new EmailService(
             vertx,
             config().getJsonObject("smtp", new JsonObject()),
-            frontendConfig
+            frontendConfig,
+            retryQueuePublisher
         );
-
-        // Redis 초기화 (토큰 블랙리스트용)
-        JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
-        RedisAPI redisApi = initializeRedis(redisConfig);
         
         // UserService를 먼저 생성 (AuthService에서 사용)
         UserService userService = new UserService(
@@ -254,6 +258,11 @@ public class ApiVerticle extends AbstractVerticle {
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
+        // 이메일 재시도 큐 소비 (Redis 있을 때만, 주기적으로 RPOP → 재시도 → 최종 실패 시 DLQ)
+        if (redisApi != null && retryQueuePublisher != null) {
+            startEmailRetryProcessor(emailService, retryQueuePublisher);
+        }
+
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
@@ -601,7 +610,31 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * Redis 초기화 (토큰 블랙리스트용)
+     * 이메일 재시도 큐 주기 소비: RPOP → 재시도 → 최종 실패 시 DLQ
+     */
+    private void startEmailRetryProcessor(EmailService emailService, RetryQueuePublisher retryQueuePublisher) {
+        long intervalMs = 15_000;
+        vertx.setPeriodic(intervalMs, id -> {
+            retryQueuePublisher.popEmailRetry()
+                .onSuccess(job -> {
+                    if (job == null) return;
+                    emailService.processRetryJob(job)
+                        .onSuccess(v -> log.debug("Email retry succeeded. type={}, email={}", job.getType(), job.getEmail()))
+                        .onFailure(throwable -> {
+                            EmailRetryJob next = job.withIncrementedRetry();
+                            if (next.getRetryCount() >= job.getMaxRetries()) {
+                                retryQueuePublisher.enqueueEmailDlq(job, throwable.getMessage());
+                            } else {
+                                retryQueuePublisher.enqueueEmailRetry(next);
+                            }
+                        });
+                });
+        });
+        log.info("Email retry processor started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * Redis 초기화 (토큰 블랙리스트·재시도 큐용)
      * Redis가 없어도 서비스는 동작하도록 null을 반환할 수 있음
      */
     private RedisAPI initializeRedis(JsonObject redisConfig) {

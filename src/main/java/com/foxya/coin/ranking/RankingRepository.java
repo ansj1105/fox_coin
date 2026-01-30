@@ -19,7 +19,11 @@ import java.util.Map;
 
 @Slf4j
 public class RankingRepository extends BaseRepository {
-    
+
+    /** CTE user_stats 결과를 조회하는 SELECT (개인 랭킹용) */
+    private static final String SQL_PERSONAL_RANKING_FROM_USER_STATS =
+        "SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats";
+
     /**
      * 국가별 팀 랭킹 조회
      * @param period 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
@@ -215,7 +219,7 @@ public class RankingRepository extends BaseRepository {
         
         // 외부 SELECT는 QueryBuilder 사용 (CTE를 FROM 절에서 사용)
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
-            .selectStringQuery("SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats")
+            .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS)
             .where("(mining_amount + referral_reward) > 0 OR team_count > 0")
             .appendQueryString("ORDER BY aggregation DESC, total_amount DESC, team_count DESC")
             .limit(50);
@@ -307,8 +311,8 @@ public class RankingRepository extends BaseRepository {
         
         // 외부 SELECT는 QueryBuilder 사용
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
-            .selectStringQuery("SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats");
-        
+            .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS);
+
         // WITH 절을 앞에 추가
         String query = cteSql.toString() + " " + queryBuilder.build();
         Map<String, Object> params = new HashMap<>();

@@ -180,8 +180,8 @@ public class AuthService extends BaseService {
                 
                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                     .compose(ignored -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
                         return Future.succeededFuture(
                             LoginResponseDto.builder()
                                 .accessToken(accessToken)
@@ -287,8 +287,8 @@ public class AuthService extends BaseService {
                                 }
                                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                                     .compose(ignored -> {
-                                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
                                         return redisApi.del(java.util.List.of(key))
                                             .recover(e -> Future.succeededFuture())
                                             .map(v -> LoginResponseDto.builder()
@@ -684,8 +684,8 @@ public class AuthService extends BaseService {
                     .compose(user -> registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                         .map(ignored -> user))
                     .compose(user -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
+                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
                         LoginResponseDto loginDto = LoginResponseDto.builder()
                             .accessToken(accessToken)
                             .refreshToken(refreshToken)
@@ -745,11 +745,12 @@ public class AuthService extends BaseService {
      */
     public Future<TokenResponseDto> refreshAccessToken(Long userId, String role) {
         String accessToken = AuthUtils.generateAccessToken(
-            jwtAuth, 
-            userId, 
-            UserRole.valueOf(role)
+            jwtAuth,
+            userId,
+            UserRole.valueOf(role),
+            getAccessTokenExpireSeconds()
         );
-        
+
         return Future.succeededFuture(
             TokenResponseDto.builder()
                 .accessToken(accessToken)
@@ -763,11 +764,12 @@ public class AuthService extends BaseService {
      */
     public Future<TokenResponseDto> refreshRefreshToken(Long userId, String role) {
         String refreshToken = AuthUtils.generateRefreshToken(
-            jwtAuth, 
-            userId, 
-            UserRole.valueOf(role)
+            jwtAuth,
+            userId,
+            UserRole.valueOf(role),
+            (int) getRefreshTokenExpireSeconds()
         );
-        
+
         return Future.succeededFuture(
             TokenResponseDto.builder()
                 .refreshToken(refreshToken)
@@ -776,9 +778,18 @@ public class AuthService extends BaseService {
         );
     }
 
-    private static final long REFRESH_TOKEN_EXPIRE_SECONDS = 864000L; // 10일
     private static final long SOCIAL_SIGNUP_TTL_SECONDS = 600L; // 10분
     private static final String SOCIAL_SIGNUP_PREFIX = "social_signup:";
+
+    /** config 기반 Access Token 만료(초). access_token_expire_minutes * 60 */
+    private int getAccessTokenExpireSeconds() {
+        return jwtConfig.getInteger("access_token_expire_minutes", 60) * 60;
+    }
+
+    /** config 기반 Refresh Token 만료(초). refresh_token_expire_minutes * 60 */
+    private long getRefreshTokenExpireSeconds() {
+        return jwtConfig.getInteger("refresh_token_expire_minutes", 14400) * 60L;
+    }
 
     /**
      * refreshToken으로 accessToken(및 refreshToken 로테이션) 재발급.
@@ -801,14 +812,14 @@ public class AuthService extends BaseService {
                         }
                         return ensureActiveDevice(userId, deviceId, deviceType, deviceOs)
                             .compose(ignored -> {
-                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role));
-                                String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role));
+                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role), getAccessTokenExpireSeconds());
+                                String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role), (int) getRefreshTokenExpireSeconds());
                                 RefreshResponseDto dto = RefreshResponseDto.builder()
                                     .accessToken(accessToken)
                                     .refreshToken(newRefresh)
                                     .build();
                                 // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
-                                return addToBlacklist(refreshToken, REFRESH_TOKEN_EXPIRE_SECONDS)
+                                return addToBlacklist(refreshToken, getRefreshTokenExpireSeconds())
                                     .map(v -> dto);
                             });
                     });
@@ -1146,8 +1157,8 @@ public class AuthService extends BaseService {
                                     
                                     return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                                         .compose(ignored -> {
-                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
+                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
                                             return Future.succeededFuture(
                                                 GoogleLoginResponseDto.builder()
                                                     .accessToken(jwtAccessToken)

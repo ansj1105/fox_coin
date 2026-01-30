@@ -98,19 +98,17 @@ print(response.json())
 
 ## 🚨 에러 응답
 
-### 502 Bad Gateway
+### 502 Bad Gateway / 페이지가 안 열릴 때
 
-Grafana/Prometheus 서버에 연결할 수 없는 경우:
+Grafana/Prometheus 서버에 연결할 수 없거나, 브라우저에서 빈 화면/리다이렉트 무한 루프가 나올 때:
 
-```
-Grafana 서버에 연결할 수 없습니다.
-또는
-Prometheus 서버에 연결할 수 없습니다.
-```
+- **우리 서비스에 안 맞는 게 아니라** 대부분 **컨테이너 미기동·Nginx 경로·Grafana ROOT_URL 불일치** 때문입니다.
+- **체크리스트·해결 순서**는 **[OPERATIONS.md § 5. Prometheus / Grafana 연동 및 안 열릴 때](./OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때)**를 참고하세요.
 
-**해결 방법:**
-- Docker Compose에서 Prometheus와 Grafana가 실행 중인지 확인
-- 네트워크 연결 확인
+**간단 확인:**
+- Docker Compose에서 Prometheus와 Grafana가 실행 중인지: `docker compose -f docker-compose.prod.yml ps`
+- 접속 URL과 Grafana 환경 변수 `GF_SERVER_ROOT_URL`이 **완전히 동일**한지 (도메인·경로·슬래시 포함)
+- 네트워크: Nginx ↔ Grafana/Prometheus 컨테이너 간 연결 확인
 
 ## 🔒 보안 권장사항
 

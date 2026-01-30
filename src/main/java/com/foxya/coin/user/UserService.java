@@ -106,18 +106,13 @@ public class UserService extends BaseService {
                     return Future.failedFuture(new UnauthorizedException("비밀번호가 일치하지 않습니다."));
                 }
                 
-                // JWT 토큰 생성 (기본 USER 권한)
+                // JWT 토큰 생성 (config 기반 만료)
+                int accessExpireSec = jwtConfig.getInteger("access_token_expire_minutes", 60) * 60;
+                int refreshExpireSec = jwtConfig.getInteger("refresh_token_expire_minutes", 14400) * 60;
                 String accessToken = com.foxya.coin.common.utils.AuthUtils.generateAccessToken(
-                    jwtAuth,
-                    user.getId(),
-                    com.foxya.coin.common.enums.UserRole.USER
-                );
-                
+                    jwtAuth, user.getId(), com.foxya.coin.common.enums.UserRole.USER, accessExpireSec);
                 String refreshToken = com.foxya.coin.common.utils.AuthUtils.generateRefreshToken(
-                    jwtAuth,
-                    user.getId(),
-                    com.foxya.coin.common.enums.UserRole.USER
-                );
+                    jwtAuth, user.getId(), com.foxya.coin.common.enums.UserRole.USER, refreshExpireSec);
                 
                 return Future.succeededFuture(
                     LoginResponseDto.builder()

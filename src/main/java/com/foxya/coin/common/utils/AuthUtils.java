@@ -100,17 +100,36 @@ public abstract class AuthUtils {
         return jwtAuth.generateToken(payload, new JWTOptions().setExpiresInSeconds(expiresInSeconds));
     }
     
+    /** Access Token 기본 만료(초): 1시간. config 없을 때 사용 */
+    private static final int DEFAULT_ACCESS_TOKEN_EXPIRE_SECONDS = 3600;
+    /** Refresh Token 기본 만료(초): 10일. config 없을 때 사용 */
+    private static final int DEFAULT_REFRESH_TOKEN_EXPIRE_SECONDS = 864000;
+
     /**
-     * Access Token 생성 (1시간)
+     * Access Token 생성 (만료 시간 지정)
+     */
+    public static String generateAccessToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds) {
+        return generateToken(jwtAuth, userId, role, expiresInSeconds);
+    }
+
+    /**
+     * Access Token 생성 (기본 1시간). config를 쓰지 않는 호출자용
      */
     public static String generateAccessToken(JWTAuth jwtAuth, Long userId, UserRole role) {
-        return generateToken(jwtAuth, userId, role, 3600); // 1시간
+        return generateToken(jwtAuth, userId, role, DEFAULT_ACCESS_TOKEN_EXPIRE_SECONDS);
     }
-    
+
     /**
-     * Refresh Token 생성 (10일)
+     * Refresh Token 생성 (만료 시간 지정)
+     */
+    public static String generateRefreshToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds) {
+        return generateToken(jwtAuth, userId, role, expiresInSeconds);
+    }
+
+    /**
+     * Refresh Token 생성 (기본 10일). config를 쓰지 않는 호출자용
      */
     public static String generateRefreshToken(JWTAuth jwtAuth, Long userId, UserRole role) {
-        return generateToken(jwtAuth, userId, role, 864000); // 10일
+        return generateToken(jwtAuth, userId, role, DEFAULT_REFRESH_TOKEN_EXPIRE_SECONDS);
     }
 }

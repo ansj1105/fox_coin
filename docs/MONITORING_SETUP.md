@@ -135,6 +135,17 @@ GRAFANA_PASSWORD=your_secure_password
 
 ## 문제 해결
 
+### Grafana / Prometheus가 안 열릴 때 (우리 서비스 연동)
+
+Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.  
+“열어봤는데 안 열린다”면 **컨테이너 기동 → Nginx 경로 → 접속 URL과 Grafana ROOT_URL 일치** 순으로 확인하면 됩니다.
+
+**체크리스트·원인 정리**는 **[OPERATIONS.md § 5. Prometheus / Grafana 연동 및 안 열릴 때](./OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때)**를 참고하세요.
+
+- 컨테이너: `docker compose -f docker-compose.prod.yml up -d prometheus grafana`
+- Grafana **실제 접속 URL**과 `GF_SERVER_ROOT_URL`(예: `https://korion.io.kr/6s9ex74204/grafana/`)이 **완전히 일치**해야 함
+- Nginx에 `location /6s9ex74204/grafana/`, `location /6s9ex74204/prometheus` 존재 여부 확인
+
 ### 메트릭이 보이지 않을 때
 
 1. **API 서버 확인**
@@ -143,7 +154,7 @@ GRAFANA_PASSWORD=your_secure_password
    ```
 
 2. **Prometheus 타겟 확인**
-   - http://localhost:9090/targets 접속
+   - http://localhost:9090/targets 접속 (또는 `https://your-domain/6s9ex74204/prometheus/targets`)
    - `foxya-api` 타겟이 `UP` 상태인지 확인
 
 3. **로그 확인**

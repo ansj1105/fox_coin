@@ -10,12 +10,21 @@ import java.util.Map;
 
 @Slf4j
 public class UserExternalIdRepository extends BaseRepository {
-    
+
+    private static final String SQL_GET_USER_ID_BY_PROVIDER_AND_EXTERNAL_ID =
+        "SELECT user_id FROM user_external_ids WHERE provider = #{provider} AND external_id = #{external_id}";
+    private static final String SQL_GET_EXTERNAL_ID_BY_USER_AND_PROVIDER =
+        "SELECT external_id FROM user_external_ids WHERE user_id = #{user_id} AND provider = #{provider}";
+    private static final String SQL_UPSERT_USER_EXTERNAL_ID =
+        "INSERT INTO user_external_ids (user_id, provider, external_id) "
+            + "VALUES (#{user_id}, #{provider}, #{external_id}) "
+            + "ON CONFLICT (user_id, provider) DO UPDATE SET external_id = EXCLUDED.external_id, updated_at = CURRENT_TIMESTAMP";
+
     /**
      * provider + externalId로 사용자 ID 조회
      */
     public Future<Long> getUserIdByProviderAndExternalId(SqlClient client, String provider, String externalId) {
-        String sql = "SELECT user_id FROM user_external_ids WHERE provider = #{provider} AND external_id = #{external_id}";
+        String sql = SQL_GET_USER_ID_BY_PROVIDER_AND_EXTERNAL_ID;
         
         Map<String, Object> params = new HashMap<>();
         params.put("provider", provider);
@@ -35,7 +44,7 @@ public class UserExternalIdRepository extends BaseRepository {
      * user_id + provider로 external_id 조회
      */
     public Future<String> getExternalIdByUserIdAndProvider(SqlClient client, Long userId, String provider) {
-        String sql = "SELECT external_id FROM user_external_ids WHERE user_id = #{user_id} AND provider = #{provider}";
+        String sql = SQL_GET_EXTERNAL_ID_BY_USER_AND_PROVIDER;
 
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
@@ -55,9 +64,7 @@ public class UserExternalIdRepository extends BaseRepository {
      * user_id + provider 기준으로 external_id upsert
      */
     public Future<Void> upsertUserExternalId(SqlClient client, Long userId, String provider, String externalId) {
-        String sql = "INSERT INTO user_external_ids (user_id, provider, external_id) " +
-            "VALUES (#{user_id}, #{provider}, #{external_id}) " +
-            "ON CONFLICT (user_id, provider) DO UPDATE SET external_id = EXCLUDED.external_id, updated_at = CURRENT_TIMESTAMP";
+        String sql = SQL_UPSERT_USER_EXTERNAL_ID;
 
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);

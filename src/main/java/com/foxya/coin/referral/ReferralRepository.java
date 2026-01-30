@@ -46,7 +46,71 @@ public class ReferralRepository extends BaseRepository {
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
-    
+
+    /** 유효 직접 초대 수: 이메일 인증 완료 + 채굴 기록 1건 이상인 referred만 카운트 (JOIN+EXISTS) */
+    private static final String SQL_GET_VALID_DIRECT_REFERRAL_COUNT = """
+        SELECT COUNT(DISTINCT rr.referred_id)::int as cnt
+        FROM referral_relations rr
+        INNER JOIN email_verifications ev ON ev.user_id = rr.referred_id AND ev.is_verified = true AND ev.deleted_at IS NULL
+        WHERE rr.referrer_id = #{referrer_id}
+          AND rr.level = 1
+          AND rr.status = 'ACTIVE'
+          AND rr.deleted_at IS NULL
+          AND (
+            EXISTS (SELECT 1 FROM mining_history mh WHERE mh.user_id = rr.referred_id AND mh.deleted_at IS NULL LIMIT 1)
+            OR EXISTS (SELECT 1 FROM daily_mining dm WHERE dm.user_id = rr.referred_id AND dm.mining_amount > 0 AND dm.deleted_at IS NULL LIMIT 1)
+          )
+        """;
+
+    /** 팀 통계: total_revenue(스칼라 서브쿼리), today/week/month/year_revenue(CASE), total_members, new_members_today */
+    private static final String SQL_GET_TEAM_SUMMARY = """
+        SELECT
+            (SELECT COALESCE(SUM(it.amount), 0) FROM internal_transfers it
+             WHERE it.receiver_id = #{referrer_id} AND it.transfer_type = 'REFERRAL_REWARD'
+               AND it.status = 'COMPLETED' AND (it.deleted_at IS NULL)) as total_revenue,
+            COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
+            COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '7 days' THEN dm.mining_amount ELSE 0 END), 0) as week_revenue,
+            COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '30 days' THEN dm.mining_amount ELSE 0 END), 0) as month_revenue,
+            COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '1 year' THEN dm.mining_amount ELSE 0 END), 0) as year_revenue,
+            COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as total_members,
+            COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL
+                AND rr.created_at::date = CURRENT_DATE THEN rr.referred_id END) as new_members_today
+        FROM referral_relations rr
+        LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id AND (dm.deleted_at IS NULL)
+        WHERE rr.referrer_id = #{referrer_id}
+          AND rr.status = 'ACTIVE'
+          AND rr.deleted_at IS NULL
+        """;
+
+    /** 팀 수익 목록: SELECT~WHERE (기간 조건은 revenuePeriodCondition()으로 추가) */
+    private static final String SQL_GET_TEAM_REVENUES_BASE = """
+        SELECT
+            u.id as user_id,
+            u.level,
+            u.login_id as nickname,
+            COALESCE(MAX(dm.mining_date), MAX(it.created_at::date)) as date,
+            COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
+            COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED'
+                THEN it.amount ELSE 0 END), 0) as total_revenue
+        FROM referral_relations rr
+        LEFT JOIN users u ON u.id = rr.referred_id
+        LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id
+        LEFT JOIN internal_transfers it ON it.receiver_id = rr.referred_id
+            AND it.transfer_type = 'REFERRAL_REWARD'
+        WHERE rr.referrer_id = #{referrer_id}
+          AND rr.status = 'ACTIVE'
+          AND rr.deleted_at IS NULL
+        """;
+
+    /** 팀 수익 목록: GROUP BY ~ LIMIT/OFFSET */
+    private static final String SQL_GET_TEAM_REVENUES_TAIL = """
+        GROUP BY u.id, u.level, u.login_id
+        HAVING (SUM(dm.mining_amount) > 0 OR SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED'
+            THEN it.amount ELSE 0 END) > 0)
+        ORDER BY date DESC, total_revenue DESC
+        LIMIT #{limit} OFFSET #{offset}
+        """;
+
     /**
      * 레퍼럴 관계 생성
      */
@@ -314,23 +378,9 @@ public class ReferralRepository extends BaseRepository {
     
     /**
      * 유효 직접 초대 수: 이메일 인증 완료 + 채굴 기록 1건 이상인 referred만 카운트 (채굴 보너스 %·수익률 구간용)
-     * JOIN + EXISTS 서브쿼리 구조라 selectStringQuery 사용
      */
     public Future<Integer> getValidDirectReferralCount(SqlClient client, Long referrerId) {
-        String sql = """
-            SELECT COUNT(DISTINCT rr.referred_id)::int as cnt
-            FROM referral_relations rr
-            INNER JOIN email_verifications ev ON ev.user_id = rr.referred_id AND ev.is_verified = true AND ev.deleted_at IS NULL
-            WHERE rr.referrer_id = #{referrer_id}
-              AND rr.level = 1
-              AND rr.status = 'ACTIVE'
-              AND rr.deleted_at IS NULL
-              AND (
-                EXISTS (SELECT 1 FROM mining_history mh WHERE mh.user_id = rr.referred_id AND mh.deleted_at IS NULL LIMIT 1)
-                OR EXISTS (SELECT 1 FROM daily_mining dm WHERE dm.user_id = rr.referred_id AND dm.mining_amount > 0 AND dm.deleted_at IS NULL LIMIT 1)
-              )
-            """;
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String query = QueryBuilder.selectStringQuery(SQL_GET_VALID_DIRECT_REFERRAL_COUNT).build();
         return query(client, query, Collections.singletonMap("referrer_id", referrerId))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
@@ -378,33 +428,10 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
-     * 팀 통계 정보 조회
-     * 스칼라 서브쿼리·CASE·INTERVAL 등 집계 구조라 selectStringQuery 사용
+     * 팀 통계 정보 조회 (totalRevenue, today/week/month/year_revenue, total_members, new_members_today)
      */
     public Future<TeamInfoResponseDto.SummaryInfo> getTeamSummary(SqlClient client, Long referrerId) {
-        // totalRevenue: 추천인이 받은 래퍼럴 수익 합계 (internal_transfers.receiver_id = referrer_id, REFERRAL_REWARD)
-        // todayRevenue: 팀(하부) 금일 채굴량 합계 - daily_mining
-        // totalMembers / newMembersToday: referral_relations 카운트
-        String sql = """
-            SELECT 
-                (SELECT COALESCE(SUM(it.amount), 0) FROM internal_transfers it 
-                 WHERE it.receiver_id = #{referrer_id} AND it.transfer_type = 'REFERRAL_REWARD' 
-                   AND it.status = 'COMPLETED' AND (it.deleted_at IS NULL)) as total_revenue,
-                COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
-                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '7 days' THEN dm.mining_amount ELSE 0 END), 0) as week_revenue,
-                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '30 days' THEN dm.mining_amount ELSE 0 END), 0) as month_revenue,
-                COALESCE(SUM(CASE WHEN dm.mining_date >= CURRENT_DATE - INTERVAL '1 year' THEN dm.mining_amount ELSE 0 END), 0) as year_revenue,
-                COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL THEN rr.referred_id END) as total_members,
-                COUNT(DISTINCT CASE WHEN rr.status = 'ACTIVE' AND rr.deleted_at IS NULL 
-                    AND rr.created_at::date = CURRENT_DATE THEN rr.referred_id END) as new_members_today
-            FROM referral_relations rr
-            LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id AND (dm.deleted_at IS NULL)
-            WHERE rr.referrer_id = #{referrer_id}
-                AND rr.status = 'ACTIVE'
-                AND rr.deleted_at IS NULL
-            """;
-        
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String query = QueryBuilder.selectStringQuery(SQL_GET_TEAM_SUMMARY).build();
         
         return query(client, query, Collections.singletonMap("referrer_id", referrerId))
             .map(rows -> {
@@ -520,40 +547,8 @@ public class ReferralRepository extends BaseRepository {
     public Future<List<TeamInfoResponseDto.RevenueInfo>> getTeamRevenues(SqlClient client, Long referrerId, String period, Integer limit, Integer offset) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        // JOIN·GROUP BY·HAVING·COALESCE/SUM(CASE) 구조라 QueryBuilder로 표현 어려움 → selectStringQuery, 기간은 revenuePeriodCondition() 사용
-        StringBuilder sql = new StringBuilder("""
-            SELECT 
-                u.id as user_id,
-                u.level,
-                u.login_id as nickname,
-                COALESCE(MAX(dm.mining_date), MAX(it.created_at::date)) as date,
-                COALESCE(SUM(CASE WHEN dm.mining_date = CURRENT_DATE THEN dm.mining_amount ELSE 0 END), 0) as today_revenue,
-                COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' 
-                    THEN it.amount ELSE 0 END), 0) as total_revenue
-            FROM referral_relations rr
-            LEFT JOIN users u ON u.id = rr.referred_id
-            LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id
-            LEFT JOIN internal_transfers it ON it.receiver_id = rr.referred_id
-                AND it.transfer_type = 'REFERRAL_REWARD'
-            WHERE rr.referrer_id = #{referrer_id}
-                AND rr.status = 'ACTIVE'
-                AND rr.deleted_at IS NULL
-            """);
-        
-        // period에 따라 날짜 필터 추가 (파라미터 start_date 사용)
-        if (startDate != null) {
-            sql.append(revenuePeriodCondition());
-        }
-        
-        sql.append("""
-            GROUP BY u.id, u.level, u.login_id
-            HAVING (SUM(dm.mining_amount) > 0 OR SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' 
-                THEN it.amount ELSE 0 END) > 0)
-            ORDER BY date DESC, total_revenue DESC
-            LIMIT #{limit} OFFSET #{offset}
-            """);
-        
-        String query = QueryBuilder.selectStringQuery(sql.toString()).build();
+        String sql = SQL_GET_TEAM_REVENUES_BASE + (startDate != null ? revenuePeriodCondition() : "") + SQL_GET_TEAM_REVENUES_TAIL;
+        String query = QueryBuilder.selectStringQuery(sql).build();
         
         Map<String, Object> params = new HashMap<>();
         params.put("referrer_id", referrerId);

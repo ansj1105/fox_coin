@@ -14,7 +14,14 @@ import java.util.Map;
 
 @Slf4j
 public class ClientRepository extends BaseRepository {
-    
+
+    private static final String SQL_GET_API_KEY_BY_KEY =
+        "SELECT * FROM api_keys WHERE api_key = #{api_key} AND is_active = true";
+    private static final String SQL_GET_API_KEY_BY_KEY_AND_SECRET =
+        "SELECT * FROM api_keys WHERE api_key = #{api_key} AND api_secret = #{api_secret} AND is_active = true";
+    private static final String SQL_UPDATE_LAST_USED_AT =
+        "UPDATE api_keys SET last_used_at = #{last_used_at}, updated_at = #{updated_at} WHERE id = #{id}";
+
     private final RowMapper<ApiKey> apiKeyMapper = row -> ApiKey.builder()
         .id(getLongColumnValue(row, "id"))
         .apiKey(getStringColumnValue(row, "api_key"))
@@ -32,7 +39,7 @@ public class ClientRepository extends BaseRepository {
      * API Key로 조회
      */
     public Future<ApiKey> getApiKeyByKey(SqlClient client, String apiKey) {
-        String sql = "SELECT * FROM api_keys WHERE api_key = #{api_key} AND is_active = true";
+        String sql = SQL_GET_API_KEY_BY_KEY;
         
         return query(client, sql, Collections.singletonMap("api_key", apiKey))
             .map(rows -> fetchOne(apiKeyMapper, rows))
@@ -43,7 +50,7 @@ public class ClientRepository extends BaseRepository {
      * API Key와 Secret으로 조회 및 검증
      */
     public Future<ApiKey> getApiKeyByKeyAndSecret(SqlClient client, String apiKey, String apiSecret) {
-        String sql = "SELECT * FROM api_keys WHERE api_key = #{api_key} AND api_secret = #{api_secret} AND is_active = true";
+        String sql = SQL_GET_API_KEY_BY_KEY_AND_SECRET;
         
         Map<String, Object> params = new HashMap<>();
         params.put("api_key", apiKey);
@@ -58,7 +65,7 @@ public class ClientRepository extends BaseRepository {
      * 마지막 사용 시간 업데이트
      */
     public Future<Void> updateLastUsedAt(SqlClient client, Long id) {
-        String sql = "UPDATE api_keys SET last_used_at = #{last_used_at}, updated_at = #{updated_at} WHERE id = #{id}";
+        String sql = SQL_UPDATE_LAST_USED_AT;
         
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> params = new HashMap<>();
