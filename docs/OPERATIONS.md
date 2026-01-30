@@ -265,16 +265,18 @@ docker exec foxya-api wget -q -O- --timeout=2 http://prometheus:9090/-/healthy |
   docker compose -f docker-compose.prod.yml up -d grafana
   ```
 
+**ERR_TOO_MANY_REDIRECTS (korion.io.kr 리다이렉트 횟수 너무 많음):**  
+클라이언트가 `/6s9ex74204/grafana/`로 요청하면 Nginx가 Grafana에 `GET /`로 전달하고, Grafana가 루트(`/`)를 `GF_SERVER_ROOT_URL`(같은 URL)로 301 리다이렉트해서 **무한 루프**가 납니다.  
+이미 **Nginx에서 루트 요청만 Grafana `/login`으로 넘기도록** 수정해 두었습니다. `nginx/conf.d/default.conf`에 다음이 있어야 합니다:
+
+- `rewrite ^/6s9ex74204/grafana/?$ /login break;`  ← 루트일 때만 `/login`으로 전달
+- `rewrite ^/6s9ex74204/grafana/(.*)$ /$1 break;`   ← 나머지는 prefix 제거 후 전달
+
+→ `/6s9ex74204/grafana/` 접속 시 Grafana는 `/login`을 받아 로그인 페이지(또는 로그인 후 대시보드)를 내려주고, 같은 URL로 301을 보내지 않아 루프가 사라집니다.
+
 **다른 도메인/IP로 접속 시 리다이렉트·빈 화면:**  
-Grafana는 `GF_SERVER_ROOT_URL`에 적힌 도메인으로만 Location을 보냅니다.  
-클라이언트가 **다른 도메인이나 IP**로 접속하면 리다이렉트가 그쪽으로 가서 빈 화면/무한 리다이렉트가 날 수 있습니다.  
-이미 **Nginx에서 Location을 덮어쓰도록** 설정해 두었습니다. `nginx/conf.d/default.conf`의 Grafana `location` 블록에 다음이 있어야 합니다:
-
-- `proxy_redirect https://korion.io.kr/ $scheme://$host/;`
-- `proxy_redirect http://korion.io.kr/ $scheme://$host/;`
-
-→ 응답의 `Location`이 **요청의 호스트·스킴**으로 바뀌므로, 어떤 주소로 들어와도 리다이렉트는 같은 호스트로 유지됩니다.  
-`GF_SERVER_ROOT_URL`에 다른 도메인을 쓰면, Nginx에 그 도메인에 대한 `proxy_redirect` 한 줄을 같은 형식으로 추가하면 됩니다.
+Grafana가 보내는 `Location`을 Nginx에서 요청 호스트로 덮어쓰려면 `proxy_redirect https://korion.io.kr/ $scheme://$host/;` (및 http 동일)가 있어야 합니다.  
+`GF_SERVER_ROOT_URL`에 다른 도메인을 쓰면, 그 도메인에 대한 `proxy_redirect` 한 줄을 같은 형식으로 추가하면 됩니다.
 
 #### 4) Nginx 설정
 
