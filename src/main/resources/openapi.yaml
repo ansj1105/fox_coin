@@ -942,6 +942,10 @@ components:
           description: |
             현재 채굴 세션 종료 시각 (ISO-8601). 이 시각 이전에는 부스터 버튼 비활성화(다음 영상 시청 불가).
             없으면 null. 1시간 세션 진행 중일 때만 존재.
+        ratePerHour:
+          type: number
+          format: decimal
+          description: 현재 채굴 속도 (시간당 KORI). 활성 세션이 있으면 rate_per_hour, 없으면 0
         inviteBonusMultiplier:
           type: number
           format: decimal

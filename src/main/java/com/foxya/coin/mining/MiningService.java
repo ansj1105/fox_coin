@@ -242,6 +242,9 @@ public class MiningService extends BaseService {
                                 String miningUntil = (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now))
                                     ? activeSession.getEndsAt().toString()
                                     : null;
+                                BigDecimal ratePerHour = (activeSession != null && activeSession.getRatePerHour() != null)
+                                    ? activeSession.getRatePerHour()
+                                    : BigDecimal.ZERO;
                                 BigDecimal inviteBonusMultiplier = inviteBonusFuture.result();
                                 Integer validDirectReferralCount = validDirectCountFuture.result();
                                 return MiningInfoResponseDto.builder()
@@ -256,6 +259,7 @@ public class MiningService extends BaseService {
                                     .adWatchCount(sessionsToday)
                                     .maxAdWatchCount(dailyMaxVideos)
                                     .miningUntil(miningUntil)
+                                    .ratePerHour(ratePerHour)
                                     .inviteBonusMultiplier(inviteBonusMultiplier != null ? inviteBonusMultiplier : BigDecimal.ONE)
                                     .validDirectReferralCount(validDirectReferralCount != null ? validDirectReferralCount : 0)
                                     .build();
