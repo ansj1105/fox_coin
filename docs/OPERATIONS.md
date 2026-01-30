@@ -71,7 +71,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost/health
 - **메트릭 수집**: 앱의 `/metrics` (Prometheus 포맷) → Prometheus가 15초마다 스크랩
 - **저장**: Prometheus (기본 30일 보존)
 - **시각화**: Grafana (Prometheus를 데이터 소스로 사용)
-- **접근 경로**: Grafana **`https://dev.korion.io.kr/`**, Prometheus **`https://dev.korion.io.kr/prometheus/`** (기존 `/6s9ex74204/grafana/`, `/6s9ex74204/prometheus/` 접속 시 dev로 리다이렉트)
+- **접근 경로**: Grafana **`https://dev.korion.io.kr/`**, Prometheus **`https://api.korion.io.kr/`** (예전 경로 접속 시 각각 리다이렉트)
 
 Prometheus/Grafana가 **아직 붙어 있지 않거나** 안 열리는 경우는 [5장](#5-prometheus--grafana-연동-및-안-열릴-때) 참고. **서버 기준 구성법**은 [MONITORING_SERVER_SETUP.md](./MONITORING_SERVER_SETUP.md) 참고.
 
@@ -220,9 +220,11 @@ ab -n 1000 -c 10 https://your-domain/health
 
 - **Grafana (권장 접속)**: **`https://dev.korion.io.kr/`** — Nginx `server_name dev.korion.io.kr` → `proxy_pass http://grafana:3000` (루트 제공, subpath 없음)
 - **Grafana (예전 경로)**: `https://korion.io.kr/6s9ex74204/grafana/*` → 302 리다이렉트 → `https://dev.korion.io.kr/`
-- **Prometheus**: **`https://dev.korion.io.kr/prometheus/`** — Nginx `location /prometheus/` (dev 블록) → `proxy_pass http://prometheus:9090`
+- **Prometheus**: **`https://api.korion.io.kr/`** — Nginx `server_name api.korion.io.kr` → `proxy_pass http://prometheus:9090` (전용 도메인, 리다이렉트 루프 방지)
 - **메트릭**: Nginx `location /metrics` → `proxy_pass http://foxya_api/metrics`
 - **Grafana 환경 변수 (dev.korion.io.kr 사용 시)**: `GF_SERVER_SERVE_FROM_SUB_PATH=false`, `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_DOMAIN=dev.korion.io.kr`
+
+**Prometheus**: `api.korion.io.kr` 사용 (기존 DNS·인증서 그대로 사용).
 
 즉, “우리 서비스에 안 맞다”기보다는 **컨테이너 기동·네트워크·도메인/ROOT_URL 설정** 중 하나가 맞지 않을 가능성이 큽니다.
 
@@ -326,7 +328,7 @@ docker exec foxya-nginx tail -20 /var/log/nginx/foxya_error.log
 
 ### 5.3 Prometheus가 메트릭을 못 가져올 때
 
-- 타겟 확인: 브라우저에서 `https://dev.korion.io.kr/prometheus/targets` → `foxya-api` 타겟이 UP인지
+- 타겟 확인: 브라우저에서 `https://api.korion.io.kr/targets` → `foxya-api` 타겟이 UP인지
 - 앱 메트릭 직접 확인: `curl -s http://localhost:8080/metrics` (앱 컨테이너 내부 또는 호스트 8080)
 - `prometheus/prometheus.yml`의 `targets: ['app:8080']`가 현재 compose의 앱 서비스명(`app`)과 일치하는지 확인
 

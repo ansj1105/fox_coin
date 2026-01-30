@@ -158,7 +158,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
-      - '--web.external-url=https://dev.korion.io.kr/prometheus/'
+      - '--web.external-url=https://api.korion.io.kr/'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:

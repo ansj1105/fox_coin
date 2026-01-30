@@ -156,7 +156,7 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
    ```
 
 2. **Prometheus 타겟 확인**
-   - http://localhost:9090/targets 접속 (또는 `https://dev.korion.io.kr/prometheus/targets`)
+   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/targets`)
    - `foxya-api` 타겟이 `UP` 상태인지 확인
 
 3. **로그 확인**

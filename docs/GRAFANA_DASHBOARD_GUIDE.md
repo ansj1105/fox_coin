@@ -141,4 +141,4 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
   2. 쿼리란에 `http_requests_total` 만 입력 후 **Run query**  
   3. 실제로 노출되는 메트릭 이름(예: `http_requests_total` vs `http_requests_by_method_path_status_total`) 확인 후, 위 PromQL의 메트릭명만 그에 맞게 바꿔서 사용
 - Prometheus 타겟이 **UP** 인지:  
-  https://dev.korion.io.kr/prometheus/targets 에서 `foxya-api`(또는 앱 job) 확인
+  https://api.korion.io.kr/targets 에서 `foxya-api`(또는 앱 job) 확인

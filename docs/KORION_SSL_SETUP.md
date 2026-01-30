@@ -4,7 +4,8 @@
 - `korion.io.kr` (메인 도메인)
 - `www.korion.io.kr` (www 서브도메인)
 - `api.korion.io.kr` (API 서브도메인)
-- `dev.korion.io.kr` (개발 서브도메인)
+- `dev.korion.io.kr` (Grafana)
+- `api.korion.io.kr` (Prometheus)
 
 ## 사전 요구사항
 1. **모든 도메인이 서버 IP로 DNS A 레코드가 설정되어 있어야 합니다** ⚠️ 중요!
@@ -21,6 +22,7 @@ dig korion.io.kr +short
 dig www.korion.io.kr +short
 dig api.korion.io.kr +short
 dig dev.korion.io.kr +short
+dig api.korion.io.kr +short
 
 # 또는 nslookup 사용
 nslookup korion.io.kr
