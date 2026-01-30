@@ -5,7 +5,7 @@
 모니터링 접근 주소는 다음과 같습니다.
 
 - **Grafana**: **`https://dev.korion.io.kr/`** 에서 접근 (루트 경로 사용, 리다이렉트 이슈 없음)
-- **Prometheus**: `https://korion.io.kr/6s9ex74204/prometheus/` (기존 subpath 유지)
+- **Prometheus**: **`https://dev.korion.io.kr/prometheus/`** (예전 `.../6s9ex74204/prometheus/` 접속 시 dev로 리다이렉트)
 - 예전 Grafana 주소 `.../6s9ex74204/grafana/` 로 접속하면 `https://dev.korion.io.kr/` 로 자동 리다이렉트됩니다.
 
 ## 🔐 Grafana 로그인
@@ -43,17 +43,19 @@ curl http://localhost:3001/
 #### 브라우저에서 접속
 
 ```
-http://your-domain/6s9ex74204/prometheus/
+https://dev.korion.io.kr/prometheus/
 ```
+
+- 예전 경로 `https://korion.io.kr/6s9ex74204/prometheus/` → `https://dev.korion.io.kr/prometheus/` 로 리다이렉트
 
 #### cURL로 접속
 
 ```bash
-# Prometheus 메인 페이지
-curl http://localhost:8080/6s9ex74204/prometheus/
+# Prometheus 메인 페이지 (프로덕션)
+curl -sI https://dev.korion.io.kr/prometheus/
 
 # 메트릭 쿼리
-curl "http://localhost:8080/6s9ex74204/prometheus/api/v1/query?query=up"
+curl "https://dev.korion.io.kr/prometheus/api/v1/query?query=up"
 ```
 
 ### 3. Grafana 루트 접속
@@ -72,7 +74,7 @@ fetch('https://dev.korion.io.kr/')
   .then(html => console.log(html));
 
 // Prometheus 쿼리
-fetch('http://your-domain/6s9ex74204/prometheus/api/v1/query?query=up')
+fetch('https://dev.korion.io.kr/prometheus/api/v1/query?query=up')
   .then(response => response.json())
   .then(data => console.log(data));
 ```
@@ -88,7 +90,7 @@ print(response.text)
 
 # Prometheus 쿼리
 response = requests.get(
-    'http://your-domain/6s9ex74204/prometheus/api/v1/query',
+    'https://dev.korion.io.kr/prometheus/api/v1/query',
     params={'query': 'up'}
 )
 print(response.json())
@@ -136,10 +138,11 @@ Grafana/Prometheus 서버에 연결할 수 없거나, 브라우저에서 빈 화
 - `https://dev.korion.io.kr/public/*` - 공개 리소스
 - `https://korion.io.kr/6s9ex74204/grafana/*` - 예전 경로 → `dev.korion.io.kr` 로 리다이렉트
 
-### Prometheus
-- `/6s9ex74204/prometheus/` - Prometheus 메인 페이지
-- `/6s9ex74204/prometheus/api/*` - Prometheus API
-- `/6s9ex74204/prometheus/graph` - Prometheus Graph UI
+### Prometheus (dev.korion.io.kr)
+- `https://dev.korion.io.kr/prometheus/` - Prometheus 메인 페이지
+- `https://dev.korion.io.kr/prometheus/api/*` - Prometheus API
+- `https://dev.korion.io.kr/prometheus/graph` - Prometheus Graph UI
+- `https://dev.korion.io.kr/prometheus/targets` - 타겟 상태
 
 ## 🔍 문제 해결
 
@@ -172,10 +175,11 @@ Grafana/Prometheus 서버에 연결할 수 없거나, 브라우저에서 빈 화
    - Header Editor (Firefox)
 
 3. **Nginx 설정 확인**
-   - `dev.korion.io.kr` 이 Grafana(3000)로 프록시되는지, Prometheus는 `/6s9ex74204/prometheus` 등 경로 확인
+   - `dev.korion.io.kr` 루트 → Grafana(3000), `/prometheus/` → Prometheus(9090) 확인
 
 ## 📚 관련 문서
 
+- [**서버 기반 모니터링 페이지 구성법**](./MONITORING_SERVER_SETUP.md) — Nginx·Docker·접속 주소 정리
 - [모니터링 설정 가이드](./MONITORING_SETUP.md)
 - [Docker 명령어 가이드](./DOCKER_COMMANDS.md)
 - [환경 변수 설정](./ENV_CONFIGURATION.md)
