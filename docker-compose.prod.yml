@@ -178,14 +178,16 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      # nginx를 통한 HTTPS 접근을 위해 subpath 설정
+      # nginx subpath: 반드시 접속하는 URL과 동일하게 (끝 슬래시 포함)
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
       - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana/
-      # 쿠키 설정 (subpath에서 인증 문제 해결)
+      - GF_SERVER_DOMAIN=korion.io.kr
+      # 쿠키 (subpath + HTTPS)
       - GF_SERVER_COOKIE_SAMESITE=none
       - GF_SERVER_COOKIE_SECURE=true
-      # 리다이렉트 방지
       - GF_SERVER_ENABLE_GZIP=true
+      # 로그인 등 리다이렉트 시 동일 호스트 사용 (프록시 신뢰)
+      - GF_SERVER_ENABLE_ROUTER_LOGGING=false
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
