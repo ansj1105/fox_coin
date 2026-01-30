@@ -41,7 +41,7 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
    - **Metric**: 비우고 아래 **Code** 모드로 전환(또는 Builder에서 쿼리 입력란에 직접 입력)
    - **PromQL** 입력:
    ```promql
-   sum(rate(http_requests_total[1m]))
+   sum(rate(http_requests_by_method_path_status_total[1m]))
    ```
 4. 오른쪽 **Panel options**:
    - **Title**: `RPS (초당 요청 수)` 입력
@@ -56,7 +56,7 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
 2. **Data source**: **Prometheus**
 3. **PromQL** 입력:
    ```promql
-   sum(rate(http_errors_total[5m])) / sum(rate(http_requests_total[5m])) * 100
+   sum(rate(http_requests_by_method_path_status_total{status=~"4..|5.."}[5m])) / sum(rate(http_requests_by_method_path_status_total[5m])) * 100
    ```
 4. 오른쪽에서 **Visualization** 을 **Stat** 또는 **Time series** 중 선택
 5. **Panel options** → **Title**: `에러율 (%)`
@@ -84,9 +84,8 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
 2. **Data source**: **Prometheus**
 3. **PromQL** 입력:
    ```promql
-   sum(rate(http_requests_by_method_path_status[5m])) by (status)
+   sum(rate(http_requests_by_method_path_status_total[5m])) by (status)
    ```
-   - 메트릭 이름이 `http_requests_by_method_path_status_total` 이면 위에서 `_total` 붙여서 사용
 4. **Visualization**: **Time series**  
    - **Stack** 옵션을 켜면 영역이 쌓여서 보기 좋음 (오른쪽 시리즈 옵션에서)
 5. **Panel options** → **Title**: `상태 코드별 요청`
@@ -100,9 +99,8 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
 2. **Data source**: **Prometheus**
 3. **PromQL** 입력:
    ```promql
-   topk(10, sum(rate(http_requests_by_method_path_status[5m])) by (path))
+   topk(10, sum(rate(http_requests_by_method_path_status_total[5m])) by (path))
    ```
-   - `http_requests_by_method_path_status` 가 안 나오면 `http_requests_by_method_path_status_total` 로 시도
 4. **Visualization**: **Bar gauge** 또는 **Table**
 5. **Panel options** → **Title**: `엔드포인트별 요청 Top 10`
 6. **Apply** → **← Back to dashboard**
@@ -125,8 +123,8 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
 | 0 | https://dev.korion.io.kr/ 접속, admin 로그인 |
 | 1 | Connections → Data sources → Prometheus `http://prometheus:9090` 확인 |
 | 2 | Dashboards → New → New dashboard → 이름 "API Overview" 저장 |
-| 3 | 패널 1: RPS → `sum(rate(http_requests_total[1m]))` |
-| 4 | 패널 2: 에러율(%) → `sum(rate(http_errors_total[5m]))/sum(rate(http_requests_total[5m]))*100` |
+| 3 | 패널 1: RPS → `sum(rate(http_requests_by_method_path_status_total[1m]))` |
+| 4 | 패널 2: 에러율(%) → `sum(rate(...{status=~"4..\|5.."}[5m]))/sum(rate(...[5m]))*100` |
 | 5 | 패널 3: 평균 응답시간(ms) → duration sum/count * 1000 |
 | 6 | 패널 4: 상태코드별 요청 → `sum(rate(...)) by (status)` |
 | 7 | 패널 5: 엔드포인트 Top 10 → `topk(10, sum(rate(...)) by (path))` |
@@ -134,11 +132,31 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
 
 ---
 
+## 추가로 넣기 좋은 시계열 패널
+
+지금 있는 5개 말고, 아래도 **Time series** 로 넣어두면 유용함.
+
+| 패널 이름 | 용도 | PromQL |
+|-----------|------|--------|
+| **메서드별 RPS** | GET / POST 등 비율 | `sum(rate(http_requests_by_method_path_status_total[5m])) by (method)` |
+| **엔드포인트별 평균 응답 시간** | 어떤 API가 느린지 | `(sum(rate(http_request_duration_seconds_sum[5m])) by (path) / sum(rate(http_request_duration_seconds_count[5m])) by (path)) * 1000` |
+| **4xx vs 5xx** | 에러 유형별 추이 | `sum(rate(http_requests_by_method_path_status_total{status=~"4.."}[5m]))` / `sum(rate(...{status=~"5.."}[5m]))` (시리즈 2개) |
+| **에러 수 (1시간)** | 에러 절대값 추이 | `sum(increase(http_requests_by_method_path_status_total{status=~"4..|5.."}[1h]))` |
+| **분당 요청 수** | 트래픽량 추이 | `sum(increase(http_requests_by_method_path_status_total[1m]))` |
+
+- **메서드별 RPS**: GET/POST 비율이 시간대별로 어떻게 바뀌는지 보기 좋음.
+- **엔드포인트별 응답 시간**: 특정 path가 느려지는 구간 잡기 좋음.
+- **4xx vs 5xx**: 클라이언트 에러 vs 서버 에러 구분.
+- **에러 수(1h)**: 알람용으로 “지금 1시간 동안 에러 몇 건” 보기.
+- **분당 요청 수**: RPS와 비슷하지만 “분 단위 증가량”으로 보기.
+
+---
+
 ## 메트릭이 안 나올 때
 
 - **No data** 나오면:  
-  1. 왼쪽 **Explore** (나침반 아이콘) → Data source **Prometheus** 선택  
-  2. 쿼리란에 `http_requests_total` 만 입력 후 **Run query**  
-  3. 실제로 노출되는 메트릭 이름(예: `http_requests_total` vs `http_requests_by_method_path_status_total`) 확인 후, 위 PromQL의 메트릭명만 그에 맞게 바꿔서 사용
+  1. 왼쪽 **Explore** → Data source **Prometheus** 선택  
+  2. 쿼리란에 `http_requests_by_method_path_status_total` 입력 후 **Run query**  
+  3. 우리 앱은 카운터 이름이 **`http_requests_by_method_path_status_total`** (끝에 `_total`). RPS/에러율 등은 위 PromQL 그대로 사용하면 됨.
 - Prometheus 타겟이 **UP** 인지:  
   https://api.korion.io.kr/targets 에서 `foxya-api`(또는 앱 job) 확인

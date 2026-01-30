@@ -326,11 +326,35 @@ docker exec foxya-nginx tail -20 /var/log/nginx/foxya_error.log
 - 502: Nginx → Grafana/Prometheus 또는 Nginx → API 연결 실패 (컨테이너 중지, 네트워크, 호스트명 오타)
 - 404: location 경로 불일치 또는 subpath 미지원
 
-### 5.3 Prometheus가 메트릭을 못 가져올 때
+### 5.3 Prometheus 수집 데이터가 없을 때 (타겟 DOWN / No data)
 
-- 타겟 확인: 브라우저에서 `https://api.korion.io.kr/targets` → `foxya-api` 타겟이 UP인지
-- 앱 메트릭 직접 확인: `curl -s http://localhost:8080/metrics` (앱 컨테이너 내부 또는 호스트 8080)
-- `prometheus/prometheus.yml`의 `targets: ['app:8080']`가 현재 compose의 앱 서비스명(`app`)과 일치하는지 확인
+1. **타겟 상태 확인**  
+   브라우저에서 **https://api.korion.io.kr/targets** 접속 → **foxya-api** 가 **UP** 인지 확인.  
+   **DOWN** 이면 아래 순서로 점검.
+
+2. **앱 컨테이너·네트워크**
+   ```bash
+   docker compose -f docker-compose.prod.yml ps app prometheus
+   # app, prometheus 둘 다 Up 이어야 함
+
+   # Prometheus 컨테이너에서 앱 /metrics 호출 (같은 네트워크여야 함)
+   docker exec foxya-prometheus wget -q -O- --timeout=5 http://app:8080/metrics | head -20
+   ```
+   - 여기서 메트릭 텍스트가 나오면 앱은 정상. Prometheus만 재시작해 보기: `docker compose -f docker-compose.prod.yml up -d prometheus`
+   - 연결 실패(타임아웃 등)면: `docker network inspect $(docker compose -f docker-compose.prod.yml ps -q prometheus | xargs docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}')` 등으로 app·prometheus가 같은 네트워크에 있는지 확인.
+
+3. **설정 파일 확인**
+   - `prometheus/prometheus.yml` 에 **targets: ['app:8080']** 인지 확인 (compose 서비스명이 `app` 이어야 함).
+   - 수정 후 반영: `docker compose -f docker-compose.prod.yml up -d prometheus`
+
+4. **호스트에서 앱 /metrics**
+   ```bash
+   curl -s http://localhost:8080/metrics | head -20
+   ```
+   - `http_requests_total` 등이 보이면 앱은 노출 중. Prometheus가 **app:8080** 으로만 접근하므로, 같은 Docker 네트워크에서 **app** 이름으로 접근 가능해야 함.
+
+5. **첫 스크랩 대기**  
+   스크랩 주기가 15초이므로, 앱·Prometheus 기동 후 **15초~1분** 지난 뒤 다시 **Targets** / Grafana 쿼리 확인.
 
 ### 5.4 요약
 
