@@ -137,7 +137,7 @@ public class EmailService {
               <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
                 KORION WALLET 이메일 인증 코드입니다.
               </div>
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#0d0a1b; padding:24px 0;">
                 <tr>
                   <td align="center">
                     <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">
@@ -241,7 +241,7 @@ public class EmailService {
               <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
                 KORION WALLET 임시 비밀번호 안내입니다.
               </div>
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#0d0a1b; padding:24px 0;">
                 <tr>
                   <td align="center">
                     <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">
