@@ -350,6 +350,27 @@ public class ReferralRepository extends BaseRepository {
     }
     
     /**
+     * 해당 사용자(referred_id)가 마지막으로 레퍼럴 관계를 삭제한 시각 조회.
+     * 삭제 후 재등록 제한(30일) 판단용. 삭제 이력이 없으면 null 반환.
+     */
+    public Future<LocalDateTime> getLastDeletedAtByReferredId(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .select("referral_relations", "deleted_at")
+            .where("referred_id", Op.Equal, "referred_id")
+            .andWhere("deleted_at", Op.IsNotNull)
+            .appendQueryString("ORDER BY deleted_at DESC LIMIT 1")
+            .build();
+        return query(client, sql, Collections.singletonMap("referred_id", referredId))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return getLocalDateTimeColumnValue(rows.iterator().next(), "deleted_at");
+                }
+                return null;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 삭제일 조회 실패 - referredId: {}", referredId, throwable));
+    }
+
+    /**
      * 레퍼럴 관계 완전 삭제 (Hard Delete)
      */
     public Future<Void> hardDeleteReferralRelation(SqlClient client, Long referredId) {

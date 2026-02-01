@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,7 +58,14 @@ public class ReferralService extends BaseService {
                 if (exists) {
                     return Future.failedFuture(new BadRequestException("이미 레퍼럴 코드가 등록되어 있습니다."));
                 }
-                return userRepository.getUserByReferralCode(pool, referralCode);
+                // 삭제 후 30일 미만이면 재등록 거부
+                return referralRepository.getLastDeletedAtByReferredId(pool, userId)
+                    .compose(lastDeletedAt -> {
+                        if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
+                            return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                        }
+                        return userRepository.getUserByReferralCode(pool, referralCode);
+                    });
             })
             .compose(referrer -> {
                 if (referrer == null) {
