@@ -44,7 +44,7 @@ public class MiningHandlerTest extends HandlerTestBase {
             reqGet(getUrl("/daily-limit"))
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Get daily limit response: status={} body={}", res.statusCode(), res.bodyAsString());
+                    log.info("Get daily limit response: {}", res.bodyAsJsonObject());
                     DailyLimitResponseDto response = expectSuccessAndGetResponse(res, refDailyLimit);
                     
                     assertThat(response).isNotNull();

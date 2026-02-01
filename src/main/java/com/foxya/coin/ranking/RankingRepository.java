@@ -20,7 +20,10 @@ import java.util.Map;
 @Slf4j
 public class RankingRepository extends BaseRepository {
 
-    /** CTE user_stats 결과를 조회하는 SELECT (개인 랭킹용) */
+    /**
+     * CTE user_stats 결과를 조회하는 SELECT (개인 랭킹용).
+     * 랭킹 집계 = (채굴된 코인 + 레퍼럴 수익) + (팀원 수 × 20).
+     */
     private static final String SQL_PERSONAL_RANKING_FROM_USER_STATS =
         "SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats";
 
@@ -217,10 +220,10 @@ public class RankingRepository extends BaseRepository {
         cteSql.append(" GROUP BY u.id, u.nickname, u.login_id, u.level, u.country_code")
             .append(" )");
 
-        // 외부 SELECT는 QueryBuilder 사용 (CTE를 FROM 절에서 사용)
+        // 외부 SELECT: 표출 조건 = 수익(채굴+레퍼럴)이 0보다 큰 경우만 랭킹 집계 (수익 0인 유저는 제외)
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
             .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS)
-            .where("(mining_amount + referral_reward) > 0 OR team_count > 0")
+            .where("(mining_amount + referral_reward) > 0")
             .appendQueryString("ORDER BY aggregation DESC, total_amount DESC, team_count DESC")
             .limit(50);
         

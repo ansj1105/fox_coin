@@ -282,51 +282,69 @@ public class MiningService extends BaseService {
                 long elapsedSeconds = Duration.between(session.getLastSettledAt(), settleEnd).getSeconds();
                 if (elapsedSeconds <= 0) {
                     return miningRepository.updateMiningSessionLastSettled(pool, session.getId(), settleEnd)
-                        .map(v -> (Void) null);
+                        .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
                 }
                 BigDecimal amount = session.getRatePerHour()
                     .multiply(BigDecimal.valueOf(elapsedSeconds))
                     .divide(BigDecimal.valueOf(3600), 18, RoundingMode.DOWN);
                 if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                     return miningRepository.updateMiningSessionLastSettled(pool, session.getId(), settleEnd)
-                        .map(v -> (Void) null);
+                        .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
                 }
-                return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, "KORI", "INTERNAL")
-                    .compose(currency -> {
-                        if (currency == null) return Future.succeededFuture();
-                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
-                            .compose(wallet -> {
-                                if (wallet == null) return Future.succeededFuture();
-                                return miningRepository.getDailyMining(pool, userId, today)
-                                    .compose(dailyMining -> {
-                                        BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
-                                        LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
-                                        BigDecimal newTodayTotal = todayAmount.add(amount);
-                                        return pool.withTransaction(client ->
-                                            transferRepository.addBalance(client, wallet.getId(), amount)
-                                                .compose(v -> miningRepository.createOrUpdateDailyMining(client, userId, today, newTodayTotal, resetAt))
-                                                .compose(v -> userRepository.addExp(client, userId, amount))
-                                                .compose(v -> miningRepository.updateMiningSessionLastSettled(client, session.getId(), settleEnd))
-                                                .map(v -> (Void) null)
-                                        ).compose(v -> {
-                                            boolean sessionCompleted = !settleEnd.isBefore(session.getEndsAt());
-                                            if (sessionCompleted) {
-                                                // 세션별 채굴 내역 1건 기록 (amount = 해당 세션의 1시간 채굴량)
-                                                return userRepository.getUserById(pool, userId)
-                                                    .compose(u -> {
-                                                        Integer userLevel = (u != null && u.getLevel() != null) ? u.getLevel() : 1;
-                                                        return miningRepository.insertMiningHistory(pool, userId, userLevel, session.getRatePerHour(), "BROADCAST_WATCH", "COMPLETED");
-                                                    })
-                                                    .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
-                                                    .compose(x -> levelService.syncLevelFromExp(userId))
-                                                    .map(x -> (Void) null);
-                                            }
-                                            return Future.succeededFuture();
-                                        });
+                return userRepository.getUserById(pool, userId)
+                    .compose(user -> {
+                        Integer userLevel = user != null && user.getLevel() != null ? user.getLevel() : 1;
+                        return miningRepository.getMiningLevelByLevel(pool, userLevel);
+                    })
+                    .compose(miningLevel -> {
+                        BigDecimal dailyMaxMining = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
+                        return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, "KORI", "INTERNAL")
+                            .compose(currency -> {
+                                if (currency == null) return Future.succeededFuture();
+                                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                                    .compose(wallet -> {
+                                        if (wallet == null) return Future.succeededFuture();
+                                        return miningRepository.getDailyMining(pool, userId, today)
+                                            .compose(dailyMining -> {
+                                                BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
+                                                BigDecimal headroom = dailyMaxMining.subtract(todayAmount).max(BigDecimal.ZERO);
+                                                BigDecimal amountToCredit = amount.min(headroom);
+                                                if (amountToCredit.compareTo(BigDecimal.ZERO) <= 0) {
+                                                    return miningRepository.updateMiningSessionLastSettled(pool, session.getId(), settleEnd)
+                                                        .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
+                                                }
+                                                LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
+                                                BigDecimal newTodayTotal = todayAmount.add(amountToCredit);
+                                                return pool.withTransaction(client ->
+                                                    transferRepository.addBalance(client, wallet.getId(), amountToCredit)
+                                                        .compose(v -> miningRepository.createOrUpdateDailyMining(client, userId, today, newTodayTotal, resetAt))
+                                                        .compose(v -> userRepository.addExp(client, userId, amountToCredit))
+                                                        .compose(v -> miningRepository.updateMiningSessionLastSettled(client, session.getId(), settleEnd))
+                                                        .map(v -> (Void) null)
+                                                ).compose(v -> levelService.syncLevelFromExp(userId).map(x -> (Void) null))
+                                                .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
+                                            });
                                     });
                             });
                     });
             });
+    }
+
+    /**
+     * 세션 종료 시점(settleEnd >= session.ends_at)이면 mining_history 삽입, 레퍼럴 보상, 레벨 동기화 수행.
+     * amountToCredit=0(한도 도달)이어도 세션 종료 시 호출됨.
+     */
+    private Future<Void> completeSessionIfEnded(Long userId, MiningSession session, LocalDateTime settleEnd) {
+        boolean sessionCompleted = !settleEnd.isBefore(session.getEndsAt());
+        if (!sessionCompleted) return Future.succeededFuture();
+        return userRepository.getUserById(pool, userId)
+            .compose(u -> {
+                Integer ul = (u != null && u.getLevel() != null) ? u.getLevel() : 1;
+                return miningRepository.insertMiningHistory(pool, userId, ul, session.getRatePerHour(), "BROADCAST_WATCH", "COMPLETED");
+            })
+            .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
+            .compose(x -> levelService.syncLevelFromExp(userId))
+            .map(x -> (Void) null);
     }
     
     /**
@@ -338,14 +356,40 @@ public class MiningService extends BaseService {
         LocalDateTime now = LocalDateTime.now();
         // 1. 먼저 진행 중인 세션 있으면 지금까지 분량 settle
         return settleActiveMiningSession(userId)
-            .compose(v -> bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
-                .compose(booster -> {
-                    int current = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
-                    int newCount = current + 1;
-                    int maxCount = Math.max(newCount, 999);
-                    return bonusRepository.createOrUpdateUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, newCount, maxCount, null);
-                })
-                .compose(x -> miningRepository.getActiveMiningSession(pool, userId)))
+            .compose(v -> checkDailyMiningCap(userId, today))
+            .compose(optCapped -> {
+                if (optCapped != null) return Future.succeededFuture(optCapped);
+                return doCreditMiningForVideoAfterCapCheck(userId, today, now);
+            });
+    }
+
+    /**
+     * 일일 최대 채굴량 도달 시 Optional.of(BigDecimal.ZERO), 아니면 null.
+     */
+    private Future<BigDecimal> checkDailyMiningCap(Long userId, LocalDate today) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) return Future.succeededFuture(null);
+                Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
+                return miningRepository.getMiningLevelByLevel(pool, userLevel)
+                    .compose(miningLevel -> miningRepository.getDailyMining(pool, userId, today)
+                        .map(dailyMining -> {
+                            BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
+                            BigDecimal dailyMax = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
+                            return todayAmount.compareTo(dailyMax) >= 0 ? BigDecimal.ZERO : null;
+                        }));
+            });
+    }
+
+    private Future<BigDecimal> doCreditMiningForVideoAfterCapCheck(Long userId, LocalDate today, LocalDateTime now) {
+        return bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
+            .compose(booster -> {
+                int current = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
+                int newCount = current + 1;
+                int maxCount = Math.max(newCount, 999);
+                return bonusRepository.createOrUpdateUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, newCount, maxCount, null);
+            })
+            .compose(x -> miningRepository.getActiveMiningSession(pool, userId))
             .compose(activeSession -> {
                 // 2. 1시간이 안 지났으면 다음 영상 시청 불가
                 if (activeSession != null && activeSession.getEndsAt().isAfter(now)) {
@@ -370,10 +414,18 @@ public class MiningService extends BaseService {
                                     return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
+                                BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
                                 return referralService.getInviteMiningBonusMultiplier(userId)
-                                    .compose(multiplier -> {
-                                        BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
-                                        BigDecimal ratePerHour = perVideoBase.multiply(multiplier != null ? multiplier : BigDecimal.ONE).setScale(18, RoundingMode.DOWN);
+                                    .compose(multiplier -> bonusService.getBonusEfficiency(userId)
+                                        .map(effResp -> {
+                                            int bonusEff = effResp.getTotalEfficiency() != null ? effResp.getTotalEfficiency() : 0;
+                                            BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
+                                                BigDecimal.valueOf(bonusEff).divide(BigDecimal.valueOf(100), 18, RoundingMode.HALF_UP));
+                                            return perVideoBase.multiply(efficiencyMultiplier)
+                                                .multiply(multiplier != null ? multiplier : BigDecimal.ONE)
+                                                .setScale(18, RoundingMode.DOWN);
+                                        }))
+                                    .compose(ratePerHour -> {
                                         LocalDateTime endsAt = now.plusHours(1);
                                         return pool.withTransaction(client ->
                                             miningRepository.createMiningSession(client, userId, now, endsAt, ratePerHour, now)

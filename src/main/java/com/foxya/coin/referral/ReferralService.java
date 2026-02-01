@@ -48,7 +48,7 @@ public class ReferralService extends BaseService {
     }
     
     /**
-     * 레퍼럴 코드 등록 (안전장치: 이메일 인증 필수, 동일 IP/기기 중복 초대 무효, 성공 시 추천인 EXP +1)
+     * 레퍼럴 코드 등록 (안전장치: 이메일 인증 필수, 동일 IP/기기 중복 초대 무효, 성공 시 추천인 EXP +0.5)
      */
     public Future<Void> registerReferralCode(Long userId, String referralCode, String clientIp, String deviceId) {
         // 1. 이미 레퍼럴 관계가 있는지 확인
@@ -82,8 +82,8 @@ public class ReferralService extends BaseService {
                     });
             })
             .compose(relation -> {
-                // 3. 추천인 EXP +1 (초대 1명당 1 EXP)
-                return userRepository.addExp(pool, relation.getReferrerId(), BigDecimal.ONE)
+                // 3. 추천인 EXP +0.5 (초대 1명당 0.5 EXP)
+                return userRepository.addExp(pool, relation.getReferrerId(), new BigDecimal("0.5"))
                     .compose(u -> updateReferrerStats(relation.getReferrerId()));
             })
             .mapEmpty();

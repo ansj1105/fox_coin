@@ -40,6 +40,12 @@ REFERRAL_AND_INVITE_SPEC.md 기능 구현에 사용하는 테이블 정리입니
 | **daily_mining** | user_id, mining_date, mining_amount. 일별 누적 채굴량 (캡 적용 후 기록) |
 | **mining_history** | user_id, level, amount, type(BROADCAST_WATCH 등), status=COMPLETED. 영상 시청 1회당 채굴 기록. “채굴 인정 = 영상 시청 + 채굴 기록 필수” 검증용 |
 
+### 4.1 세션 도중 최대 채굴량 도달 시 저장 규칙
+
+- 정산(settle) 시 `todayMiningAmount + 이번_적립량`이 `dailyMaxMining`을 초과하면, 초과분은 적립하지 않고 `amountToCredit = min(이번_정산_량, dailyMaxMining - todayAmount)`만 반영.
+- **amountToCredit = 0인 경우**: `mining_sessions.last_settled_at`만 갱신. 지갑·daily_mining·EXP는 변경 없음.
+- **세션 종료 시**(`settleEnd >= session.ends_at`): **채굴내역(mining_history)은 적립량과 관계없이 1건 항상 삽입.** amountToCredit이 0이어도(한도 도달로 추가 적립이 없어도) 세션이 끝나면 `insertMiningHistory` 호출, 레퍼럴 보상·레벨 동기화 수행. `mining_history.amount`에는 해당 세션의 `rate_per_hour`(1시간당 채굴량) 저장.
+
 ---
 
 ## 5. 래퍼럴 수익 지급

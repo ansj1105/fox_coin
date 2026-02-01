@@ -299,22 +299,18 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(user2Token)
-                .sendJson(registerData, ar -> {
-                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
-                    tc.verify(() -> {
-                        assertThat(ar.result().statusCode()).isEqualTo(200);
-                        reqDelete(getUrl("/hard"))
-                            .bearerTokenAuthentication(user2Token)
-                            .send(ar2 -> {
-                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
-                                tc.verify(() -> {
-                                    log.info("Hard delete response: {}", ar2.result().bodyAsJsonObject());
-                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
-                                    tc.completeNow();
-                                });
-                            });
-                    });
-                });
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 완전 삭제
+                    reqDelete(getUrl("/hard"))
+                        .bearerTokenAuthentication(user2Token)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Hard delete referral relation response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
         }
         
         @Test
@@ -327,22 +323,18 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(adminToken)
-                .sendJson(registerData, ar -> {
-                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
-                    tc.verify(() -> {
-                        assertThat(ar.result().statusCode()).isEqualTo(200);
-                        reqDelete(getUrl("/hard"))
-                            .bearerTokenAuthentication(adminToken)
-                            .send(ar2 -> {
-                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
-                                tc.verify(() -> {
-                                    log.info("Hard delete by admin response: {}", ar2.result().bodyAsJsonObject());
-                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
-                                    tc.completeNow();
-                                });
-                            });
-                    });
-                });
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // 이제 완전 삭제
+                    reqDelete(getUrl("/hard"))
+                        .bearerTokenAuthentication(adminToken)
+                        .send(tc.succeeding(res -> tc.verify(() -> {
+                            log.info("Hard delete referral relation by admin response: {}", res.bodyAsJsonObject());
+                            assertThat(res.statusCode()).isEqualTo(200);
+                            tc.completeNow();
+                        })));
+                })));
         }
         
         @Test
@@ -355,30 +347,25 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(blockedToken)
-                .sendJson(registerData, ar -> {
-                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
-                    tc.verify(() -> {
-                        assertThat(ar.result().statusCode()).isEqualTo(200);
-                        reqDelete(getUrl("/"))
-                            .bearerTokenAuthentication(blockedToken)
-                            .send(ar2 -> {
-                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
-                                tc.verify(() -> {
-                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
-                                    reqDelete(getUrl("/hard"))
-                                        .bearerTokenAuthentication(blockedToken)
-                                        .send(ar3 -> {
-                                            if (ar3.failed()) { tc.failNow(ar3.cause()); return; }
-                                            tc.verify(() -> {
-                                                log.info("Hard delete after soft delete: {}", ar3.result().bodyAsJsonObject());
-                                                assertThat(ar3.result().statusCode()).isEqualTo(200);
-                                                tc.completeNow();
-                                            });
-                                        });
-                                });
-                            });
-                    });
-                });
+                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
+                    assertThat(registerRes.statusCode()).isEqualTo(200);
+                    
+                    // Soft Delete
+                    reqDelete(getUrl("/"))
+                        .bearerTokenAuthentication(blockedToken)
+                        .send(tc.succeeding(softDeleteRes -> tc.verify(() -> {
+                            assertThat(softDeleteRes.statusCode()).isEqualTo(200);
+                            
+                            // Hard Delete
+                            reqDelete(getUrl("/hard"))
+                                .bearerTokenAuthentication(blockedToken)
+                                .send(tc.succeeding(hardDeleteRes -> tc.verify(() -> {
+                                    log.info("Hard delete after soft delete response: {}", hardDeleteRes.bodyAsJsonObject());
+                                    assertThat(hardDeleteRes.statusCode()).isEqualTo(200);
+                                    tc.completeNow();
+                                })));
+                        })));
+                })));
         }
         
         @Test

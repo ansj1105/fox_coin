@@ -129,7 +129,7 @@ public class UserRepository extends BaseRepository {
     }
     
     /**
-     * 경험치(EXP) 증가 (친구 초대 1명당 +1 EXP 등)
+     * 경험치(EXP) 증가 (친구 초대 1명당 +0.5 EXP 등)
      */
     public Future<User> addExp(SqlClient client, Long userId, java.math.BigDecimal delta) {
         if (delta == null || delta.compareTo(java.math.BigDecimal.ZERO) <= 0) {
