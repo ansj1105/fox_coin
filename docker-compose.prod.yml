@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U foxya -d coin_system_cloud"]
       interval: 10s
@@ -36,7 +36,7 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -80,7 +80,7 @@ services:
       tron-service:
         condition: service_started
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -119,7 +119,7 @@ services:
       - PORT=3000
       - TZ=Asia/Seoul
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,7 +162,7 @@ services:
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -194,7 +194,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -222,7 +222,7 @@ services:
       - app
       # tron-service는 선택사항 (없어도 nginx 시작 가능)
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     # DNS 설정 (Docker 내부 DNS 사용)
     dns:
@@ -243,5 +243,5 @@ volumes:
     driver: local
 
 networks:
-  fox_coin_foxya-network:  # coin_csms와 공유하는 네트워크
-    driver: bridge
+  coin-shared:  # coin_csms와 공유하는 외부 네트워크
+    external: true
