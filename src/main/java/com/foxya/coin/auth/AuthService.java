@@ -683,6 +683,9 @@ public class AuthService extends BaseService {
                     })
                     .compose(user -> registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                         .map(ignored -> user))
+                    // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
+                    .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
+                        .map(ignored -> user))
                     .compose(user -> {
                         String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
                         String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
