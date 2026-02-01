@@ -314,6 +314,21 @@ public class MiningService extends BaseService {
                                 if (currency == null) return Future.succeededFuture();
                                 return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
                                     .compose(wallet -> {
+                                        // KORI(INTERNAL) 지갑 없으면 자동 생성 (채굴·에어드랍과 동일)
+                                        if (wallet == null) {
+                                            String dummyAddress = "KORI_INTERNAL_" + userId + "_" + currency.getId();
+                                            return walletRepository.createWallet(pool, userId, currency.getId(), dummyAddress)
+                                                .recover(throwable -> {
+                                                    if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                                                        return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId());
+                                                    }
+                                                    return io.vertx.core.Future.failedFuture(throwable);
+                                                })
+                                                .compose(created -> created != null ? Future.succeededFuture(created) : transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId()));
+                                        }
+                                        return Future.succeededFuture(wallet);
+                                    })
+                                    .compose(wallet -> {
                                         if (wallet == null) return Future.succeededFuture();
                                         return miningRepository.getDailyMining(pool, userId, today)
                                             .compose(dailyMining -> {

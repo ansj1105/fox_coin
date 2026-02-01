@@ -350,7 +350,7 @@ public class WalletService extends BaseService {
         }
         String normalized = chain.trim().toUpperCase();
         return switch (normalized) {
-            case "ETH", "TRON", "BTC" -> normalized;
+            case "ETH", "TRON", "BTC", "INTERNAL" -> normalized;
             default -> null;
         };
     }
@@ -598,6 +598,14 @@ public class WalletService extends BaseService {
                     if (!hasKori) {
                         walletFutures.add(createWalletWithAddress(userId, "KORI", "TRON", tronAddress));
                     }
+                }
+
+                // KORI(INTERNAL) 지갑 생성 (채굴·에어드랍·래퍼럴 적립용, 없으면 생성)
+                boolean hasKoriInternal = existingWallets.stream()
+                    .anyMatch(w -> "KORI".equalsIgnoreCase(w.getCurrencyCode()) && "INTERNAL".equalsIgnoreCase(w.getNetwork()));
+                if (!hasKoriInternal) {
+                    String koriInternalAddress = "KORI_INTERNAL_" + userId;
+                    walletFutures.add(createWalletWithAddress(userId, "KORI", "INTERNAL", koriInternalAddress));
                 }
 
                 // BTC 지갑 생성 (없는 경우만)
