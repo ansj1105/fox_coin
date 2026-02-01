@@ -189,8 +189,8 @@ public class MiningService extends BaseService {
                 // 사용자 정보 조회
                 Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
                 Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today);
-                Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId)
-                    .map(response -> response.getTotalEfficiency());
+                // 보너스 효율: 친구 초대(유효 직접 초대 수) 티어만 사용. -old: bonusService.getBonusEfficiency(userId) (8-type: 소셜연동, 본인인증, 광고시청 등)
+                // Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId).map(response -> response.getTotalEfficiency());
                 Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
                 // 채굴/래퍼럴 적립은 KORI(INTERNAL) 지갑에 들어가므로, INTERNAL KORI 잔액을 우선 사용
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
@@ -215,14 +215,18 @@ public class MiningService extends BaseService {
                 Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
                 Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId);
                 
-                return Future.all(List.of(userFuture, dailyMiningFuture, bonusEfficiencyFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture, sessionsStartedTodayFuture, activeSessionFuture))
+                return Future.all(List.of(userFuture, dailyMiningFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture, sessionsStartedTodayFuture, activeSessionFuture))
                     .compose(compositeFuture -> {
                         com.foxya.coin.user.entities.User user = userFuture.result();
                         if (user == null) {
                             return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
                         }
                         DailyMining dailyMining = dailyMiningFuture.result();
-                        Integer bonusEfficiency = bonusEfficiencyFuture.result();
+                        BigDecimal inviteMultiplier = inviteBonusFuture.result();
+                        // 보너스 효율(%) = 친구 초대 티어만. (multiplier - 1) * 100. 예: 1.06 → 6%
+                        Integer bonusEfficiency = inviteMultiplier != null
+                            ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).intValue()
+                            : 0;
                         BigDecimal totalBalance = totalBalanceFuture.result();
                         int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
                         MiningSession activeSession = activeSessionFuture.result();
@@ -422,16 +426,10 @@ public class MiningService extends BaseService {
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
                                 BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
+                                // 채굴 rate: 친구 초대 티어 배율만 적용. -old: perVideoBase * (1 + bonusEfficiency/100) * inviteMultiplier (BonusService 8-type 포함)
+                                // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
                                 return referralService.getInviteMiningBonusMultiplier(userId)
-                                    .compose(multiplier -> bonusService.getBonusEfficiency(userId)
-                                        .map(effResp -> {
-                                            int bonusEff = effResp.getTotalEfficiency() != null ? effResp.getTotalEfficiency() : 0;
-                                            BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
-                                                BigDecimal.valueOf(bonusEff).divide(BigDecimal.valueOf(100), 18, RoundingMode.HALF_UP));
-                                            return perVideoBase.multiply(efficiencyMultiplier)
-                                                .multiply(multiplier != null ? multiplier : BigDecimal.ONE)
-                                                .setScale(18, RoundingMode.DOWN);
-                                        }))
+                                    .map(multiplier -> perVideoBase.multiply(multiplier != null ? multiplier : BigDecimal.ONE).setScale(18, RoundingMode.DOWN))
                                     .compose(ratePerHour -> {
                                         LocalDateTime endsAt = now.plusHours(1);
                                         return pool.withTransaction(client ->
