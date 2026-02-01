@@ -174,7 +174,7 @@ public class RankingRepository extends BaseRepository {
         StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
             .append(" SELECT ")
             .append(" u.id as user_id,")
-            .append(" u.login_id as nickname,")
+            .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
             .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
@@ -214,9 +214,9 @@ public class RankingRepository extends BaseRepository {
             cteSql.append(" AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}");
         }
         
-        cteSql.append(" GROUP BY u.id, u.login_id, u.level, u.country_code")
+        cteSql.append(" GROUP BY u.id, u.nickname, u.login_id, u.level, u.country_code")
             .append(" )");
-        
+
         // 외부 SELECT는 QueryBuilder 사용 (CTE를 FROM 절에서 사용)
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
             .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS)
@@ -266,11 +266,11 @@ public class RankingRepository extends BaseRepository {
         StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
             .append(" SELECT ")
             .append(" u.id as user_id,")
-            .append(" u.login_id as nickname,")
+            .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
             .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
-        
+
         // referral_reward 계산 (start_date가 null이 아닐 때만 날짜 조건 추가)
         if (startDate != null) {
             cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
@@ -306,7 +306,7 @@ public class RankingRepository extends BaseRepository {
             cteSql.append(" AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}");
         }
         
-        cteSql.append(" GROUP BY u.id, u.login_id, u.level, u.country_code")
+        cteSql.append(" GROUP BY u.id, u.nickname, u.login_id, u.level, u.country_code")
             .append(" )");
         
         // 외부 SELECT는 QueryBuilder 사용

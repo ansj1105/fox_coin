@@ -1337,6 +1337,28 @@ components:
           description: 나를 추천한 사용자의 추천인 코드
           nullable: true
 
+    InviteTierItemDto:
+      type: object
+      properties:
+        inviteCount:
+          type: integer
+          description: 초대 인원 수 (이 인원 이상이면 해당 티어 적용)
+        bonusPercent:
+          type: integer
+          description: 채굴 보너스 % (영상 1회당 채굴량 증가)
+
+    InviteTiersResponseDto:
+      type: object
+      properties:
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/InviteTierItemDto'
+          description: 친구 초대 → 채굴 속도 보너스 티어 목록 (1명 +3%, 5명 +6%, ...)
+        validDirectReferralCount:
+          type: integer
+          description: 현재 유저의 유효 직접 초대 수 (체크박스 연동용)
+
     # Ranking 관련 스키마
     CountryRankingResponse:
       type: object
@@ -3406,6 +3428,49 @@ paths:
                 message: 요청이 완료되었습니다.
                 data:
                   referralCode: "DAWKFS"
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/invite-tiers:
+    get:
+      summary: 친구 초대 → 채굴 속도 보너스 티어 목록 + 유효 직접 초대 수
+      description: |
+        대시보드 보너스 효율 섹션(친구 초대 티어 + 체크박스)용.
+        tiers는 1명 +3%, 5명 +6%, 10명 +10%, 20명 +14%, 50명 +18%, 100명 +22% 고정.
+        validDirectReferralCount로 각 티어 달성 여부(체크박스) 연동.
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InviteTiersResponseDto'
+              example:
+                status: OK
+                message: 요청이 완료되었습니다.
+                data:
+                  tiers:
+                    - inviteCount: 1
+                      bonusPercent: 3
+                    - inviteCount: 5
+                      bonusPercent: 6
+                    - inviteCount: 10
+                      bonusPercent: 10
+                    - inviteCount: 20
+                      bonusPercent: 14
+                    - inviteCount: 50
+                      bonusPercent: 18
+                    - inviteCount: 100
+                      bonusPercent: 22
+                  validDirectReferralCount: 5
         '401':
           description: 인증 실패
 

@@ -80,21 +80,23 @@ public class LevelService extends BaseService {
         return miningRepository.getAllMiningLevels(pool)
             .map(levels -> {
                 List<LevelGuideResponseDto.LevelInfo> levelInfos = new ArrayList<>();
-                
-                for (int i = 0; i < LEVEL_EXP.length && i < levels.size(); i++) {
+                // LV1~LV9 전체 반환 (mining_levels 9행, LEVEL_EXP: LV2~LV9 도달 필요 EXP)
+                int maxLevels = Math.min(9, levels.size());
+                for (int i = 0; i < maxLevels; i++) {
                     int level = i + 1;
-                    BigDecimal requiredExp = LEVEL_EXP[i];
+                    BigDecimal requiredExp = (i == 0) ? BigDecimal.ZERO : LEVEL_EXP[i - 1];
                     BigDecimal dailyMaxMining = levels.get(i).getDailyMaxMining();
-                    
+                    Integer dailyMaxVideos = levels.get(i).getDailyMaxVideos();
+                    String benefits = String.format("일일 최대 채굴량 %s KORI", dailyMaxMining.stripTrailingZeros().toPlainString());
+                    if (dailyMaxVideos != null && dailyMaxVideos > 0) {
+                        benefits += String.format(", 일일 영상 %d회", dailyMaxVideos);
+                    }
                     levelInfos.add(LevelGuideResponseDto.LevelInfo.builder()
                         .level(level)
                         .requiredExp(requiredExp)
-                        .benefits(Arrays.asList(
-                            String.format("일일 최대 채굴량 %s KORI", dailyMaxMining.stripTrailingZeros().toPlainString())
-                        ))
+                        .benefits(Arrays.asList(benefits))
                         .build());
                 }
-                
                 return LevelGuideResponseDto.builder()
                     .title("레벨 가이드")
                     .description("레벨을 올리면 일일 최대 채굴량이 증가합니다.")

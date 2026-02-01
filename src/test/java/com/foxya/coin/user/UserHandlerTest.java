@@ -123,6 +123,55 @@ public class UserHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @Order(22)
+        @DisplayName("성공 - 이메일 설정용 비밀번호 확인")
+        void successConfirmPasswordForEmail(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser - 비밀번호 Test1234!@ (시드와 동일)
+
+            JsonObject body = new JsonObject()
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Confirm password for email response: {}", res.bodyAsJsonObject());
+                    expectSuccessAndGetResponse(res, refVoid);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(23)
+        @DisplayName("실패 - 이메일 설정용 비밀번호 확인 (잘못된 비밀번호)")
+        void failConfirmPasswordForEmailWrongPassword(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser
+
+            JsonObject body = new JsonObject()
+                .put("password", "WrongPassword123!");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(24)
+        @DisplayName("실패 - 이메일 설정용 비밀번호 확인 (인증 없이)")
+        void failConfirmPasswordForEmailNoAuth(VertxTestContext tc) {
+            JsonObject body = new JsonObject()
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
         @Order(14)
         @DisplayName("성공 - 이메일 인증 코드 발송")
         void successSendEmailCode(VertxTestContext tc) {

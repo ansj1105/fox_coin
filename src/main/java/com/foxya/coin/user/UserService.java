@@ -395,46 +395,72 @@ public class UserService extends BaseService {
     }
 
     /**
-     * 현재 로그인한 사용자의 이메일 정보 조회
+     * 현재 로그인한 사용자의 이메일 정보 조회.
+     * email_verifications에 인증된 이메일이 없으면, user.login_id가 이메일 형식(@ 포함)일 때 해당 값을 이메일로 반환.
      */
     public Future<EmailInfoDto> getEmailInfo(Long userId) {
         return emailVerificationRepository.getLatestByUserId(pool, userId)
-            .map(ev -> {
-                if (ev == null) {
-                    // 이메일 정보가 없으면 email=null, verified=false
-                    return EmailInfoDto.builder()
-                        .email(null)
-                        .verified(false)
-                        .build();
+            .compose(ev -> {
+                if (ev != null && Boolean.TRUE.equals(ev.isVerified)) {
+                    return Future.succeededFuture(EmailInfoDto.builder()
+                        .email(ev.email)
+                        .verified(true)
+                        .build());
                 }
-                return EmailInfoDto.builder()
-                    .email(ev.email)
-                    .verified(Boolean.TRUE.equals(ev.isVerified))
-                    .build();
+                // email_verifications 없거나 미인증 시, 가입 시 사용한 login_id(이메일) 폴백
+                return userRepository.getUserById(pool, userId)
+                    .map(user -> {
+                        if (user == null) {
+                            return EmailInfoDto.builder().email(null).verified(false).build();
+                        }
+                        String loginId = user.getLoginId();
+                        if (loginId != null && loginId.contains("@")) {
+                            return EmailInfoDto.builder().email(loginId).verified(true).build();
+                        }
+                        return EmailInfoDto.builder().email(null).verified(false).build();
+                    });
             });
+    }
+
+    /**
+     * 이메일 설정/변경 시 비밀번호 확인용. 본인 확인 후 프론트에서 인증 코드 발송 버튼 활성화 등에 사용.
+     */
+    public Future<Void> confirmPasswordForEmail(Long userId, String password) {
+        if (password == null || password.isBlank()) {
+            return Future.failedFuture(new BadRequestException("비밀번호를 입력해주세요."));
+        }
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                String hash = user.getPasswordHash();
+                if (hash == null || hash.isBlank()) {
+                    return Future.failedFuture(new UnauthorizedException("비밀번호로 로그인한 계정만 사용할 수 있습니다."));
+                }
+                if (!BCrypt.checkpw(password, hash)) {
+                    return Future.failedFuture(new UnauthorizedException("비밀번호가 일치하지 않습니다."));
+                }
+                return Future.succeededFuture();
+            })
+            .mapEmpty();
     }
 
     /**
      * 이메일 인증 코드 발송
      */
     public Future<Void> sendEmailVerificationCode(Long userId, String email) {
-        // 1. 이메일 중복 검증: 이미 다른 사용자가 인증한 이메일인지 확인
         return emailVerificationRepository.findVerifiedEmailUserId(pool, email)
             .compose(existingUserId -> {
                 if (existingUserId != null && !existingUserId.equals(userId)) {
                     return Future.failedFuture(new BadRequestException("이미 다른 사용자가 사용 중인 이메일입니다."));
                 }
-                
-                // 2. 인증 코드 생성
                 String code = emailService.generateVerificationCode();
-
-                // 3. 만료 시간: 현재 기준 10분 뒤
                 return emailVerificationRepository.upsertVerification(pool, userId, email, code, com.foxya.coin.common.utils.DateUtils.now().plusMinutes(10))
                     .compose(saved -> {
                         if (!saved) {
                             return Future.failedFuture(new BadRequestException("이메일 인증 코드를 저장하지 못했습니다."));
                         }
-                        // 4. 이메일 발송
                         return emailService.sendVerificationCode(email, code);
                     });
             })
@@ -442,26 +468,22 @@ public class UserService extends BaseService {
     }
 
     /**
-     * 이메일 인증 및 등록
+     * 이메일 인증 및 등록. 성공 시 login_id를 새 이메일로 변경하여 새 이메일로 로그인 가능.
      */
     public Future<Void> verifyEmail(Long userId, String email, String code) {
-        // 1. 이메일 중복 검증: 이미 다른 사용자가 인증한 이메일인지 확인
         return emailVerificationRepository.findVerifiedEmailUserId(pool, email)
             .compose(existingUserId -> {
                 if (existingUserId != null && !existingUserId.equals(userId)) {
                     return Future.failedFuture(new BadRequestException("이미 다른 사용자가 사용 중인 이메일입니다."));
                 }
-                
-                // 2. 인증 코드 검증 및 인증 처리
                 return emailVerificationRepository.verifyEmail(pool, userId, email, code)
                     .compose(success -> {
                         if (!success) {
                             return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
                         }
-                        return Future.succeededFuture();
+                        return userRepository.updateLoginId(pool, userId, email).mapEmpty();
                     });
-            })
-            .mapEmpty();
+            });
     }
 
     /**

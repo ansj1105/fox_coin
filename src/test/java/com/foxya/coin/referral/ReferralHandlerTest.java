@@ -7,6 +7,8 @@ import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
+import com.foxya.coin.referral.dto.InviteTierItemDto;
+import com.foxya.coin.referral.dto.InviteTiersResponseDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +26,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<ReferralStatsDto>> refStats = new TypeReference<>() {};
     private final TypeReference<ApiResponse<TeamInfoResponseDto>> refTeamInfo = new TypeReference<>() {};
     private final TypeReference<ApiResponse<CurrentReferralCodeDto>> refCurrentCode = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<InviteTiersResponseDto>> refInviteTiers = new TypeReference<>() {};
     
     public ReferralHandlerTest() {
         super("/api/v1/referrals");
@@ -296,18 +299,22 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(user2Token)
-                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
-                    assertThat(registerRes.statusCode()).isEqualTo(200);
-                    
-                    // 이제 완전 삭제
-                    reqDelete(getUrl("/hard"))
-                        .bearerTokenAuthentication(user2Token)
-                        .send(tc.succeeding(res -> tc.verify(() -> {
-                            log.info("Hard delete referral relation response: {}", res.bodyAsJsonObject());
-                            assertThat(res.statusCode()).isEqualTo(200);
-                            tc.completeNow();
-                        })));
-                })));
+                .sendJson(registerData, ar -> {
+                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
+                    tc.verify(() -> {
+                        assertThat(ar.result().statusCode()).isEqualTo(200);
+                        reqDelete(getUrl("/hard"))
+                            .bearerTokenAuthentication(user2Token)
+                            .send(ar2 -> {
+                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
+                                tc.verify(() -> {
+                                    log.info("Hard delete response: {}", ar2.result().bodyAsJsonObject());
+                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
+                                    tc.completeNow();
+                                });
+                            });
+                    });
+                });
         }
         
         @Test
@@ -320,18 +327,22 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(adminToken)
-                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
-                    assertThat(registerRes.statusCode()).isEqualTo(200);
-                    
-                    // 이제 완전 삭제
-                    reqDelete(getUrl("/hard"))
-                        .bearerTokenAuthentication(adminToken)
-                        .send(tc.succeeding(res -> tc.verify(() -> {
-                            log.info("Hard delete referral relation by admin response: {}", res.bodyAsJsonObject());
-                            assertThat(res.statusCode()).isEqualTo(200);
-                            tc.completeNow();
-                        })));
-                })));
+                .sendJson(registerData, ar -> {
+                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
+                    tc.verify(() -> {
+                        assertThat(ar.result().statusCode()).isEqualTo(200);
+                        reqDelete(getUrl("/hard"))
+                            .bearerTokenAuthentication(adminToken)
+                            .send(ar2 -> {
+                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
+                                tc.verify(() -> {
+                                    log.info("Hard delete by admin response: {}", ar2.result().bodyAsJsonObject());
+                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
+                                    tc.completeNow();
+                                });
+                            });
+                    });
+                });
         }
         
         @Test
@@ -344,25 +355,30 @@ public class ReferralHandlerTest extends HandlerTestBase {
             
             reqPost(getUrl("/register"))
                 .bearerTokenAuthentication(blockedToken)
-                .sendJson(registerData, tc.succeeding(registerRes -> tc.verify(() -> {
-                    assertThat(registerRes.statusCode()).isEqualTo(200);
-                    
-                    // Soft Delete
-                    reqDelete(getUrl("/"))
-                        .bearerTokenAuthentication(blockedToken)
-                        .send(tc.succeeding(softDeleteRes -> tc.verify(() -> {
-                            assertThat(softDeleteRes.statusCode()).isEqualTo(200);
-                            
-                            // Hard Delete
-                            reqDelete(getUrl("/hard"))
-                                .bearerTokenAuthentication(blockedToken)
-                                .send(tc.succeeding(hardDeleteRes -> tc.verify(() -> {
-                                    log.info("Hard delete after soft delete response: {}", hardDeleteRes.bodyAsJsonObject());
-                                    assertThat(hardDeleteRes.statusCode()).isEqualTo(200);
-                                    tc.completeNow();
-                                })));
-                        })));
-                })));
+                .sendJson(registerData, ar -> {
+                    if (ar.failed()) { tc.failNow(ar.cause()); return; }
+                    tc.verify(() -> {
+                        assertThat(ar.result().statusCode()).isEqualTo(200);
+                        reqDelete(getUrl("/"))
+                            .bearerTokenAuthentication(blockedToken)
+                            .send(ar2 -> {
+                                if (ar2.failed()) { tc.failNow(ar2.cause()); return; }
+                                tc.verify(() -> {
+                                    assertThat(ar2.result().statusCode()).isEqualTo(200);
+                                    reqDelete(getUrl("/hard"))
+                                        .bearerTokenAuthentication(blockedToken)
+                                        .send(ar3 -> {
+                                            if (ar3.failed()) { tc.failNow(ar3.cause()); return; }
+                                            tc.verify(() -> {
+                                                log.info("Hard delete after soft delete: {}", ar3.result().bodyAsJsonObject());
+                                                assertThat(ar3.result().statusCode()).isEqualTo(200);
+                                                tc.completeNow();
+                                            });
+                                        });
+                                });
+                            });
+                    });
+                });
         }
         
         @Test
@@ -551,6 +567,71 @@ public class ReferralHandlerTest extends HandlerTestBase {
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/team"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401); // Unauthorized
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("친구 초대 티어 조회 테스트 (invite-tiers)")
+    class GetInviteTiersTest {
+
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 티어 목록 6개 + validDirectReferralCount 반환")
+        void successGetInviteTiers(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser
+
+            reqGet(getUrl("/invite-tiers"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get invite-tiers response: {}", res.bodyAsJsonObject());
+                    InviteTiersResponseDto data = expectSuccessAndGetResponse(res, refInviteTiers);
+
+                    assertThat(data).isNotNull();
+                    assertThat(data.getTiers()).isNotNull();
+                    assertThat(data.getTiers()).hasSize(6);
+
+                    int[] expectedInviteCounts = { 1, 5, 10, 20, 50, 100 };
+                    int[] expectedBonusPercents = { 3, 6, 10, 14, 18, 22 };
+                    for (int i = 0; i < 6; i++) {
+                        InviteTierItemDto tier = data.getTiers().get(i);
+                        assertThat(tier.getInviteCount()).isEqualTo(expectedInviteCounts[i]);
+                        assertThat(tier.getBonusPercent()).isEqualTo(expectedBonusPercents[i]);
+                    }
+
+                    assertThat(data.getValidDirectReferralCount()).isNotNull();
+                    assertThat(data.getValidDirectReferralCount()).isGreaterThanOrEqualTo(0);
+
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(2)
+        @DisplayName("성공 - 추천인 유저의 validDirectReferralCount 반영")
+        void successInviteTiersWithReferrals(VertxTestContext tc) {
+            // referrer_user(5)는 시드에서 피추천인이 있을 수 있음
+            String accessToken = getAccessTokenOfUser(5L); // referrer_user
+
+            reqGet(getUrl("/invite-tiers"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    InviteTiersResponseDto data = expectSuccessAndGetResponse(res, refInviteTiers);
+                    assertThat(data).isNotNull();
+                    assertThat(data.getTiers()).hasSize(6);
+                    assertThat(data.getValidDirectReferralCount()).isGreaterThanOrEqualTo(0);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(3)
+        @DisplayName("실패 - 인증 없이 조회")
+        void failNoAuth(VertxTestContext tc) {
+            reqGet(getUrl("/invite-tiers"))
                 .send(tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401); // Unauthorized
                     tc.completeNow();

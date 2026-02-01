@@ -66,6 +66,12 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getEmailInfo);
 
+        router.post("/email/confirm-password")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(confirmPasswordForEmailValidation(parser))
+            .handler(this::confirmPasswordForEmail);
+
         router.post("/email/send-code")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -261,6 +267,29 @@ public class UserHandler extends BaseHandler {
     }
 
     /**
+     * 이메일 설정 시 비밀번호 확인 Validation
+     */
+    private Handler<RoutingContext> confirmPasswordForEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("password", passwordSchema())
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 이메일 설정 시 비밀번호 확인 (성공 시 프론트에서 인증 코드 발송 버튼 활성화 등에 사용)
+     */
+    private void confirmPasswordForEmail(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String password = ctx.getBodyAsJson().getString("password");
+        log.info("Confirm password for email - userId: {}", userId);
+        response(ctx, userService.confirmPasswordForEmail(userId, password));
+    }
+
+    /**
      * 이메일 인증 코드 발송 Validation
      */
     private Handler<RoutingContext> sendEmailCodeValidation(SchemaParser parser) {
@@ -298,7 +327,7 @@ public class UserHandler extends BaseHandler {
     }
 
     /**
-     * 이메일 인증 및 등록
+     * 이메일 인증 및 등록 (성공 시 login_id를 새 이메일로 변경)
      */
     private void verifyEmail(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());

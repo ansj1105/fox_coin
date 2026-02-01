@@ -321,6 +321,25 @@ public class UserRepository extends BaseRepository {
     }
 
     /**
+     * 로그인 ID(이메일) 업데이트. 이메일 변경 완료 시 새 이메일로 로그인 가능하도록.
+     */
+    public Future<Void> updateLoginId(SqlClient client, Long userId, String newLoginId) {
+        String sql = QueryBuilder
+            .update("users", "login_id", "updated_at")
+            .whereById()
+            .build();
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("login_id", newLoginId);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("로그인 ID 업데이트 실패 - userId: {}", userId));
+    }
+
+    /**
      * 이메일로 회원 조회 (아이디 찾기용)
      * - login_id = email
      * - email_verifications.email (is_verified) 

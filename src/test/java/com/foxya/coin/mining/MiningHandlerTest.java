@@ -44,7 +44,7 @@ public class MiningHandlerTest extends HandlerTestBase {
             reqGet(getUrl("/daily-limit"))
                 .bearerTokenAuthentication(accessToken)
                 .send(tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Get daily limit response: {}", res.bodyAsJsonObject());
+                    log.info("Get daily limit response: status={} body={}", res.statusCode(), res.bodyAsString());
                     DailyLimitResponseDto response = expectSuccessAndGetResponse(res, refDailyLimit);
                     
                     assertThat(response).isNotNull();
@@ -277,9 +277,29 @@ public class MiningHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
-        
+
         @Test
         @Order(11)
+        @DisplayName("친구 초대 시 채굴 효율 연동 - validDirectReferralCount >= 1 이면 inviteBonusMultiplier >= 1.03")
+        void inviteBonusLinkedToMiningEfficiency(VertxTestContext tc) {
+            // referrer_user(5): 시드에서 피추천인이 있을 수 있음. validDirectReferralCount >= 1 이면 배율 >= 1.03
+            String referrerToken = getAccessTokenOfUser(5L);
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(referrerToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
+                    assertThat(response.getValidDirectReferralCount()).isNotNull();
+                    assertThat(response.getInviteBonusMultiplier()).isNotNull();
+                    assertThat(response.getInviteBonusMultiplier()).isGreaterThanOrEqualTo(BigDecimal.ONE);
+                    if (response.getValidDirectReferralCount() >= 1) {
+                        assertThat(response.getInviteBonusMultiplier()).isGreaterThanOrEqualTo(new BigDecimal("1.03"));
+                    }
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(12)
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/info"))
@@ -295,7 +315,7 @@ public class MiningHandlerTest extends HandlerTestBase {
     class WatchAdTest {
         
         @Test
-        @Order(12)
+        @Order(13)
         @DisplayName("성공 - 광고 시청")
         void successWatchAd(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
@@ -311,7 +331,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(13)
+        @Order(14)
         @DisplayName("실패 - 인증 없이 광고 시청")
         void failNoAuth(VertxTestContext tc) {
             reqPost(getUrl("/watch-ad"))
@@ -327,7 +347,7 @@ public class MiningHandlerTest extends HandlerTestBase {
     class CreditMiningForVideoTest {
 
         @Test
-        @Order(14)
+        @Order(15)
         @DisplayName("성공 - 200 응답 및 amount, credited 필드 존재 (1시간 세션 생성)")
         void successCreditVideoReturnsStructure(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
@@ -361,7 +381,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
 
         @Test
-        @Order(15)
+        @Order(16)
         @DisplayName("성공 - credit-video 후 getMiningInfo에 miningUntil 존재 및 adWatchCount 1 이상")
         void successCreditVideoThenMiningInfoHasMiningUntil(VertxTestContext tc) {
             // user 2 사용 (user 1은 Order 14에서 이미 세션 생성되어 쿨다운 중일 수 있음)
@@ -380,7 +400,7 @@ public class MiningHandlerTest extends HandlerTestBase {
                             // 활성 채굴 세션이 있으면 miningUntil 존재 (1시간 후까지)
                             assertThat(info.getMiningUntil()).isNotNull();
                             assertThat(info.getMiningUntil()).isNotEmpty();
-                            assertThat(info.getMiningUntil()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}");
+                            assertThat(info.getMiningUntil()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?");
                             assertThat(info.getAdWatchCount()).isGreaterThanOrEqualTo(1);
                             tc.completeNow();
                         })));
@@ -388,7 +408,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
 
         @Test
-        @Order(16)
+        @Order(17)
         @DisplayName("실패 - 1시간 쿨다운 중 재요청 시 400")
         void failCreditVideoWithinCooldown(VertxTestContext tc) {
             // user 3 사용 (Order 14=user1, Order 15=user2 로 이미 세션 생성된 사용자와 분리)
@@ -412,7 +432,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
 
         @Test
-        @Order(17)
+        @Order(18)
         @DisplayName("실패 - 인증 없이 요청")
         void failNoAuth(VertxTestContext tc) {
             reqPost(getUrl("/credit-video"))

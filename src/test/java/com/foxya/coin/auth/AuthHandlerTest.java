@@ -503,9 +503,12 @@ public class AuthHandlerTest extends HandlerTestBase {
                     String refreshToken = loginDto.getRefreshToken();
                     assertThat(refreshToken).isNotNull();
 
-                    // 2) POST /refresh (Authorization 없음)
+                    // 2) POST /refresh (로그인과 동일한 device 헤더 사용 — ensureActiveDevice 검증용)
                     JsonObject body = new JsonObject().put("refreshToken", refreshToken);
-                    reqPost(getUrl("/refresh"))
+                    webClient.post(port, "localhost", getUrl("/refresh"))
+                        .putHeader("X-Device-Id", "refresh-device-web-1")
+                        .putHeader("X-Device-Type", "WEB")
+                        .putHeader("X-Device-Os", "WEB")
                         .sendJson(body, tc.succeeding(refreshRes -> tc.verify(() -> {
                             assertThat(refreshRes.statusCode()).isEqualTo(200);
                             JsonObject json = refreshRes.bodyAsJsonObject();

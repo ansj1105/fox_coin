@@ -275,7 +275,7 @@ public class MiningService extends BaseService {
     private Future<Void> settleActiveMiningSession(Long userId) {
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
-        return miningRepository.getActiveMiningSession(pool, userId)
+        return miningRepository.getSettlementPendingMiningSession(pool, userId)
             .compose(session -> {
                 if (session == null) return Future.succeededFuture();
                 LocalDateTime settleEnd = now.isBefore(session.getEndsAt()) ? now : session.getEndsAt();
@@ -338,20 +338,14 @@ public class MiningService extends BaseService {
         LocalDateTime now = LocalDateTime.now();
         // 1. 먼저 진행 중인 세션 있으면 지금까지 분량 settle
         return settleActiveMiningSession(userId)
-            .compose(v -> emailVerificationRepository.getLatestByUserId(pool, userId))
-            .compose(ev -> {
-                if (ev == null || !Boolean.TRUE.equals(ev.isVerified)) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("채굴을 시작하려면 이메일 인증을 완료해 주세요."));
-                }
-                return bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
-                    .compose(booster -> {
-                        int current = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
-                        int newCount = current + 1;
-                        int maxCount = Math.max(newCount, 999);
-                        return bonusRepository.createOrUpdateUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, newCount, maxCount, null);
-                    })
-                    .compose(v -> miningRepository.getActiveMiningSession(pool, userId));
-            })
+            .compose(v -> bonusRepository.getUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE)
+                .compose(booster -> {
+                    int current = booster != null && booster.getCurrentCount() != null ? booster.getCurrentCount() : 0;
+                    int newCount = current + 1;
+                    int maxCount = Math.max(newCount, 999);
+                    return bonusRepository.createOrUpdateUserBonus(pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, newCount, maxCount, null);
+                })
+                .compose(x -> miningRepository.getActiveMiningSession(pool, userId)))
             .compose(activeSession -> {
                 // 2. 1시간이 안 지났으면 다음 영상 시청 불가
                 if (activeSession != null && activeSession.getEndsAt().isAfter(now)) {

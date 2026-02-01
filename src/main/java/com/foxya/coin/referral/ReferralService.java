@@ -8,6 +8,8 @@ import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
+import com.foxya.coin.referral.dto.InviteTierItemDto;
+import com.foxya.coin.referral.dto.InviteTiersResponseDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import com.foxya.coin.transfer.TransferService;
@@ -92,6 +94,26 @@ public class ReferralService extends BaseService {
      */
     public Future<Integer> getValidDirectReferralCount(Long referrerUserId) {
         return referralRepository.getValidDirectReferralCount(pool, referrerUserId);
+    }
+
+    /**
+     * 친구 초대 → 채굴 속도 보너스 티어 목록 + 현재 유저의 유효 직접 초대 수.
+     * GET /api/v1/referrals/invite-tiers 응답용.
+     */
+    public Future<InviteTiersResponseDto> getInviteTiers(Long referrerUserId) {
+        List<InviteTierItemDto> tiers = new ArrayList<>();
+        for (int i = 0; i < INVITE_TIER_THRESHOLDS.length; i++) {
+            int bonusPercent = (int) Math.round((INVITE_BONUS_MULTIPLIERS[i] - 1.0) * 100);
+            tiers.add(InviteTierItemDto.builder()
+                .inviteCount(INVITE_TIER_THRESHOLDS[i])
+                .bonusPercent(bonusPercent)
+                .build());
+        }
+        return getValidDirectReferralCount(referrerUserId)
+            .map(count -> InviteTiersResponseDto.builder()
+                .tiers(tiers)
+                .validDirectReferralCount(count != null ? count : 0)
+                .build());
     }
     
     /**

@@ -391,6 +391,20 @@ public class MiningRepository extends BaseRepository {
             });
     }
 
+    /** 정산 대기 세션 (last_settled_at < ends_at) — 진행 중이거나 방금 종료된 세션 포함. settle 후 mining_history 적재에 사용 */
+    public Future<MiningSession> getSettlementPendingMiningSession(SqlClient client, Long userId) {
+        String sql = "SELECT id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, created_at " +
+            "FROM mining_sessions WHERE user_id = #{userId} AND last_settled_at < ends_at " +
+            "ORDER BY ends_at DESC LIMIT 1";
+        return query(client, sql, Collections.singletonMap("userId", userId))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return MINING_SESSION_MAPPER.map(rows.iterator().next());
+                }
+                return null;
+            });
+    }
+
     /** 채굴 세션 생성 (영상 1회 시청 시) */
     public Future<MiningSession> createMiningSession(SqlClient client, Long userId, LocalDateTime startedAt,
                                                      LocalDateTime endsAt, BigDecimal ratePerHour, LocalDateTime lastSettledAt) {
