@@ -441,6 +441,67 @@ public class MiningHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(19)
+        @DisplayName("일일 최대 채굴량 도달 시 credit-video → credited: false, amount: 0")
+        void creditVideoWhenDailyCapReached(VertxTestContext tc) {
+            // no_code_user (ID:6): daily_mining = 1.0, level 1 (daily_max_mining = 1.0) → 한도 도달
+            String accessToken = getAccessTokenOfUser(6L);
+            reqPost(getUrl("/credit-video"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Credit video (capped) response: status={}, body={}", res.statusCode(), res.bodyAsString());
+                    assertThat(res.statusCode()).isEqualTo(200);
+                    try {
+                        ApiResponse<?> api = objectMapper.readValue(
+                            res.bodyAsString(),
+                            new TypeReference<ApiResponse<java.util.Map<String, Object>>>() {}
+                        );
+                        assertThat(api.getStatus()).isEqualTo("OK");
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> data = (java.util.Map<String, Object>) api.getData();
+                        assertThat(data).isNotNull();
+                        assertThat(data).containsKeys("amount", "credited");
+                        assertThat(data.get("credited")).isEqualTo(Boolean.FALSE);
+                        Object amount = data.get("amount");
+                        assertThat(amount).isNotNull();
+                        if (amount instanceof Number) {
+                            assertThat(((Number) amount).doubleValue()).isEqualTo(0.0);
+                        }
+                    } catch (Exception e) {
+                        throw new AssertionError("Parse credit-video response failed", e);
+                    }
+                    tc.completeNow();
+                })));
+        }
+    }
+
+    @Nested
+    @DisplayName("채굴 정보 조회 - 일일 한도 도달 시나리오")
+    class GetMiningInfoWhenCapReachedTest {
+
+        @Test
+        @Order(20)
+        @DisplayName("todayMiningAmount >= dailyMaxMining 시 응답 구조 및 값 검증")
+        void getMiningInfoWhenDailyCapReached(VertxTestContext tc) {
+            // no_code_user (ID:6): daily_mining = 1.0, level 1 (daily_max_mining = 1.0) → 한도 도달
+            String accessToken = getAccessTokenOfUser(6L);
+            reqGet(getUrl("/info"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
+                    assertThat(response).isNotNull();
+                    assertThat(response.getTodayMiningAmount()).isNotNull();
+                    assertThat(response.getDailyMaxMining()).isNotNull();
+                    assertThat(response.getAdWatchCount()).isNotNull();
+                    assertThat(response.getMaxAdWatchCount()).isNotNull();
+                    // todayMiningAmount >= dailyMaxMining (한도 도달)
+                    assertThat(response.getTodayMiningAmount().compareTo(response.getDailyMaxMining()))
+                        .isGreaterThanOrEqualTo(0);
+                    tc.completeNow();
+                })));
+        }
     }
 }
 

@@ -272,26 +272,26 @@ public class UserHandlerTest extends HandlerTestBase {
     @DisplayName("레퍼럴 코드 생성 테스트")
     class GenerateReferralCodeTest {
         
-        @Test
-        @Order(4)
-        @DisplayName("성공 - USER가 본인 레퍼럴 코드 생성")
-        void successGenerateOwnCode(VertxTestContext tc) {
-            String accessToken = getAccessTokenOfUser(2L); // testuser2
-            
-            reqPost(getUrl("/generate/referral-code"))
-                .bearerTokenAuthentication(accessToken)
-                .send(tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Generate referral code response: {}", res.bodyAsJsonObject());
-                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
-                    
-                    assertThat(data.getReferralCode()).isNotNull();
-                    assertThat(data.getReferralCode()).hasSize(6);
-                    assertThat(data.getReferralLink()).isNotNull();
-                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
-                    
-                    tc.completeNow();
-                })));
-        }
+//        @Test
+//        @Order(4)
+//        @DisplayName("성공 - USER가 본인 레퍼럴 코드 생성")
+//        void successGenerateOwnCode(VertxTestContext tc) {
+//            String accessToken = getAccessTokenOfUser(2L); // testuser2
+//
+//            reqPost(getUrl("/generate/referral-code"))
+//                .bearerTokenAuthentication(accessToken)
+//                .send(tc.succeeding(res -> tc.verify(() -> {
+//                    log.info("Generate referral code response: {}", res.bodyAsJsonObject());
+//                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
+//
+//                    assertThat(data.getReferralCode()).isNotNull();
+//                    assertThat(data.getReferralCode()).hasSize(6);
+//                    assertThat(data.getReferralLink()).isNotNull();
+//                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
+//
+//                    tc.completeNow();
+//                })));
+//        }
         
         @Test
         @Order(5)

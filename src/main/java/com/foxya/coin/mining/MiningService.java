@@ -192,15 +192,22 @@ public class MiningService extends BaseService {
                 Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId)
                     .map(response -> response.getTotalEfficiency());
                 Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
+                // 채굴/래퍼럴 적립은 KORI(INTERNAL) 지갑에 들어가므로, INTERNAL KORI 잔액을 우선 사용
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
                     .map(wallets -> {
                         if (wallets == null || wallets.isEmpty()) return BigDecimal.ZERO;
+                        Wallet internalKori = null;
+                        Wallet anyKori = null;
                         for (Wallet wallet : wallets) {
-                            if ("KORI".equalsIgnoreCase(wallet.getCurrencyCode())) {
-                                return wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO;
+                            if (!"KORI".equalsIgnoreCase(wallet.getCurrencyCode())) continue;
+                            anyKori = wallet;
+                            if ("INTERNAL".equalsIgnoreCase(wallet.getNetwork())) {
+                                internalKori = wallet;
+                                break;
                             }
                         }
-                        return wallets.get(0).getBalance() != null ? wallets.get(0).getBalance() : BigDecimal.ZERO;
+                        Wallet target = internalKori != null ? internalKori : anyKori;
+                        return target != null && target.getBalance() != null ? target.getBalance() : BigDecimal.ZERO;
                     });
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
