@@ -136,13 +136,17 @@ public class MiningHandlerTest extends HandlerTestBase {
                     if (response.getItems().size() > 0) {
                         MiningHistoryResponseDto.MiningHistoryItem item = response.getItems().get(0);
                         assertThat(item.getId()).isNotNull();
-                        assertThat(item.getLevel()).isNotNull();
+                        if (!"REFERRAL_REWARD".equals(item.getType())) {
+                            assertThat(item.getLevel()).isNotNull();
+                        }
                         assertThat(item.getNickname()).isNotNull();
                         assertThat(item.getAmount()).isNotNull();
-                        assertThat(item.getType()).isIn("BROADCAST_PROGRESS", "BROADCAST_WATCH");
+                        assertThat(item.getType()).isIn("BROADCAST_PROGRESS", "BROADCAST_WATCH", "REFERRAL_REWARD");
                         assertThat(item.getStatus()).isEqualTo("COMPLETED");
                         assertThat(item.getCreatedAt()).isNotNull();
                     }
+                    assertThat(response.getTotalMinedAmount()).isNotNull();
+                    assertThat(response.getTotalReferralAmount()).isNotNull();
                     
                     tc.completeNow();
                 })));
@@ -164,6 +168,8 @@ public class MiningHandlerTest extends HandlerTestBase {
                     assertThat(response.getItems()).isNotNull();
                     assertThat(response.getTotal()).isNotNull();
                     assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getTotalMinedAmount()).isNotNull();
+                    assertThat(response.getTotalReferralAmount()).isNotNull();
                     assertThat(response.getLimit()).isEqualTo(20); // 기본값
                     assertThat(response.getOffset()).isEqualTo(0); // 기본값
                     
@@ -187,6 +193,8 @@ public class MiningHandlerTest extends HandlerTestBase {
                     assertThat(response.getItems()).isNotNull();
                     assertThat(response.getTotal()).isNotNull();
                     assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getTotalMinedAmount()).isNotNull();
+                    assertThat(response.getTotalReferralAmount()).isNotNull();
                     assertThat(response.getLimit()).isEqualTo(10);
                     assertThat(response.getOffset()).isEqualTo(0);
                     
@@ -210,6 +218,8 @@ public class MiningHandlerTest extends HandlerTestBase {
                     assertThat(response.getItems()).isNotNull();
                     assertThat(response.getTotal()).isNotNull();
                     assertThat(response.getTotalAmount()).isNotNull();
+                    assertThat(response.getTotalMinedAmount()).isNotNull();
+                    assertThat(response.getTotalReferralAmount()).isNotNull();
                     assertThat(response.getLimit()).isEqualTo(20); // 기본값
                     assertThat(response.getOffset()).isEqualTo(0); // 기본값
                     

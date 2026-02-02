@@ -14,6 +14,7 @@ import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -187,6 +188,96 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchAll(internalTransferMapper, rows));
+    }
+    
+    /**
+     * 수신자 기준 레퍼럴 수익(REFERRAL_REWARD) 내역 조회 (채굴 내역 화면 병합용)
+     */
+    public Future<List<InternalTransfer>> getReferralRewardTransfersByReceiver(SqlClient client, Long receiverId, LocalDate startDate, Integer limit, Integer offset) {
+        QueryBuilder.SelectQueryBuilder q = QueryBuilder
+            .select("internal_transfers")
+            .where("receiver_id", Op.Equal, "receiver_id")
+            .andWhere("transfer_type", Op.Equal, "transfer_type")
+            .andWhere("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull);
+        if (startDate != null) {
+            q = q.andWhere("created_at", Op.GreaterThanOrEqual, "start_datetime");
+        }
+        String sql = q.orderBy("created_at", Sort.DESC).limit(limit).offset(offset).build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("receiver_id", receiverId);
+        params.put("transfer_type", InternalTransfer.TYPE_REFERRAL_REWARD);
+        params.put("status", InternalTransfer.STATUS_COMPLETED);
+        if (startDate != null) {
+            params.put("start_datetime", startDate.atStartOfDay());
+        }
+        params.put("limit", limit);
+        params.put("offset", offset);
+        return query(client, sql, params)
+            .map(rows -> fetchAll(internalTransferMapper, rows))
+            .onFailure(throwable -> log.error("레퍼럴 수익 내역 조회 실패 - receiverId: {}", receiverId, throwable));
+    }
+    
+    /**
+     * 수신자 기준 레퍼럴 수익 건수
+     */
+    public Future<Long> getReferralRewardCountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
+        QueryBuilder.SelectQueryBuilder q = QueryBuilder
+            .count("internal_transfers", "it", "total")
+            .where("it.receiver_id", Op.Equal, "receiver_id")
+            .andWhere("it.transfer_type", Op.Equal, "transfer_type")
+            .andWhere("it.status", Op.Equal, "status")
+            .andWhere("it.deleted_at", Op.IsNull);
+        if (startDate != null) {
+            q = q.andWhere("it.created_at", Op.GreaterThanOrEqual, "start_datetime");
+        }
+        String sql = q.build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("receiver_id", receiverId);
+        params.put("transfer_type", InternalTransfer.TYPE_REFERRAL_REWARD);
+        params.put("status", InternalTransfer.STATUS_COMPLETED);
+        if (startDate != null) {
+            params.put("start_datetime", startDate.atStartOfDay());
+        }
+        return query(client, sql, params)
+            .map(rows -> {
+                var it = rows.iterator();
+                if (!it.hasNext()) return 0L;
+                Long v = it.next().getLong("total");
+                return v != null ? v : 0L;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 수익 건수 조회 실패 - receiverId: {}", receiverId, throwable));
+    }
+    
+    /**
+     * 수신자 기준 레퍼럴 수익 합계
+     */
+    public Future<BigDecimal> getReferralRewardTotalAmountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
+        QueryBuilder.SelectQueryBuilder q = QueryBuilder
+            .selectAlias("internal_transfers", "it", "COALESCE(SUM(it.amount), 0) as total_amount")
+            .where("it.receiver_id", Op.Equal, "receiver_id")
+            .andWhere("it.transfer_type", Op.Equal, "transfer_type")
+            .andWhere("it.status", Op.Equal, "status")
+            .andWhere("it.deleted_at", Op.IsNull);
+        if (startDate != null) {
+            q = q.andWhere("it.created_at", Op.GreaterThanOrEqual, "start_datetime");
+        }
+        String sql = q.build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("receiver_id", receiverId);
+        params.put("transfer_type", InternalTransfer.TYPE_REFERRAL_REWARD);
+        params.put("status", InternalTransfer.STATUS_COMPLETED);
+        if (startDate != null) {
+            params.put("start_datetime", startDate.atStartOfDay());
+        }
+        return query(client, sql, params)
+            .map(rows -> {
+                var it = rows.iterator();
+                if (!it.hasNext()) return BigDecimal.ZERO;
+                BigDecimal v = it.next().getBigDecimal("total_amount");
+                return v != null ? v : BigDecimal.ZERO;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 수익 합계 조회 실패 - receiverId: {}", receiverId, throwable));
     }
     
     // ========== 외부 전송 ==========

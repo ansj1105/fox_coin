@@ -18,7 +18,9 @@ import java.util.List;
 public class MiningHistoryResponseDto {
     private List<MiningHistoryItem> items;
     private Long total;
-    private BigDecimal totalAmount;
+    private BigDecimal totalAmount;       // 체굴 + 레퍼럴 수익 합계
+    private BigDecimal totalMinedAmount;  // 체굴만 합계
+    private BigDecimal totalReferralAmount; // 레퍼럴 수익만 합계
     private Integer limit;
     private Integer offset;
     

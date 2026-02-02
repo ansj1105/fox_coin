@@ -18,6 +18,7 @@ import com.foxya.coin.mining.entities.MiningLevel;
 import com.foxya.coin.mining.entities.MiningSession;
 import com.foxya.coin.referral.ReferralService;
 import com.foxya.coin.transfer.TransferRepository;
+import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -32,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @Slf4j
@@ -122,40 +124,41 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 채굴 내역 조회 (래퍼럴 수익 제외)
+     * 채굴 내역 조회 (체굴 + 레퍼럴 수익 병합, 날짜순 정렬)
      */
     public Future<MiningHistoryResponseDto> getMiningHistory(Long userId, String period, Integer limit, Integer offset) {
-        // period 기본값 처리
         String periodValue = RankingPeriod.fromValue(period).getValue();
-        
-        // limit, offset 기본값 처리
         int limitValue = limit != null && limit > 0 ? limit : 20;
         int offsetValue = offset != null && offset >= 0 ? offset : 0;
+        LocalDate startDate = getStartDateForPeriod(periodValue);
         
-        // 사용자 정보 조회 (nickname용)
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null) {
                     return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
                 }
+                String nickname = user.getLoginId();
                 
-                String nickname = user.getLoginId(); // loginId를 nickname으로 사용
+                int fetchSize = limitValue + offsetValue;
+                Future<List<MiningHistory>> miningListFuture = miningRepository.getMiningHistory(pool, userId, periodValue, fetchSize, 0);
+                Future<Long> miningCountFuture = miningRepository.getMiningHistoryCount(pool, userId, periodValue);
+                Future<BigDecimal> totalMinedFuture = miningRepository.getMiningHistoryTotalAmount(pool, userId, periodValue);
+                Future<List<InternalTransfer>> referralListFuture = transferRepository.getReferralRewardTransfersByReceiver(pool, userId, startDate, fetchSize, 0);
+                Future<Long> referralCountFuture = transferRepository.getReferralRewardCountByReceiver(pool, userId, startDate);
+                Future<BigDecimal> totalReferralFuture = transferRepository.getReferralRewardTotalAmountByReceiver(pool, userId, startDate);
                 
-                // 채굴 내역, 총 개수, 총 합계를 병렬로 조회
-                Future<List<MiningHistory>> historyFuture = miningRepository.getMiningHistory(pool, userId, periodValue, limitValue, offsetValue);
-                Future<Long> countFuture = miningRepository.getMiningHistoryCount(pool, userId, periodValue);
-                Future<BigDecimal> totalAmountFuture = miningRepository.getMiningHistoryTotalAmount(pool, userId, periodValue);
-                
-                return Future.all(historyFuture, countFuture, totalAmountFuture)
-                    .map(compositeFuture -> {
-                        List<MiningHistory> history = historyFuture.result();
-                        Long total = countFuture.result();
-                        BigDecimal totalAmount = totalAmountFuture.result();
+                return Future.all(miningListFuture, miningCountFuture, totalMinedFuture, referralListFuture, referralCountFuture, totalReferralFuture)
+                    .map(composite -> {
+                        List<MiningHistory> miningList = miningListFuture.result() != null ? miningListFuture.result() : List.of();
+                        Long miningCount = miningCountFuture.result();
+                        BigDecimal totalMinedAmount = totalMinedFuture.result() != null ? totalMinedFuture.result() : BigDecimal.ZERO;
+                        List<InternalTransfer> referralList = referralListFuture.result() != null ? referralListFuture.result() : List.of();
+                        Long referralCount = referralCountFuture.result();
+                        BigDecimal totalReferralAmount = totalReferralFuture.result() != null ? totalReferralFuture.result() : BigDecimal.ZERO;
                         
-                        // DTO 변환
-                        List<MiningHistoryResponseDto.MiningHistoryItem> items = new ArrayList<>();
-                        for (MiningHistory mh : history) {
-                            items.add(MiningHistoryResponseDto.MiningHistoryItem.builder()
+                        List<MiningHistoryResponseDto.MiningHistoryItem> miningItems = new ArrayList<>();
+                        for (MiningHistory mh : miningList) {
+                            miningItems.add(MiningHistoryResponseDto.MiningHistoryItem.builder()
                                 .id(mh.getId())
                                 .level(mh.getLevel())
                                 .nickname(nickname)
@@ -165,16 +168,50 @@ public class MiningService extends BaseService {
                                 .createdAt(mh.getCreatedAt())
                                 .build());
                         }
+                        List<MiningHistoryResponseDto.MiningHistoryItem> referralItems = new ArrayList<>();
+                        for (InternalTransfer it : referralList) {
+                            referralItems.add(MiningHistoryResponseDto.MiningHistoryItem.builder()
+                                .id(-(it.getId() != null ? it.getId() : 0L))
+                                .level(null)
+                                .nickname(nickname)
+                                .amount(it.getAmount())
+                                .type(InternalTransfer.TYPE_REFERRAL_REWARD)
+                                .status(it.getStatus())
+                                .createdAt(it.getCreatedAt())
+                                .build());
+                        }
+                        List<MiningHistoryResponseDto.MiningHistoryItem> merged = new ArrayList<>();
+                        merged.addAll(miningItems);
+                        merged.addAll(referralItems);
+                        merged.sort(Comparator.comparing(MiningHistoryResponseDto.MiningHistoryItem::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+                        int from = Math.min(offsetValue, merged.size());
+                        int to = Math.min(offsetValue + limitValue, merged.size());
+                        List<MiningHistoryResponseDto.MiningHistoryItem> page = merged.subList(from, to);
                         
+                        BigDecimal totalAmount = totalMinedAmount.add(totalReferralAmount);
                         return MiningHistoryResponseDto.builder()
-                            .items(items)
-                            .total(total)
+                            .items(page)
+                            .total((miningCount != null ? miningCount : 0L) + (referralCount != null ? referralCount : 0L))
                             .totalAmount(totalAmount)
+                            .totalMinedAmount(totalMinedAmount)
+                            .totalReferralAmount(totalReferralAmount)
                             .limit(limitValue)
                             .offset(offsetValue)
                             .build();
                     });
             });
+    }
+    
+    private static LocalDate getStartDateForPeriod(String period) {
+        if (period == null || "ALL".equals(period)) return null;
+        LocalDate now = LocalDate.now();
+        return switch (period) {
+            case "TODAY" -> now;
+            case "WEEK" -> now.minusWeeks(1);
+            case "MONTH" -> now.minusMonths(1);
+            case "YEAR" -> now.minusYears(1);
+            default -> null;
+        };
     }
     
     /**
