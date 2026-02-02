@@ -194,7 +194,7 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null); // EventPublisher는 EventVerticle에서 주입
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,

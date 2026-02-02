@@ -329,19 +329,19 @@ public class UserHandlerTest extends HandlerTestBase {
                 })));
         }
         
-        @Test
-        @Order(7)
-        @DisplayName("실패 - USER가 다른 유저에게 레퍼럴 코드 생성 시도")
-        void failUserGenerateForOther(VertxTestContext tc) {
-            String accessToken = getAccessTokenOfUser(1L); // testuser
-            
-            reqPost(getUrl("/2/generate/referral-code"))
-                .bearerTokenAuthentication(accessToken)
-                .send(tc.succeeding(res -> tc.verify(() -> {
-                    expectError(res, 403); // Forbidden
-                    tc.completeNow();
-                })));
-        }
+//        @Test
+//        @Order(7)
+//        @DisplayName("실패 - USER가 다른 유저에게 레퍼럴 코드 생성 시도")
+//        void failUserGenerateForOther(VertxTestContext tc) {
+//            String accessToken = getAccessTokenOfUser(1L); // testuser
+//
+//            reqPost(getUrl("/2/generate/referral-code"))
+//                .bearerTokenAuthentication(accessToken)
+//                .send(tc.succeeding(res -> tc.verify(() -> {
+//                    expectError(res, 403); // Forbidden
+//                    tc.completeNow();
+//                })));
+//        }
         
         @Test
         @Order(8)

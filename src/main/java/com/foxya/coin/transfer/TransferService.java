@@ -15,6 +15,7 @@ import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.entities.User;
+import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -34,6 +35,7 @@ public class TransferService extends BaseService {
     private final TransferRepository transferRepository;
     private final UserRepository userRepository;
     private final CurrencyRepository currencyRepository;
+    private final WalletRepository walletRepository;
     private final EventPublisher eventPublisher;
     
     // 내부 전송 수수료 (0.1%)
@@ -45,11 +47,13 @@ public class TransferService extends BaseService {
                           TransferRepository transferRepository,
                           UserRepository userRepository,
                           CurrencyRepository currencyRepository,
+                          WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
         this.currencyRepository = currencyRepository;
+        this.walletRepository = walletRepository;
         this.eventPublisher = eventPublisher;
     }
     
@@ -207,6 +211,21 @@ public class TransferService extends BaseService {
                     return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
                 }
                 return transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId())
+                    .compose(receiverWallet -> {
+                        // 추천인 KORI 지갑 없으면 자동 생성 (채굴만 하고 본인은 미채굴한 추천인도 레퍼럴 수익 수령 가능)
+                        if (receiverWallet == null) {
+                            String dummyAddress = "KORI_INTERNAL_" + referrerId + "_" + currency.getId();
+                            return walletRepository.createWallet(pool, referrerId, currency.getId(), dummyAddress)
+                                .recover(throwable -> {
+                                    if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId());
+                                    }
+                                    return io.vertx.core.Future.failedFuture(throwable);
+                                })
+                                .compose(created -> created != null ? Future.succeededFuture(created) : transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId()));
+                        }
+                        return Future.succeededFuture(receiverWallet);
+                    })
                     .compose(receiverWallet -> {
                         if (receiverWallet == null) {
                             return Future.failedFuture(new NotFoundException("추천인 지갑을 찾을 수 없습니다."));

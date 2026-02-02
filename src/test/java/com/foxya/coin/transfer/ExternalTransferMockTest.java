@@ -9,6 +9,7 @@ import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.TransferResponseDto;
 import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.user.UserRepository;
+import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -48,6 +49,7 @@ public class ExternalTransferMockTest {
     private static TransferRepository transferRepository;
     private static UserRepository userRepository;
     private static CurrencyRepository currencyRepository;
+    private static WalletRepository walletRepository;
     private static EventPublisher mockEventPublisher;
     private static TransferService transferService;
     private static Flyway flyway;
@@ -87,6 +89,7 @@ public class ExternalTransferMockTest {
         transferRepository = new TransferRepository();
         userRepository = new UserRepository();
         currencyRepository = new CurrencyRepository();
+        walletRepository = new WalletRepository();
         
         // Mock EventPublisher 생성
         mockEventPublisher = mock(EventPublisher.class);
@@ -96,7 +99,7 @@ public class ExternalTransferMockTest {
             .thenReturn(Future.succeededFuture());
         
         // TransferService 초기화 (Mock EventPublisher 주입)
-        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, mockEventPublisher);
+        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, mockEventPublisher);
         
         tc.completeNow();
     }
