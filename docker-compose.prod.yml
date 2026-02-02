@@ -92,6 +92,48 @@ services:
         max-size: "100m"
         max-file: "5"
 
+  # 앱 2번 인스턴스 (무중단 배포용: Nginx가 app + app2 둘 다 바라보고, 한 대씩 순서 업데이트)
+  app2:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        - APP_ENV=${APP_ENV:-prod}
+    image: foxya-coin-api:${APP_VERSION:-latest}
+    container_name: foxya-api-2
+    environment:
+      TZ: Asia/Seoul
+      APP_ENV: ${APP_ENV:-prod}
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID}
+      GOOGLE_ANDROID_REDIRECT_URI: ${GOOGLE_ANDROID_REDIRECT_URI}
+    # 포트 미노출 (Nginx가 내부 네트워크로만 접근)
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tron-service:
+        condition: service_started
+    networks:
+      - coin-shared
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
   # ==================== TRON Service (Node.js) ====================
   tron-service:
     # 외부 프로젝트 경로를 build context로 사용
@@ -220,6 +262,7 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       - app
+      - app2
       # tron-service는 선택사항 (없어도 nginx 시작 가능)
     networks:
       - coin-shared
