@@ -108,18 +108,18 @@ public class TransferService extends BaseService {
                         
                         // 4. 송신자 지갑 조회
                         return getOrCreateInternalWallet(senderId, currency, false)
-                            .compose(senderWallet -> getOrCreateInternalWallet(receiver.getId(), currency, true)
-                                .compose(receiverWallet -> {
-                                        
+                            .compose(senderWallet ->
+                                getOrCreateInternalWallet(receiver.getId(), currency, true)
+                                    .compose(receiverWallet -> {
                                         // 6. 수수료 계산
                                         BigDecimal fee = request.getAmount().multiply(INTERNAL_FEE_RATE);
                                         BigDecimal totalDeduct = request.getAmount().add(fee);
-                                        
+
                                         // 7. 잔액 확인
                                         if (senderWallet.getBalance().compareTo(totalDeduct) < 0) {
                                             return Future.failedFuture(new BadRequestException("잔액이 부족합니다. 필요: " + totalDeduct + ", 보유: " + senderWallet.getBalance()));
                                         }
-                                        
+
                                         // 8. 전송 실행 (트랜잭션)
                                         return executeInternalTransferTransaction(
                                             senderId, receiver.getId(),
@@ -127,8 +127,8 @@ public class TransferService extends BaseService {
                                             currency, request.getAmount(), fee,
                                             request.getMemo(), requestIp
                                         );
-                                    });
-                            });
+                                    })
+                            );
                     });
             });
     }

@@ -217,7 +217,13 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("password", passwordSchema())
                     .requiredProperty("seedConfirmed", booleanSchema())
                     .optionalProperty("signupToken", stringSchema().with(minLength(8), maxLength(200)))
-                    .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)).or(nullSchema()))
+                    .optionalProperty(
+                        "referralCode",
+                        anyOf(
+                            stringSchema().with(minLength(6), maxLength(20)),
+                            schema().withKeyword("type", "null")
+                        )
+                    )
                     .requiredProperty("nickname", nicknameSchema())
                     .requiredProperty("name", stringSchema().with(minLength(1), maxLength(50)))
                     .requiredProperty("country", stringSchema().with(minLength(2), maxLength(3)))
