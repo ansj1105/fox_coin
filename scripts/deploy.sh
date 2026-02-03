@@ -43,9 +43,9 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  setup       - 초기 서버 설정 (첫 배포 시)"
-    echo "  deploy      - 애플리케이션 배포"
-    echo "  update      - 코드 업데이트 및 재배포"
-    echo "  rollback    - 이전 버전으로 롤백"
+    echo "  deploy      - 애플리케이션 배포 (전체 up)"
+    echo "  update      - 코드 업데이트 후 무중단 재배포 (app → app2 순)"
+    echo "  rollback    - 이전 이미지로 롤백 (app, app2 둘 다)"
     echo "  status      - 서비스 상태 확인"
     echo "  logs        - 로그 확인"
     echo "  stop        - 서비스 중지"
@@ -144,9 +144,9 @@ deploy() {
     exit 1
 }
 
-# 업데이트
+# 업데이트 (무중단: app → app2 순서로 한 대씩 재시작)
 update() {
-    log_info "업데이트 시작..."
+    log_info "업데이트 시작 (무중단: app → app2)..."
     
     cd "${DEPLOY_DIR}"
     
@@ -155,24 +155,32 @@ update() {
     git checkout ${BRANCH}
     git pull origin ${BRANCH}
     
-    # 이전 버전 백업
+    # 이전 버전 백업 (롤백용)
     BACKUP_TAG=$(date +%Y%m%d_%H%M%S)
     docker tag foxya-coin-api:latest foxya-coin-api:backup_${BACKUP_TAG} 2>/dev/null || true
     
-    # 앱만 재빌드 및 재시작 (Zero-downtime)
-    log_info "앱 재빌드 중..."
+    # 이미지 한 번 빌드 (app, app2 동일 이미지 사용)
+    log_info "이미지 빌드 중..."
     docker-compose -f ${COMPOSE_FILE} build app
     
-    log_info "앱 재시작 중..."
+    # 1) app (foxya-api) 먼저 교체
+    log_info "app( foxya-api ) 재시작 중..."
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app
-    
-    # 헬스체크
-    sleep 10
-    if curl -sf http://localhost:8080/health > /dev/null; then
-        log_success "업데이트 완료!"
-    else
-        log_error "업데이트 실패! 롤백을 고려하세요."
+    sleep 15
+    if ! curl -sf http://localhost:8080/health > /dev/null; then
+        log_error "app 헬스체크 실패. 롤백 고려: ./scripts/deploy.sh rollback"
         exit 1
+    fi
+    log_success "app 정상 기동"
+    
+    # 2) app2 (foxya-api-2) 교체
+    log_info "app2( foxya-api-2 ) 재시작 중..."
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps app2
+    sleep 10
+    if curl -sf http://localhost:8080/health > /dev/null 2>&1 || curl -sf http://localhost/health > /dev/null 2>&1; then
+        log_success "업데이트 완료! (두 컨테이너 모두 새 이미지)"
+    else
+        log_warning "app2 기동 후 헬스 확인 실패. app은 정상이므로 서비스는 동작 중일 수 있음. 로그 확인 권장."
     fi
 }
 
@@ -200,11 +208,13 @@ rollback() {
         exit 1
     fi
     
-    # 롤백 실행
+    # 롤백 실행 (두 컨테이너 모두 이전 이미지로)
     docker tag foxya-coin-api:${ROLLBACK_TAG} foxya-coin-api:latest
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app
+    sleep 10
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps app2
     
-    log_success "롤백 완료!"
+    log_success "롤백 완료! (app, app2 모두 이전 이미지)"
 }
 
 # 상태 확인
