@@ -79,6 +79,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getTeamInfo);
+
+        // 래퍼럴 수익 구간 조회 (문구는 프론트, 숫자만 전달)
+        router.get("/revenue-tiers")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getRevenueTiers);
         
         return router;
     }
@@ -190,5 +196,13 @@ public class ReferralHandler extends BaseHandler {
         log.info("Getting team info for user: {}, tab: {}, period: {}, limit: {}, offset: {}", userId, tab, period, limit, offset);
         response(ctx, referralService.getTeamInfo(userId, tab, period, limit, offset));
     }
-}
 
+    /**
+     * 래퍼럴 수익 구간 조회
+     */
+    private void getRevenueTiers(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting referral revenue tiers for user: {}", userId);
+        response(ctx, referralService.getReferralRevenueTiers());
+    }
+}

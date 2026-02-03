@@ -1359,6 +1359,21 @@ components:
           type: integer
           description: 현재 유저의 유효 직접 초대 수 (체크박스 연동용)
 
+    ReferralRevenueTierDto:
+      type: object
+      properties:
+        minTeamSize:
+          type: integer
+          description: 최소 하부 유저 수
+        maxTeamSize:
+          type: integer
+          nullable: true
+          description: 최대 하부 유저 수 (없으면 이상)
+        revenuePercent:
+          type: number
+          format: double
+          description: 수익률 (%)
+
     # Ranking 관련 스키마
     CountryRankingResponse:
       type: object
@@ -3471,6 +3486,30 @@ paths:
                     - inviteCount: 100
                       bonusPercent: 22
                   validDirectReferralCount: 5
+        '401':
+          description: 인증 실패
+
+  /api/v1/referrals/revenue-tiers:
+    get:
+      summary: 래퍼럴 수익 구간 조회
+      description: 래퍼럴 수익 구간 숫자만 조회합니다.
+      tags: [Referral]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ReferralRevenueTierDto'
         '401':
           description: 인증 실패
 

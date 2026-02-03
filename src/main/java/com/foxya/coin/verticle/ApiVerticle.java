@@ -22,6 +22,7 @@ import com.foxya.coin.common.utils.ErrorHandler;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
 import com.foxya.coin.referral.ReferralRepository;
+import com.foxya.coin.referral.ReferralRevenueTierRepository;
 import com.foxya.coin.referral.ReferralService;
 import com.foxya.coin.transfer.TransferHandler;
 import com.foxya.coin.transfer.TransferRepository;
@@ -153,6 +154,7 @@ public class ApiVerticle extends AbstractVerticle {
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
+        ReferralRevenueTierRepository referralRevenueTierRepository = new ReferralRevenueTierRepository();
         TransferRepository transferRepository = new TransferRepository();
         BonusRepository bonusRepository = new BonusRepository();
         MiningRepository miningRepository = new MiningRepository();
@@ -202,7 +204,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi, notificationService);
-        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService);
+        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);

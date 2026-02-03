@@ -10,6 +10,7 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.InviteTierItemDto;
 import com.foxya.coin.referral.dto.InviteTiersResponseDto;
+import com.foxya.coin.referral.dto.ReferralRevenueTierDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import com.foxya.coin.transfer.TransferService;
@@ -30,22 +31,26 @@ public class ReferralService extends BaseService {
     private static final double[] INVITE_BONUS_MULTIPLIERS = { 1.03, 1.06, 1.10, 1.14, 1.18, 1.22 };
     private static final int[] INVITE_TIER_THRESHOLDS = { 1, 5, 10, 20, 50, 100 };
     
-    /** 하부 유저 수 구간별 래퍼럴 수익률: 1~4명 3%, 5명 5%, 10명 7%, 20명 9%, 50명 11%, 100명 13% */
-    private static final double[] REFERRAL_REVENUE_RATES = { 0.03, 0.05, 0.07, 0.09, 0.11, 0.13 };
-    private static final int[] REVENUE_TIER_THRESHOLDS = { 4, 5, 10, 20, 50, 100 };
+    /** 하부 유저 수 구간별 래퍼럴 수익률 기본값 (DB 미설정 시 fallback) */
+    private static final int[] DEFAULT_REVENUE_TIER_MIN = { 1, 5, 10, 20, 50, 100 };
+    private static final int[] DEFAULT_REVENUE_TIER_MAX = { 4, 9, 19, 49, 99, -1 };
+    private static final double[] DEFAULT_REFERRAL_REVENUE_PERCENTS = { 3, 5, 7, 9, 11, 13 };
     
     private final ReferralRepository referralRepository;
     private final UserRepository userRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final TransferService transferService;
+    private final ReferralRevenueTierRepository referralRevenueTierRepository;
     
     public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository,
-                           EmailVerificationRepository emailVerificationRepository, TransferService transferService) {
+                           EmailVerificationRepository emailVerificationRepository, TransferService transferService,
+                           ReferralRevenueTierRepository referralRevenueTierRepository) {
         super(pool);
         this.referralRepository = referralRepository;
         this.userRepository = userRepository;
         this.emailVerificationRepository = emailVerificationRepository;
         this.transferService = transferService;
+        this.referralRevenueTierRepository = referralRevenueTierRepository;
     }
     
     /**
@@ -139,14 +144,51 @@ public class ReferralService extends BaseService {
             });
     }
     
-    /**
-     * 하부 유저 수 구간별 래퍼럴 수익률 (0.03 ~ 0.13)
-     */
-    public static BigDecimal getReferralRevenueRateByTeamCount(int validTeamCount) {
-        for (int i = REVENUE_TIER_THRESHOLDS.length - 1; i >= 0; i--) {
-            if (validTeamCount >= REVENUE_TIER_THRESHOLDS[i]) {
-                return BigDecimal.valueOf(REFERRAL_REVENUE_RATES[i]);
-            }
+    private List<com.foxya.coin.referral.entities.ReferralRevenueTier> getDefaultRevenueTiers() {
+        List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers = new ArrayList<>();
+        for (int i = 0; i < DEFAULT_REVENUE_TIER_MIN.length; i++) {
+            Integer max = DEFAULT_REVENUE_TIER_MAX[i] > 0 ? DEFAULT_REVENUE_TIER_MAX[i] : null;
+            tiers.add(com.foxya.coin.referral.entities.ReferralRevenueTier.builder()
+                .minTeamSize(DEFAULT_REVENUE_TIER_MIN[i])
+                .maxTeamSize(max)
+                .revenuePercent(BigDecimal.valueOf(DEFAULT_REFERRAL_REVENUE_PERCENTS[i]))
+                .isActive(true)
+                .sortOrder(i + 1)
+                .build());
+        }
+        return tiers;
+    }
+
+    public Future<List<ReferralRevenueTierDto>> getReferralRevenueTiers() {
+        return referralRevenueTierRepository.getActiveRevenueTiers(pool)
+            .map(tiers -> {
+                if (tiers == null || tiers.isEmpty()) {
+                    tiers = getDefaultRevenueTiers();
+                }
+                List<ReferralRevenueTierDto> dtoList = new ArrayList<>();
+                for (var tier : tiers) {
+                    if (tier == null) continue;
+                    dtoList.add(ReferralRevenueTierDto.builder()
+                        .minTeamSize(tier.getMinTeamSize())
+                        .maxTeamSize(tier.getMaxTeamSize())
+                        .revenuePercent(tier.getRevenuePercent())
+                        .build());
+                }
+                return dtoList;
+            });
+    }
+
+    private BigDecimal resolveReferralRevenueRate(int validTeamCount, List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers) {
+        if (tiers == null || tiers.isEmpty()) {
+            tiers = getDefaultRevenueTiers();
+        }
+        for (var tier : tiers) {
+            if (tier == null || tier.getMinTeamSize() == null || tier.getRevenuePercent() == null) continue;
+            int min = tier.getMinTeamSize();
+            Integer max = tier.getMaxTeamSize();
+            if (validTeamCount < min) continue;
+            if (max != null && validTeamCount > max) continue;
+            return tier.getRevenuePercent().divide(BigDecimal.valueOf(100), 6, RoundingMode.DOWN);
         }
         return BigDecimal.ZERO;
     }
@@ -165,7 +207,8 @@ public class ReferralService extends BaseService {
                 }
                 Long referrerId = relation.getReferrerId();
                 return referralRepository.getValidDirectReferralCount(pool, referrerId)
-                    .map(count -> getReferralRevenueRateByTeamCount(count))
+                    .compose(count -> referralRevenueTierRepository.getActiveRevenueTiers(pool)
+                        .map(tiers -> resolveReferralRevenueRate(count, tiers)))
                     .compose(rate -> {
                         if (rate.compareTo(BigDecimal.ZERO) <= 0) {
                             return Future.succeededFuture();
@@ -356,4 +399,3 @@ public class ReferralService extends BaseService {
         }
     }
 }
-

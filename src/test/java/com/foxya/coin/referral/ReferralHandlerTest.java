@@ -9,11 +9,14 @@ import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.InviteTierItemDto;
 import com.foxya.coin.referral.dto.InviteTiersResponseDto;
+import com.foxya.coin.referral.dto.ReferralRevenueTierDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,6 +30,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<TeamInfoResponseDto>> refTeamInfo = new TypeReference<>() {};
     private final TypeReference<ApiResponse<CurrentReferralCodeDto>> refCurrentCode = new TypeReference<>() {};
     private final TypeReference<ApiResponse<InviteTiersResponseDto>> refInviteTiers = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<List<ReferralRevenueTierDto>>> refRevenueTiers = new TypeReference<>() {};
     
     public ReferralHandlerTest() {
         super("/api/v1/referrals");
@@ -149,6 +153,25 @@ public class ReferralHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("성공 - 래퍼럴 수익 구간 조회")
+    void successGetRevenueTiers(VertxTestContext tc) {
+        String accessToken = getAccessTokenOfUser(1L);
+        reqGet(getUrl("/revenue-tiers"))
+            .bearerTokenAuthentication(accessToken)
+            .send(tc.succeeding(res -> tc.verify(() -> {
+                assertThat(res.statusCode()).isEqualTo(200);
+                ApiResponse<List<ReferralRevenueTierDto>> api = objectMapper.readValue(
+                    res.bodyAsString(),
+                    refRevenueTiers
+                );
+                assertThat(api.getData()).isNotNull();
+                assertThat(api.getData().size()).isGreaterThan(0);
+                tc.completeNow();
+            })));
     }
     
     @Nested
@@ -626,4 +649,3 @@ public class ReferralHandlerTest extends HandlerTestBase {
         }
     }
 }
-
