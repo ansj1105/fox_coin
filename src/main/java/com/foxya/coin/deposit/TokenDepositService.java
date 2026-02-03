@@ -7,13 +7,17 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.deposit.dto.TokenDepositListResponseDto;
 import com.foxya.coin.deposit.entities.TokenDeposit;
+import com.foxya.coin.event.EventPublisher;
+import com.foxya.coin.event.EventType;
 import com.foxya.coin.transfer.TransferRepository;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -27,22 +31,32 @@ public class TokenDepositService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
     private final RedisAPI redisApi;
+    private final EventPublisher eventPublisher;
 
     public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
                               CurrencyRepository currencyRepository,
                               TransferRepository transferRepository) {
-        this(pool, tokenDepositRepository, currencyRepository, transferRepository, null);
+        this(pool, tokenDepositRepository, currencyRepository, transferRepository, null, null);
     }
 
     public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
                               CurrencyRepository currencyRepository,
                               TransferRepository transferRepository,
                               RedisAPI redisApi) {
+        this(pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, null);
+    }
+
+    public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
+                              CurrencyRepository currencyRepository,
+                              TransferRepository transferRepository,
+                              RedisAPI redisApi,
+                              EventPublisher eventPublisher) {
         super(pool);
         this.tokenDepositRepository = tokenDepositRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
         this.redisApi = redisApi;
+        this.eventPublisher = eventPublisher;
     }
     
     /**
@@ -100,6 +114,56 @@ public class TokenDepositService extends BaseService {
     }
 
     /**
+     * 토큰 입금 감지 등록 (블록 스캐너/워커에서 호출).
+     * 온체인에서 입금 트랜잭션을 감지했을 때 PENDING 레코드를 생성하고 DEPOSIT_DETECTED 이벤트를 발행하여
+     * 클라이언트가 "처리 중(Processing)" 상태를 폴링 없이 알 수 있게 한다.
+     */
+    public Future<TokenDeposit> registerTokenDeposit(TokenDeposit deposit) {
+        if (deposit == null) {
+            return Future.failedFuture(new BadRequestException("입금 정보가 없습니다."));
+        }
+        TokenDeposit toInsert = TokenDeposit.builder()
+            .depositId(deposit.getDepositId())
+            .userId(deposit.getUserId())
+            .orderNumber(deposit.getOrderNumber())
+            .currencyId(deposit.getCurrencyId())
+            .amount(deposit.getAmount())
+            .network(deposit.getNetwork())
+            .senderAddress(deposit.getSenderAddress())
+            .txHash(deposit.getTxHash())
+            .status(TokenDeposit.STATUS_PENDING)
+            .build();
+        return tokenDepositRepository.createTokenDeposit(pool, toInsert)
+            .compose(this::publishDepositDetectedIfPresent);
+    }
+
+    /**
+     * 입금 감지 시 DEPOSIT_DETECTED 이벤트 발행 (클라이언트가 "처리 중" 상태를 알 수 있도록).
+     */
+    private Future<TokenDeposit> publishDepositDetectedIfPresent(TokenDeposit deposit) {
+        if (eventPublisher == null || deposit == null) {
+            return Future.succeededFuture(deposit);
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("depositId", deposit.getDepositId());
+        payload.put("userId", deposit.getUserId());
+        payload.put("currencyId", deposit.getCurrencyId());
+        payload.put("amount", deposit.getAmount() != null ? deposit.getAmount().toPlainString() : null);
+        payload.put("status", deposit.getStatus());
+        payload.put("orderNumber", deposit.getOrderNumber());
+        payload.put("txHash", deposit.getTxHash());
+        payload.put("senderAddress", deposit.getSenderAddress());
+        payload.put("network", deposit.getNetwork());
+        payload.put("createdAt", deposit.getCreatedAt());
+        return eventPublisher.publish(EventType.DEPOSIT_DETECTED, payload)
+            .map(v -> deposit)
+            .recover(err -> {
+                log.warn("DEPOSIT_DETECTED 이벤트 발행 실패(등록은 유지): depositId={}", deposit.getDepositId(), err);
+                return Future.succeededFuture(deposit);
+            });
+    }
+
+    /**
      * 토큰 입금 완료 처리 (Node.js 입금 감지 워커 등에서 호출).
      * 코인 잔액(온체인) 확인 후 내부 지갑에 반영: 트랜잭션 내 지갑 잔액 추가 + 입금 상태 COMPLETED.
      * Redis 멱등 키로 중복 지급 방지.
@@ -115,10 +179,35 @@ public class TokenDepositService extends BaseService {
                     }
                     return doCompleteTokenDeposit(depositId)
                         .compose(deposit -> redisApi.setex(key, String.valueOf(DEPOSIT_COMPLETED_IDEMPOTENCY_TTL_SECONDS), "1")
-                            .map(v -> deposit));
+                            .map(v -> deposit))
+                        .compose(this::publishDepositConfirmedIfPresent);
                 });
         }
-        return doCompleteTokenDeposit(depositId);
+        return doCompleteTokenDeposit(depositId).compose(this::publishDepositConfirmedIfPresent);
+    }
+
+    /**
+     * 입금 완료 시 DEPOSIT_CONFIRMED 이벤트 발행 (클라이언트/구독자가 폴링 없이 입금 반영 시점을 알 수 있도록).
+     */
+    private Future<TokenDeposit> publishDepositConfirmedIfPresent(TokenDeposit deposit) {
+        if (eventPublisher == null || deposit == null) {
+            return Future.succeededFuture(deposit);
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("depositId", deposit.getDepositId());
+        payload.put("userId", deposit.getUserId());
+        payload.put("currencyId", deposit.getCurrencyId());
+        payload.put("amount", deposit.getAmount() != null ? deposit.getAmount().toPlainString() : null);
+        payload.put("status", deposit.getStatus());
+        payload.put("orderNumber", deposit.getOrderNumber());
+        payload.put("txHash", deposit.getTxHash());
+        payload.put("confirmedAt", deposit.getConfirmedAt());
+        return eventPublisher.publish(EventType.DEPOSIT_CONFIRMED, payload)
+            .map(v -> deposit)
+            .recover(err -> {
+                log.warn("DEPOSIT_CONFIRMED 이벤트 발행 실패(입금 완료는 유지): depositId={}", deposit.getDepositId(), err);
+                return Future.succeededFuture(deposit);
+            });
     }
 
     private Future<TokenDeposit> doCompleteTokenDeposit(String depositId) {

@@ -49,9 +49,11 @@ import com.foxya.coin.banner.BannerService;
 import com.foxya.coin.bonus.BonusHandler;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
+import com.foxya.coin.deposit.InternalDepositHandler;
 import com.foxya.coin.deposit.TokenDepositHandler;
 import com.foxya.coin.deposit.TokenDepositRepository;
 import com.foxya.coin.deposit.TokenDepositService;
+import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.exchange.ExchangeHandler;
 import com.foxya.coin.exchange.ExchangeRepository;
 import com.foxya.coin.exchange.ExchangeService;
@@ -234,8 +236,15 @@ public class ApiVerticle extends AbstractVerticle {
         PaymentDepositService paymentDepositService = new PaymentDepositService(
             pool, paymentDepositRepository, currencyRepository, transferRepository);
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
+        EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
         TokenDepositService tokenDepositService = new TokenDepositService(
-            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi);
+            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher);
+        String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
+        if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
+            depositScannerApiKey = config().getString("depositScanner.apiKey");
+        }
+        InternalDepositHandler internalDepositHandler = new InternalDepositHandler(
+            vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
         
         // Google OAuth 설정 (환경 변수 우선)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -369,6 +378,8 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 토큰 입금 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
+        // 입금 스캐너용 내부 API (API 키 인증)
+        mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         
         // 에어드랍 API
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());

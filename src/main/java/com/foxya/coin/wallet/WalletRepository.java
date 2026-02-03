@@ -4,6 +4,7 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
+import com.foxya.coin.deposit.dto.DepositWatchAddressDto;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -212,5 +213,32 @@ public class WalletRepository extends BaseRepository {
      */
     public Future<Wallet> getWalletByUserIdAndCurrencyIdNotDeleted(SqlClient client, Long userId, Integer currencyId) {
         return getWalletByUserIdAndCurrencyId(client, userId, currencyId);
+    }
+
+    /**
+     * 입금 감시용 지갑 주소 목록 (외부 체인만, address가 있는 지갑).
+     * 스캐너(coin_publish 등)가 주기적으로 이 목록을 조회해 온체인 입금 tx를 확인한다.
+     */
+    public Future<List<DepositWatchAddressDto>> getDepositWatchAddresses(SqlClient client) {
+        String sql = """
+            SELECT uw.user_id AS userId, uw.currency_id AS currencyId, uw.address AS address, c.chain AS network
+            FROM user_wallets uw
+            JOIN currency c ON uw.currency_id = c.id
+            WHERE uw.address IS NOT NULL AND uw.deleted_at IS NULL
+              AND (c.chain IS NULL OR c.chain <> 'INTERNAL')
+            """;
+        return query(client, sql, Collections.emptyMap())
+            .map(rows -> {
+                List<DepositWatchAddressDto> list = new java.util.ArrayList<>();
+                for (io.vertx.sqlclient.Row row : rows) {
+                    list.add(DepositWatchAddressDto.builder()
+                        .userId(getLongColumnValue(row, "userid"))
+                        .currencyId(getIntegerColumnValue(row, "currencyid"))
+                        .address(getStringColumnValue(row, "address"))
+                        .network(getStringColumnValue(row, "network"))
+                        .build());
+                }
+                return list;
+            });
     }
 }
