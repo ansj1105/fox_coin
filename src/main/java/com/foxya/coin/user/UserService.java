@@ -146,6 +146,7 @@ public class UserService extends BaseService {
                     .profileImageUrl(null)
                     .level(user.getLevel() != null ? user.getLevel() : 1)
                     .referralCode(user.getReferralCode())
+                    .country(user.getCountryCode())
                     .build());
             });
     }
