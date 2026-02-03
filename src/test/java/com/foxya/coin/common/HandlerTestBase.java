@@ -125,11 +125,12 @@ public class HandlerTestBase {
         String user = flywayConfig.getString("user");
         String password = flywayConfig.getString("password");
         
+        // 테스트 전용 마이그레이션만 사용 (classpath 쓰면 main+test 둘 다 올라가서 V5 등 버전 충돌 발생)
         flyway = Flyway.configure()
             .dataSource(jdbcUrl, user, password)
             .locations(
-                "classpath:db/migration",
-                "classpath:db/seed"
+                "filesystem:src/test/resources/db/migration",
+                "filesystem:src/test/resources/db/seed"
             )
             .cleanDisabled(false)
             .load();
