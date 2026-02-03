@@ -46,6 +46,8 @@ usage() {
     echo "  deploy      - 애플리케이션 배포 (전체 up)"
     echo "  update      - 코드 업데이트 후 무중단 재배포 (app → app2 순)"
     echo "  rollback    - 이전 이미지로 롤백 (app, app2 둘 다)"
+    echo "  update-tron - TRON 서비스 무중단 재배포 (tron-service → tron-service2 순)"
+    echo "  rollback-tron - TRON 서비스 이전 이미지로 롤백"
     echo "  status      - 서비스 상태 확인"
     echo "  logs        - 로그 확인"
     echo "  stop        - 서비스 중지"
@@ -184,6 +186,50 @@ update() {
     fi
 }
 
+# TRON 서비스 업데이트 (무중단: tron-service → tron-service2 순)
+update_tron() {
+    log_info "TRON 서비스 업데이트 시작 (무중단: tron-service → tron-service2)..."
+    cd "${DEPLOY_DIR}"
+    BACKUP_TAG=$(date +%Y%m%d_%H%M%S)
+    docker tag foxya-tron-service:latest foxya-tron-service:backup_${BACKUP_TAG} 2>/dev/null || true
+    log_info "이미지 빌드 중... (context: \${TRON_SERVICE_PATH:-/var/www/coin_publish})"
+    docker-compose -f ${COMPOSE_FILE} build tron-service
+    log_info "tron-service 재시작 중..."
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service
+    sleep 20
+    if ! docker-compose -f ${COMPOSE_FILE} exec -T tron-service node -e 'require("http").get("http://localhost:3000/health", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on("error", () => process.exit(1))' 2>/dev/null; then
+        log_warning "tron-service 헬스 확인 실패. 로그 확인 권장."
+    else
+        log_success "tron-service 정상 기동"
+    fi
+    log_info "tron-service2 재시작 중..."
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service2
+    sleep 15
+    log_success "TRON 업데이트 완료 (두 컨테이너 모두 새 이미지)"
+}
+
+# TRON 서비스 롤백
+rollback_tron() {
+    log_info "TRON 서비스 롤백 시작..."
+    cd "${DEPLOY_DIR}"
+    BACKUPS=$(docker images foxya-tron-service --format "{{.Tag}}" | grep "backup_" | head -5)
+    if [ -z "$BACKUPS" ]; then
+        log_error "TRON 백업 이미지가 없습니다."
+        exit 1
+    fi
+    echo "사용 가능한 백업: $BACKUPS"
+    read -p "롤백할 버전 태그를 입력하세요: " ROLLBACK_TAG
+    if [ -z "$ROLLBACK_TAG" ]; then
+        log_error "태그를 입력하세요."
+        exit 1
+    fi
+    docker tag foxya-tron-service:${ROLLBACK_TAG} foxya-tron-service:latest
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service
+    sleep 10
+    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service2
+    log_success "TRON 롤백 완료 (tron-service, tron-service2)"
+}
+
 # 롤백
 rollback() {
     log_info "롤백 시작..."
@@ -311,6 +357,12 @@ case "${1}" in
         ;;
     rollback)
         rollback
+        ;;
+    update-tron)
+        update_tron
+        ;;
+    rollback-tron)
+        rollback_tron
         ;;
     status)
         status
