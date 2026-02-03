@@ -20,6 +20,7 @@ import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -31,30 +32,47 @@ import java.util.stream.Collectors;
 
 @Slf4j
 public class TransferService extends BaseService {
-    
+
+    /** Redis 멱등 키 TTL (7일, 초 단위) */
+    private static final int CONFIRMED_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 3600;
+    private static final String REDIS_KEY_CONFIRMED = "transfer:confirmed:";
+    private static final String REDIS_KEY_FAILED = "transfer:failed:";
+
     private final TransferRepository transferRepository;
     private final UserRepository userRepository;
     private final CurrencyRepository currencyRepository;
     private final WalletRepository walletRepository;
     private final EventPublisher eventPublisher;
-    
+    private final RedisAPI redisApi;
+
     // 내부 전송 수수료 (0.1%)
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
     // 최소 전송 금액
     private static final BigDecimal MIN_TRANSFER_AMOUNT = new BigDecimal("0.000001");
-    
-    public TransferService(PgPool pool, 
+
+    public TransferService(PgPool pool,
                           TransferRepository transferRepository,
                           UserRepository userRepository,
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null);
+    }
+
+    public TransferService(PgPool pool,
+                          TransferRepository transferRepository,
+                          UserRepository userRepository,
+                          CurrencyRepository currencyRepository,
+                          WalletRepository walletRepository,
+                          EventPublisher eventPublisher,
+                          RedisAPI redisApi) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
         this.currencyRepository = currencyRepository;
         this.walletRepository = walletRepository;
         this.eventPublisher = eventPublisher;
+        this.redisApi = redisApi;
     }
     
     /**
@@ -89,18 +107,9 @@ public class TransferService extends BaseService {
                         }
                         
                         // 4. 송신자 지갑 조회
-                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, senderId, currency.getId())
-                            .compose(senderWallet -> {
-                                if (senderWallet == null) {
-                                    return Future.failedFuture(new NotFoundException("송신자 지갑을 찾을 수 없습니다."));
-                                }
-                                
-                                // 5. 수신자 지갑 조회
-                                return transferRepository.getWalletByUserIdAndCurrencyId(pool, receiver.getId(), currency.getId())
-                                    .compose(receiverWallet -> {
-                                        if (receiverWallet == null) {
-                                            return Future.failedFuture(new NotFoundException("수신자 지갑을 찾을 수 없습니다."));
-                                        }
+                        return getOrCreateInternalWallet(senderId, currency, false)
+                            .compose(senderWallet -> getOrCreateInternalWallet(receiver.getId(), currency, true)
+                                .compose(receiverWallet -> {
                                         
                                         // 6. 수수료 계산
                                         BigDecimal fee = request.getAmount().multiply(INTERNAL_FEE_RATE);
@@ -153,7 +162,7 @@ public class TransferService extends BaseService {
                         return Future.failedFuture(new BadRequestException("잔액 추가 실패"));
                     }
                     
-                    // 3. 전송 기록 생성
+                    // 3. 전송 기록 생성 (내부 트랜잭션도 전략적 추적을 위해 transfer_id, order_number 항상 기록)
                     String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
                     InternalTransfer transfer = InternalTransfer.builder()
                         .transferId(transferId)
@@ -210,22 +219,7 @@ public class TransferService extends BaseService {
                 if (currency == null) {
                     return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
                 }
-                return transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId())
-                    .compose(receiverWallet -> {
-                        // 추천인 KORI 지갑 없으면 자동 생성 (채굴만 하고 본인은 미채굴한 추천인도 레퍼럴 수익 수령 가능)
-                        if (receiverWallet == null) {
-                            String dummyAddress = "KORI_INTERNAL_" + referrerId + "_" + currency.getId();
-                            return walletRepository.createWallet(pool, referrerId, currency.getId(), dummyAddress)
-                                .recover(throwable -> {
-                                    if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
-                                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId());
-                                    }
-                                    return io.vertx.core.Future.failedFuture(throwable);
-                                })
-                                .compose(created -> created != null ? Future.succeededFuture(created) : transferRepository.getWalletByUserIdAndCurrencyId(pool, referrerId, currency.getId()));
-                        }
-                        return Future.succeededFuture(receiverWallet);
-                    })
+                return getOrCreateInternalWallet(referrerId, currency, true)
                     .compose(receiverWallet -> {
                         if (receiverWallet == null) {
                             return Future.failedFuture(new NotFoundException("추천인 지갑을 찾을 수 없습니다."));
@@ -279,61 +273,96 @@ public class TransferService extends BaseService {
             default -> Future.failedFuture(new BadRequestException("잘못된 수신자 타입입니다: " + receiverType));
         };
     }
+
+    private Future<Wallet> getOrCreateInternalWallet(Long userId, Currency currency, boolean createIfMissing) {
+        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+            .compose(existing -> {
+                if (existing != null) {
+                    return Future.succeededFuture(existing);
+                }
+                if (!createIfMissing) {
+                    return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                }
+                return createInternalWalletIfNeeded(userId, currency)
+                    .compose(created -> {
+                        if (created == null) {
+                            return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                        }
+                        return Future.succeededFuture(created);
+                    });
+            });
+    }
+
+    private Future<Wallet> createInternalWalletIfNeeded(Long userId, Currency currency) {
+        if (!"INTERNAL".equalsIgnoreCase(currency.getChain())) {
+            return Future.succeededFuture(null);
+        }
+        String address = currency.getCode() + "_INTERNAL_" + userId;
+        return walletRepository.createWallet(pool, userId, currency.getId(), address)
+            .recover(throwable -> {
+                if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
+                    return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId());
+                }
+                return Future.failedFuture(throwable);
+            });
+    }
     
     /**
      * 외부 전송 요청 (출금).
-     * 외부 전송 = DB에 출금 요청 기록 + 사용자 잔액 잠금. 실제 전송은 중앙지갑에서 Node 등 별도 서비스가 PENDING 건을 처리하여 네트워크(TRON/ETH/BTC)로 전송.
+     * - 유저에게 보여지는 건 내부 지갑만 해당. 출금 시에도 사용·차감 대상은 유저의 내부 지갑(user_wallets) 뿐.
+     * - DB에 출금 요청 기록 + 내부 지갑 잔액 잠금. 실제 온체인 전송은 플랫폼 메인 지갑(중앙지갑)에서 Node 등이 PENDING 건을 처리.
      */
     public Future<TransferResponseDto> requestExternalTransfer(Long userId, ExternalTransferRequestDto request, String requestIp) {
-        log.info("외부 전송 요청 - userId: {}, toAddress: {}, amount: {}, chain: {}", 
+        log.info("외부 전송 요청 - userId: {}, toAddress: {}, amount: {}, chain: {}",
             userId, request.getToAddress(), request.getAmount(), request.getChain());
-        
+
         // 1. 유효성 검사
         if (request.getAmount() == null || request.getAmount().compareTo(MIN_TRANSFER_AMOUNT) < 0) {
             return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
         }
-        
+
         if (request.getToAddress() == null || request.getToAddress().isEmpty()) {
             return Future.failedFuture(new BadRequestException("수신 주소를 입력해주세요."));
         }
-        
+
         // 2. 체인 유효성 검사
         ChainType chainType = ChainType.fromValue(request.getChain());
         if (chainType == null) {
             return Future.failedFuture(new BadRequestException("지원하지 않는 체인입니다: " + request.getChain()));
         }
-        
-        // 3. 통화 조회
+
+        // 3. 통화 조회 (예: KORI + TRON)
         return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), request.getChain())
             .compose(currency -> {
                 if (currency == null) {
                     return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + request.getCurrencyCode() + " on " + request.getChain()));
                 }
-                
-                // 3. 사용자 지갑 조회
+
+                // 4. 유저 내부 지갑만 조회·사용 (외부 지갑은 사용하지 않음)
                 return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
                     .compose(wallet -> {
                         if (wallet == null) {
                             return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
                         }
-                        
-                        // 4. 수수료 계산 (네트워크 수수료는 Node.js에서 계산)
+
+                        // 5. 수수료 계산 (네트워크 수수료는 Node.js에서 계산)
                         BigDecimal serviceFee = request.getAmount().multiply(INTERNAL_FEE_RATE);
                         BigDecimal totalDeduct = request.getAmount().add(serviceFee);
-                        
-                        // 5. 잔액 확인
+
+                        // 6. 내부 지갑 가용 잔액 확인 (balance = 이미 가용분만 있음, locked_balance 제외)
                         if (wallet.getBalance().compareTo(totalDeduct) < 0) {
                             return Future.failedFuture(new BadRequestException("잔액이 부족합니다. 필요: " + totalDeduct + ", 보유: " + wallet.getBalance()));
                         }
-                        
-                        // 6. 외부 전송 요청 생성 (트랜잭션)
+
+                        // 7. 내부 지갑 잠금 + 출금 요청 생성 (실제 송금은 메인 지갑에서 처리)
                         return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp);
                     });
             });
     }
     
     /**
-     * 외부 전송 요청 생성 (external_transfers PENDING + 잔액 잠금; 실제 전송은 중앙지갑 워커가 처리)
+     * 외부 전송 요청 생성: 유저 내부 지갑 잠금 + external_transfers PENDING 기록.
+     * 실제 온체인 전송은 플랫폼 메인 지갑(중앙지갑) 워커가 PENDING 건을 읽어 처리.
      */
     private Future<TransferResponseDto> createExternalTransferRequest(
             Long userId, Wallet wallet, Currency currency,
@@ -414,7 +443,89 @@ public class TransferService extends BaseService {
             default -> 1;
         };
     }
-    
+
+    /**
+     * 외부 전송 컨펌 완료 처리 (Node.js 워커 등에서 호출).
+     * 내부 지갑 잠금 해제(unlockBalance, refund=false)를 트랜잭션으로 수행하여
+     * 외부 지갑 차감이 확정되면 내부 장부도 최종 차감 반영.
+     * Redis 멱등 키로 중복 처리 방지.
+     */
+    public Future<ExternalTransfer> confirmExternalTransfer(String transferId, int confirmations) {
+        if (redisApi != null) {
+            String key = REDIS_KEY_CONFIRMED + transferId;
+            return redisApi.exists(List.of(key))
+                .compose(reply -> {
+                    if (reply != null && reply.toInteger() != null && reply.toInteger() > 0) {
+                        log.info("외부 전송 이미 컨펌 처리됨 (멱등) - transferId: {}", transferId);
+                        return transferRepository.getExternalTransferById(pool, transferId);
+                    }
+                    return doConfirmExternalTransfer(transferId, confirmations)
+                        .compose(et -> redisApi.setex(key, String.valueOf(CONFIRMED_IDEMPOTENCY_TTL_SECONDS), "1")
+                            .map(v -> et));
+                });
+        }
+        return doConfirmExternalTransfer(transferId, confirmations);
+    }
+
+    private Future<ExternalTransfer> doConfirmExternalTransfer(String transferId, int confirmations) {
+        return pool.withTransaction(client ->
+            transferRepository.getExternalTransferById(client, transferId)
+                .compose(et -> {
+                    if (et == null) {
+                        return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                    }
+                    if (!ExternalTransfer.STATUS_SUBMITTED.equals(et.getStatus())) {
+                        return Future.failedFuture(new BadRequestException(
+                            "컨펌 가능한 상태가 아닙니다. status=" + et.getStatus()));
+                    }
+                    BigDecimal totalDeduct = et.getAmount().add(et.getFee() != null ? et.getFee() : BigDecimal.ZERO);
+                    return transferRepository.confirmExternalTransfer(client, transferId, confirmations)
+                        .compose(confirmed ->
+                            transferRepository.unlockBalance(client, et.getWalletId(), totalDeduct, false)
+                                .map(w -> confirmed));
+                }));
+    }
+
+    /**
+     * 외부 전송 실패 처리 및 잔액 복구 (Node.js 워커 등에서 호출).
+     * 실패 시 내부 지갑 잠금 해제( refund=true )로 잔액 복구.
+     * Redis 멱등 키로 중복 복구 방지.
+     */
+    public Future<ExternalTransfer> failExternalTransferAndRefund(String transferId, String errorCode, String errorMessage) {
+        if (redisApi != null) {
+            String key = REDIS_KEY_FAILED + transferId;
+            return redisApi.exists(List.of(key))
+                .compose(reply -> {
+                    if (reply != null && reply.toInteger() != null && reply.toInteger() > 0) {
+                        log.info("외부 전송 이미 실패 처리됨 (멱등) - transferId: {}", transferId);
+                        return transferRepository.getExternalTransferById(pool, transferId);
+                    }
+                    return doFailExternalTransferAndRefund(transferId, errorCode, errorMessage)
+                        .compose(et -> redisApi.setex(key, String.valueOf(CONFIRMED_IDEMPOTENCY_TTL_SECONDS), "1")
+                            .map(v -> et));
+                });
+        }
+        return doFailExternalTransferAndRefund(transferId, errorCode, errorMessage);
+    }
+
+    private Future<ExternalTransfer> doFailExternalTransferAndRefund(String transferId, String errorCode, String errorMessage) {
+        return pool.withTransaction(client ->
+            transferRepository.getExternalTransferById(client, transferId)
+                .compose(et -> {
+                    if (et == null) {
+                        return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                    }
+                    if (ExternalTransfer.STATUS_CONFIRMED.equals(et.getStatus()) || ExternalTransfer.STATUS_FAILED.equals(et.getStatus())) {
+                        return Future.failedFuture(new BadRequestException("이미 최종 처리된 전송입니다. status=" + et.getStatus()));
+                    }
+                    BigDecimal totalRefund = et.getAmount().add(et.getFee() != null ? et.getFee() : BigDecimal.ZERO);
+                    return transferRepository.failExternalTransfer(client, transferId, errorCode, errorMessage)
+                        .compose(failed ->
+                            transferRepository.unlockBalance(client, et.getWalletId(), totalRefund, true)
+                                .map(w -> failed));
+                }));
+    }
+
     /**
      * 전송 내역 조회 (확장: 모든 거래 내역 통합)
      */

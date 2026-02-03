@@ -194,7 +194,7 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null); // EventPublisher는 EventVerticle에서 주입
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi); // EventPublisher는 EventVerticle에서 주입, Redis는 멱등/성공보장용
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
@@ -235,7 +235,7 @@ public class ApiVerticle extends AbstractVerticle {
             pool, paymentDepositRepository, currencyRepository, transferRepository);
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
-            pool, tokenDepositRepository, currencyRepository, transferRepository);
+            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi);
         
         // Google OAuth 설정 (환경 변수 우선)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));

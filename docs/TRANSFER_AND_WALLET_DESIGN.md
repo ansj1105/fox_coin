@@ -30,7 +30,30 @@
 
 ---
 
-## 3. 참고
+## 3. 입금·스왑·외부전송 정리
+
+### 3.1 유저 노출 = 내부 지갑만
+
+- 유저에게 보여지는 잔액/이력은 **내부 지갑**(`user_wallets`)만 해당.
+- 외부 지갑(온체인 주소)은 입금 주소 생성·입금 매칭용으로만 사용.
+
+### 3.2 BTC / ETH / TRX(Tron) / USDT 입금 → 내부 지갑 반영
+
+- **흐름**: 입금 조회(블록 스캐너 등) → `token_deposits` 생성/갱신(**userId 매칭 필수**) → `TokenDepositService.completeTokenDeposit(depositId)` 호출 → 트랜잭션 내 `user_wallets` 잔액 추가 + 입금 상태 COMPLETED.
+- **전제**: 입금이 “어느 유저 입금 주소로 들어왔는지” 매칭되어 `token_deposits.user_id`가 설정된 뒤에만 `completeTokenDeposit` 호출 가능. 이 매칭(주소 → 유저)은 Node/스캐너 등 **외부 시스템**에서 수행해야 함.
+
+### 3.3 스왑 = 반영된 금액(내부 지갑) 기반, 코인별 환율·수수료
+
+- **흐름**: `SwapService.executeSwap` → `getWalletByUserIdAndCurrencyId`(내부 지갑) → `CurrencyService.getExchangeRate(from, to)` 환율 → 수수료·스프레드 적용 → `deductBalance` / `addBalance`(내부 지갑만).
+- **환율**: `CurrencyService.getRateForCurrency(code)` — 현재 **ETH, USDT, KRWT**만 명시. BTC/TRX/KORI 등은 default 1(1:1). 실제 코인별 환율 반영 시 `getRateForCurrency` 확장 필요.
+
+### 3.4 외부 전송 = 전부 메인 지갑(관리자/플랫폼 지갑) 기반
+
+- 유저 출금 요청 → 유저 **내부 지갑** 잔액 잠금 → `external_transfers` PENDING → **메인 지갑**에서 실제 온체인 전송. 유저 외부 지갑에서 보내는 로직 없음.
+
+---
+
+## 4. 참고
 
 - 내부 전송: `TransferService.executeInternalTransfer`, `executeInternalTransferTransaction`.
 - 외부 전송: `TransferService.requestExternalTransfer`, `createExternalTransferRequest` → 이벤트 `WITHDRAWAL_REQUESTED` → 별도 워커가 중앙지갑으로 전송.

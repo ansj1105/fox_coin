@@ -9,16 +9,17 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 내부 전송 엔티티
+ * 내부 전송 엔티티.
+ * 전략적 추적을 위해 transfer_id(UUID), order_number를 항상 기록함.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class InternalTransfer {
-    
+
     private Long id;
-    private String transferId;          // UUID
+    private String transferId;          // UUID (트랜잭션 식별용)
     private Long senderId;
     private Long senderWalletId;
     private Long receiverId;
