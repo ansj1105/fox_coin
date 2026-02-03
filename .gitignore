@@ -56,6 +56,10 @@ config-prod.json
 *.pem
 *.key
 *.crt
+# Firebase 서비스 계정 JSON (절대 커밋 금지)
+*firebase*service*account*.json
+*firebase*credentials*.json
+*-firebase-adminsdk-*.json
 
 # Docker volumes data (local development)
 postgres-data/

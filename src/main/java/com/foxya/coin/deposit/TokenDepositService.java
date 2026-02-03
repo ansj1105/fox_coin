@@ -9,8 +9,11 @@ import com.foxya.coin.deposit.dto.TokenDepositListResponseDto;
 import com.foxya.coin.deposit.entities.TokenDeposit;
 import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.event.EventType;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.transfer.TransferRepository;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
@@ -32,18 +35,19 @@ public class TokenDepositService extends BaseService {
     private final TransferRepository transferRepository;
     private final RedisAPI redisApi;
     private final EventPublisher eventPublisher;
+    private final NotificationService notificationService;
 
     public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
                               CurrencyRepository currencyRepository,
                               TransferRepository transferRepository) {
-        this(pool, tokenDepositRepository, currencyRepository, transferRepository, null, null);
+        this(pool, tokenDepositRepository, currencyRepository, transferRepository, null, null, null);
     }
 
     public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
                               CurrencyRepository currencyRepository,
                               TransferRepository transferRepository,
                               RedisAPI redisApi) {
-        this(pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, null);
+        this(pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, null, null);
     }
 
     public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
@@ -51,12 +55,22 @@ public class TokenDepositService extends BaseService {
                               TransferRepository transferRepository,
                               RedisAPI redisApi,
                               EventPublisher eventPublisher) {
+        this(pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, null);
+    }
+
+    public TokenDepositService(PgPool pool, TokenDepositRepository tokenDepositRepository,
+                              CurrencyRepository currencyRepository,
+                              TransferRepository transferRepository,
+                              RedisAPI redisApi,
+                              EventPublisher eventPublisher,
+                              NotificationService notificationService) {
         super(pool);
         this.tokenDepositRepository = tokenDepositRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
         this.redisApi = redisApi;
         this.eventPublisher = eventPublisher;
+        this.notificationService = notificationService;
     }
     
     /**
@@ -180,10 +194,39 @@ public class TokenDepositService extends BaseService {
                     return doCompleteTokenDeposit(depositId)
                         .compose(deposit -> redisApi.setex(key, String.valueOf(DEPOSIT_COMPLETED_IDEMPOTENCY_TTL_SECONDS), "1")
                             .map(v -> deposit))
-                        .compose(this::publishDepositConfirmedIfPresent);
+                        .compose(this::publishDepositConfirmedIfPresent)
+                        .compose(this::createDepositCompletedNotification);
                 });
         }
-        return doCompleteTokenDeposit(depositId).compose(this::publishDepositConfirmedIfPresent);
+        return doCompleteTokenDeposit(depositId)
+            .compose(this::publishDepositConfirmedIfPresent)
+            .compose(this::createDepositCompletedNotification);
+    }
+
+    /** 입금 완료 시 notifications 인서트 (앱 알람, 추후 FCM 푸시 활용) */
+    private Future<TokenDeposit> createDepositCompletedNotification(TokenDeposit deposit) {
+        if (notificationService == null || deposit == null || deposit.getUserId() == null) {
+            return Future.succeededFuture(deposit);
+        }
+        return currencyRepository.getCurrencyById(pool, deposit.getCurrencyId())
+            .compose(currency -> {
+                String currencyCode = currency != null ? currency.getCode() : "";
+                String amountStr = deposit.getAmount() != null ? deposit.getAmount().toPlainString() : "";
+                String title = "입금 완료";
+                String message = amountStr + " " + currencyCode + " 입금이 완료되었습니다.";
+                JsonObject meta = new JsonObject()
+                    .put("depositId", deposit.getDepositId())
+                    .put("amount", amountStr)
+                    .put("currencyCode", currencyCode)
+                    .put("txHash", deposit.getTxHash());
+                return notificationService.createNotification(
+                    deposit.getUserId(), NotificationType.DEPOSIT_SUCCESS, title, message, null, meta.encode());
+            })
+            .map(v -> deposit)
+            .recover(err -> {
+                log.warn("입금 완료 알림 생성 실패(무시): depositId={}", deposit.getDepositId(), err);
+                return Future.succeededFuture(deposit);
+            });
     }
 
     /**

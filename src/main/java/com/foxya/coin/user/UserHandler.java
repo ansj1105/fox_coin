@@ -13,6 +13,7 @@ import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
+import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.MeResponseDto;
@@ -26,14 +27,23 @@ import static com.foxya.coin.common.jsonschema.Schemas.*;
 
 @Slf4j
 public class UserHandler extends BaseHandler {
-    
+
     private final UserService userService;
     private final JWTAuth jwtAuth;
-    
+    private final DeviceRepository deviceRepository;
+    private final io.vertx.pgclient.PgPool pool;
+
     public UserHandler(Vertx vertx, UserService userService, JWTAuth jwtAuth) {
+        this(vertx, userService, jwtAuth, null, null);
+    }
+
+    public UserHandler(Vertx vertx, UserService userService, JWTAuth jwtAuth,
+                       DeviceRepository deviceRepository, io.vertx.pgclient.PgPool pool) {
         super(vertx);
         this.userService = userService;
         this.jwtAuth = jwtAuth;
+        this.deviceRepository = deviceRepository;
+        this.pool = pool;
     }
     
     @Override
@@ -101,6 +111,13 @@ public class UserHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getReferralCode);
+
+        // FCM 푸시 토큰 등록/갱신 (앱에서 로그인 후 호출)
+        router.patch("/fcm-token")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(fcmTokenValidation(parser))
+            .handler(this::updateFcmToken);
         
         router.post("/generate/referral-code")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -147,6 +164,30 @@ public class UserHandler extends BaseHandler {
                     .allowAdditionalProperties(false)
             ))
             .build();
+    }
+
+    private Handler<RoutingContext> fcmTokenValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("deviceId", stringSchema().with(minLength(1), maxLength(128)))
+                    .requiredProperty("fcmToken", stringSchema().with(minLength(1), maxLength(512)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private void updateFcmToken(RoutingContext ctx) {
+        if (deviceRepository == null || pool == null) {
+            ctx.fail(503, new IllegalStateException("FCM token API not configured"));
+            return;
+        }
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        io.vertx.core.json.JsonObject body = ctx.body().asJsonObject();
+        String deviceId = body.getString("deviceId");
+        String fcmToken = body.getString("fcmToken");
+        response(ctx, deviceRepository.updateFcmToken(pool, userId, deviceId, fcmToken)
+            .map(updated -> io.vertx.core.json.JsonObject.of("success", updated)));
     }
 
     private void getMe(RoutingContext ctx) {

@@ -409,6 +409,26 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
+     * 상태별 외부 전송 목록 (출금 워커 컨펌 추적용)
+     */
+    public Future<List<ExternalTransfer>> getExternalTransfersByStatus(SqlClient client, String status, int limit) {
+        String sql = QueryBuilder
+            .select("external_transfers")
+            .where("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
+            .andWhere("tx_hash", Op.IsNotNull)
+            .orderBy("created_at", Sort.ASC)
+            .limitRefactoring()
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("status", status);
+        params.put("limit", Math.min(limit, 500));
+        return query(client, sql, params)
+            .map(rows -> fetchAll(externalTransferMapper, rows))
+            .onFailure(e -> log.error("외부 전송 목록 조회 실패 - status: {}", status));
+    }
+
+    /**
      * 외부 전송 조회 by txHash
      */
     public Future<ExternalTransfer> getExternalTransferByTxHash(SqlClient client, String txHash) {

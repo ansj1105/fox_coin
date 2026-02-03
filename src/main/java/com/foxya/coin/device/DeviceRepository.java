@@ -10,7 +10,9 @@ import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -22,6 +24,7 @@ public class DeviceRepository extends BaseRepository {
         .deviceId(getStringColumnValue(row, "device_id"))
         .deviceType(getStringColumnValue(row, "device_type"))
         .deviceOs(getStringColumnValue(row, "device_os"))
+        .fcmToken(getStringColumnValue(row, "fcm_token"))
         .appVersion(getStringColumnValue(row, "app_version"))
         .userAgent(getStringColumnValue(row, "user_agent"))
         .lastIp(getStringColumnValue(row, "last_ip"))
@@ -76,12 +79,49 @@ public class DeviceRepository extends BaseRepository {
             .map(rows -> fetchOne(deviceMapper, rows));
     }
 
+    /**
+     * 사용자의 활성 디바이스 FCM 토큰 목록 (푸시 발송용)
+     */
+    public Future<List<String>> getFcmTokensByUserId(SqlClient client, Long userId) {
+        String sql = "SELECT fcm_token FROM devices WHERE user_id = #{userId} AND deleted_at IS NULL AND fcm_token IS NOT NULL AND fcm_token != ''";
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        return query(client, sql, params)
+            .map(rows -> {
+                List<String> tokens = new ArrayList<>();
+                rows.forEach(row -> {
+                    String t = row.getString("fcm_token");
+                    if (t != null && !t.isBlank()) tokens.add(t);
+                });
+                return tokens;
+            });
+    }
+
+    /**
+     * 디바이스 FCM 토큰 갱신 (앱에서 로그인/재실행 시 호출)
+     */
+    public Future<Boolean> updateFcmToken(SqlClient client, Long userId, String deviceId, String fcmToken) {
+        String sql = QueryBuilder.update("devices", "fcm_token", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("device_id", Op.Equal, "deviceId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("fcm_token", fcmToken);
+        params.put("updated_at", LocalDateTime.now());
+        params.put("userId", userId);
+        params.put("deviceId", deviceId);
+        return query(client, sql, params)
+            .map(rows -> rows.rowCount() > 0);
+    }
+
     public Future<Device> createDevice(SqlClient client, Device device) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", device.getUserId());
         params.put("device_id", device.getDeviceId());
         params.put("device_type", device.getDeviceType());
         params.put("device_os", device.getDeviceOs());
+        params.put("fcm_token", device.getFcmToken());
         params.put("app_version", device.getAppVersion());
         params.put("user_agent", device.getUserAgent());
         params.put("last_ip", device.getLastIp());

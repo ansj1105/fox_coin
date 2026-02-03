@@ -51,6 +51,7 @@ import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
 import com.foxya.coin.deposit.InternalDepositHandler;
 import com.foxya.coin.deposit.TokenDepositHandler;
+import com.foxya.coin.transfer.InternalWithdrawalHandler;
 import com.foxya.coin.deposit.TokenDepositRepository;
 import com.foxya.coin.deposit.TokenDepositService;
 import com.foxya.coin.event.EventPublisher;
@@ -66,6 +67,7 @@ import com.foxya.coin.notice.NoticeHandler;
 import com.foxya.coin.notice.NoticeRepository;
 import com.foxya.coin.notice.NoticeService;
 import com.foxya.coin.notification.NotificationHandler;
+import com.foxya.coin.notification.FcmService;
 import com.foxya.coin.notification.NotificationRepository;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.payment.PaymentDepositHandler;
@@ -169,6 +171,9 @@ public class ApiVerticle extends AbstractVerticle {
         AirdropRepository airdropRepository = new AirdropRepository();
         ClientRepository clientRepository = new ClientRepository();
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
+
+        FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
+        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService);
         
         // Redis 초기화 (토큰 블랙리스트·재시도 큐용)
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
@@ -196,7 +201,7 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi); // EventPublisher는 EventVerticle에서 주입, Redis는 멱등/성공보장용
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi, notificationService);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
@@ -208,8 +213,6 @@ public class ApiVerticle extends AbstractVerticle {
             referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
-        NotificationService notificationService = new NotificationService(
-            pool, notificationRepository);
         SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
         ReviewService reviewService = new ReviewService(
@@ -238,13 +241,15 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
         TokenDepositService tokenDepositService = new TokenDepositService(
-            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher);
+            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");
         }
         InternalDepositHandler internalDepositHandler = new InternalDepositHandler(
             vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
+        InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
+            vertx, transferService, depositScannerApiKey);
         
         // Google OAuth 설정 (환경 변수 우선)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -274,7 +279,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
-        UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
+        UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
@@ -380,6 +385,7 @@ public class ApiVerticle extends AbstractVerticle {
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
         // 입금 스캐너용 내부 API (API 키 인증)
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
         
         // 에어드랍 API
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());

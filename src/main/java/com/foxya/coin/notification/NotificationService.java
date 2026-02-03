@@ -6,12 +6,15 @@ import com.foxya.coin.common.BaseService;
 import com.foxya.coin.notification.dto.NotificationListResponseDto;
 import com.foxya.coin.notification.dto.UnreadCountResponseDto;
 import com.foxya.coin.notification.entities.Notification;
+import com.foxya.coin.notification.enums.NotificationType;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class NotificationService extends BaseService {
@@ -19,12 +22,49 @@ public class NotificationService extends BaseService {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     
     private final NotificationRepository notificationRepository;
-    
+    private final FcmService fcmService;
+
     public NotificationService(PgPool pool, NotificationRepository notificationRepository) {
+        this(pool, notificationRepository, null);
+    }
+
+    public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService) {
         super(pool);
         this.notificationRepository = notificationRepository;
+        this.fcmService = fcmService;
     }
-    
+
+    /**
+     * 알림 생성 (입금/출금 완료 등) + FCM 푸시(설정 시).
+     * 실패해도 로그만 남기고 성공 반환(입출금 완료 트랜잭션에 영향 없도록).
+     */
+    public Future<Notification> createNotification(Long userId, NotificationType type, String title, String message,
+                                                   Long relatedId, String metadata) {
+        return notificationRepository.insert(pool, userId, type, title, message, relatedId, metadata)
+            .recover(err -> {
+                log.warn("알림 생성 실패(무시) - userId: {}, type: {}", userId, type, err);
+                return Future.succeededFuture((Notification) null);
+            })
+            .compose(notification -> {
+                if (notification != null && fcmService != null && fcmService.isEnabled()) {
+                    Map<String, String> data = new HashMap<>();
+                    if (metadata != null && !metadata.isBlank()) {
+                        try {
+                            JsonNode node = objectMapper.readTree(metadata);
+                            node.fields().forEachRemaining(e -> data.put(e.getKey(), e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString()));
+                        } catch (Exception ignored) { }
+                    }
+                    data.put("type", type.name());
+                    fcmService.sendToUser(userId, title, message, data).onComplete(ar -> {
+                        if (ar.failed()) {
+                            log.warn("FCM 푸시 실패(무시): userId={}", userId, ar.cause());
+                        }
+                    });
+                }
+                return Future.succeededFuture(notification);
+            });
+    }
+
     /**
      * 알림 목록 조회
      */

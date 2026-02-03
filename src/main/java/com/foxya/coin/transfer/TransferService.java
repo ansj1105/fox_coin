@@ -8,6 +8,8 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.event.EventType;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.InternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.TransferResponseDto;
@@ -44,6 +46,7 @@ public class TransferService extends BaseService {
     private final WalletRepository walletRepository;
     private final EventPublisher eventPublisher;
     private final RedisAPI redisApi;
+    private final NotificationService notificationService;
 
     // 내부 전송 수수료 (0.1%)
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
@@ -56,7 +59,7 @@ public class TransferService extends BaseService {
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -66,6 +69,17 @@ public class TransferService extends BaseService {
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher,
                           RedisAPI redisApi) {
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null);
+    }
+
+    public TransferService(PgPool pool,
+                          TransferRepository transferRepository,
+                          UserRepository userRepository,
+                          CurrencyRepository currencyRepository,
+                          WalletRepository walletRepository,
+                          EventPublisher eventPublisher,
+                          RedisAPI redisApi,
+                          NotificationService notificationService) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
@@ -73,6 +87,7 @@ public class TransferService extends BaseService {
         this.walletRepository = walletRepository;
         this.eventPublisher = eventPublisher;
         this.redisApi = redisApi;
+        this.notificationService = notificationService;
     }
     
     /**
@@ -445,6 +460,30 @@ public class TransferService extends BaseService {
     }
 
     /**
+     * 상태별 외부 전송 목록 (출금 워커 컨펌 추적용).
+     */
+    public Future<List<ExternalTransfer>> listExternalTransfersByStatus(String status, int limit) {
+        return transferRepository.getExternalTransfersByStatus(pool, status, limit);
+    }
+
+    /**
+     * 외부 전송 제출 처리 (Node.js 워커 등에서 호출).
+     * 온체인 tx 제출 후 txHash를 기록. 상태를 SUBMITTED로 변경.
+     */
+    public Future<ExternalTransfer> submitExternalTransfer(String transferId, String txHash) {
+        return transferRepository.getExternalTransferById(pool, transferId)
+            .compose(et -> {
+                if (et == null) {
+                    return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                }
+                if (!ExternalTransfer.STATUS_PENDING.equals(et.getStatus()) && !ExternalTransfer.STATUS_PROCESSING.equals(et.getStatus())) {
+                    return Future.failedFuture(new BadRequestException("제출 가능한 상태가 아닙니다. status=" + et.getStatus()));
+                }
+                return transferRepository.submitExternalTransfer(pool, transferId, txHash);
+            });
+    }
+
+    /**
      * 외부 전송 컨펌 완료 처리 (Node.js 워커 등에서 호출).
      * 내부 지갑 잠금 해제(unlockBalance, refund=false)를 트랜잭션으로 수행하여
      * 외부 지갑 차감이 확정되면 내부 장부도 최종 차감 반영.
@@ -461,10 +500,39 @@ public class TransferService extends BaseService {
                     }
                     return doConfirmExternalTransfer(transferId, confirmations)
                         .compose(et -> redisApi.setex(key, String.valueOf(CONFIRMED_IDEMPOTENCY_TTL_SECONDS), "1")
-                            .map(v -> et));
+                            .map(v -> et))
+                        .compose(this::createWithdrawalCompletedNotification);
                 });
         }
-        return doConfirmExternalTransfer(transferId, confirmations);
+        return doConfirmExternalTransfer(transferId, confirmations)
+            .compose(this::createWithdrawalCompletedNotification);
+    }
+
+    /** 출금 완료 시 notifications 인서트 (앱 알람, 추후 FCM 푸시 활용) */
+    private Future<ExternalTransfer> createWithdrawalCompletedNotification(ExternalTransfer confirmed) {
+        if (notificationService == null || confirmed == null || confirmed.getUserId() == null) {
+            return Future.succeededFuture(confirmed);
+        }
+        return currencyRepository.getCurrencyById(pool, confirmed.getCurrencyId())
+            .compose(currency -> {
+                String currencyCode = currency != null ? currency.getCode() : "";
+                String amountStr = confirmed.getAmount() != null ? confirmed.getAmount().toPlainString() : "";
+                String title = "출금 완료";
+                String message = amountStr + " " + currencyCode + " 출금이 완료되었습니다.";
+                JsonObject meta = new JsonObject()
+                    .put("transferId", confirmed.getTransferId())
+                    .put("amount", amountStr)
+                    .put("currencyCode", currencyCode)
+                    .put("txHash", confirmed.getTxHash())
+                    .put("toAddress", confirmed.getToAddress());
+                return notificationService.createNotification(
+                    confirmed.getUserId(), NotificationType.WITHDRAW_SUCCESS, title, message, null, meta.encode());
+            })
+            .map(v -> confirmed)
+            .recover(err -> {
+                log.warn("출금 완료 알림 생성 실패(무시): transferId={}", confirmed.getTransferId(), err);
+                return Future.succeededFuture(confirmed);
+            });
     }
 
     private Future<ExternalTransfer> doConfirmExternalTransfer(String transferId, int confirmations) {

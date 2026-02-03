@@ -4,6 +4,7 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import io.vertx.core.Future;
@@ -12,6 +13,7 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,6 +44,29 @@ public class NotificationRepository extends BaseRepository {
         return builder.build();
     };
     
+    /**
+     * 알림 생성 (입금/출금 완료 등). 추후 FCM 푸시 시 metadata 활용.
+     */
+    public Future<Notification> insert(SqlClient client, Long userId, NotificationType type, String title, String message,
+                                       Long relatedId, String metadata) {
+        LocalDateTime now = DateUtils.now();
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("type", type.name());
+        params.put("title", title);
+        params.put("message", message);
+        params.put("is_read", false);
+        params.put("related_id", relatedId);
+        params.put("metadata", metadata);
+        params.put("created_at", now);
+        params.put("updated_at", now);
+        String sql = QueryBuilder.insert("notifications", params,
+            "id, user_id, type, title, message, is_read, related_id, metadata, created_at, updated_at");
+        return query(client, sql, params)
+            .map(rows -> fetchOne(notificationMapper, rows))
+            .onFailure(e -> log.error("알림 생성 실패 - userId: {}, type: {}", userId, type, e));
+    }
+
     /**
      * 사용자의 알림 목록 조회
      */
