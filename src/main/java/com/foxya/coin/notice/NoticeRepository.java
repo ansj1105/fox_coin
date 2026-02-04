@@ -36,16 +36,16 @@ public class NoticeRepository extends BaseRepository {
         .build();
 
     public Future<List<Notice>> getNotices(SqlClient client, Integer limit, Integer offset, Boolean isEvent) {
-        var builder = QueryBuilder
-            .select("notices", NOTICE_COLUMNS)
-            .orderBy("is_important", Sort.DESC)
-            .appendQueryString(", created_at DESC")
-            .limitRefactoring()
-            .offsetRefactoring();
+        var builder = QueryBuilder.select("notices", NOTICE_COLUMNS);
         if (isEvent != null) {
             builder = builder.where("is_event", Op.Equal, "is_event");
         }
-        String sql = builder.build();
+        String sql = builder
+            .orderBy("is_important", Sort.DESC)
+            .appendQueryString(", created_at DESC")
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("limit", limit);
