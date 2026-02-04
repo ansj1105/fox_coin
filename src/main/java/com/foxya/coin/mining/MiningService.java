@@ -409,6 +409,42 @@ public class MiningService extends BaseService {
             .compose(x -> levelService.syncLevelFromExp(userId))
             .map(x -> (Void) null);
     }
+
+    /**
+     * 해당 유저의 정산 대기 세션이 있으면 지금 시각까지 정산 후, 종료된 세션은 mining_history·internal_transfers 반영.
+     * API 조회 없이 배치에서 호출할 때 사용.
+     */
+    public Future<Void> settlePendingSessionForUser(Long userId) {
+        return settleActiveMiningSession(userId);
+    }
+
+    /**
+     * 정산 대기 세션이 있는 모든 유저에 대해 settle 수행 (mining_history, internal_transfers 반영).
+     * Vert.x setPeriodic(1시간 등)에서 주기 호출하여, 앱 미접속 유저의 채굴 완료도 DB에 반영.
+     */
+    public Future<Integer> runSettlementBatch() {
+        return miningRepository.getDistinctUserIdsWithPendingSettlement(pool)
+            .compose(userIds -> {
+                if (userIds == null || userIds.isEmpty()) {
+                    return Future.succeededFuture(0);
+                }
+                log.info("Mining settlement batch: {} users with pending sessions", userIds.size());
+                return settleUserIdsSequentially(userIds, 0);
+            });
+    }
+
+    private Future<Integer> settleUserIdsSequentially(List<Long> userIds, int index) {
+        if (index >= userIds.size()) {
+            return Future.succeededFuture(userIds.size());
+        }
+        Long userId = userIds.get(index);
+        return settlePendingSessionForUser(userId)
+            .recover(throwable -> {
+                log.warn("Mining settlement batch failed for userId={}, continuing", userId, throwable);
+                return Future.succeededFuture();
+            })
+            .compose(v -> settleUserIdsSequentially(userIds, index + 1));
+    }
     
     /**
      * 영상 시청 1회 = 1시간 채굴 세션 시작 (MINING_AND_LEVEL_SPEC).

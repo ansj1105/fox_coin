@@ -391,6 +391,20 @@ public class MiningRepository extends BaseRepository {
             });
     }
 
+    /**
+     * 정산 대기 세션이 있는 user_id 목록 (last_settled_at < ends_at).
+     * 배치에서 미정산 채굴을 mining_history·internal_transfers에 반영할 때 사용.
+     */
+    public Future<List<Long>> getDistinctUserIdsWithPendingSettlement(SqlClient client) {
+        String sql = "SELECT DISTINCT user_id FROM mining_sessions WHERE last_settled_at < ends_at ORDER BY user_id";
+        return query(client, sql, Collections.emptyMap())
+            .map(rows -> {
+                List<Long> userIds = new ArrayList<>();
+                rows.forEach(row -> userIds.add(row.getLong("user_id")));
+                return userIds;
+            });
+    }
+
     /** 정산 대기 세션 (last_settled_at < ends_at) — 진행 중이거나 방금 종료된 세션 포함. settle 후 mining_history 적재에 사용 */
     public Future<MiningSession> getSettlementPendingMiningSession(SqlClient client, Long userId) {
         String sql = "SELECT id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, created_at " +

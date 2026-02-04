@@ -279,6 +279,9 @@ public class ApiVerticle extends AbstractVerticle {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
         }
 
+        // 채굴 정산 배치: 1시간마다 미정산 세션을 mining_history·internal_transfers에 반영 (API 미호출 유저 대응)
+        startMiningSettlementBatch(miningService);
+
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
@@ -650,6 +653,24 @@ public class ApiVerticle extends AbstractVerticle {
                 });
         });
         log.info("Email retry processor started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * 채굴 정산 배치: 1시간마다 정산 대기 세션(last_settled_at < ends_at)을 settle하여
+     * mining_history·internal_transfers에 반영. 앱을 열지 않은 유저도 채굴 완료 후 DB에 반영됨.
+     */
+    private void startMiningSettlementBatch(MiningService miningService) {
+        long intervalMs = 3600_000L; // 1시간
+        vertx.setPeriodic(intervalMs, id -> {
+            miningService.runSettlementBatch()
+                .onSuccess(count -> {
+                    if (count > 0) {
+                        log.info("Mining settlement batch completed: {} users settled", count);
+                    }
+                })
+                .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable));
+        });
+        log.info("Mining settlement batch started (interval {} ms)", intervalMs);
     }
 
     /**
