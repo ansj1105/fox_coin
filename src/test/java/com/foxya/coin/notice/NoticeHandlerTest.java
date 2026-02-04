@@ -61,14 +61,50 @@ public class NoticeHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(3)
+        @DisplayName("성공 - isEvent=true 로 팝업 공지만 조회")
+        void successGetNoticesWithIsEventTrue(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            reqGet(getUrl("/?limit=10&offset=0&isEvent=true"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    NoticeListResponseDto response = expectSuccessAndGetResponse(res, refNoticeList);
+                    assertThat(response).isNotNull();
+                    assertThat(response.getNotices()).isNotNull();
+                    assertThat(response.getLimit()).isEqualTo(10);
+                    assertThat(response.getOffset()).isEqualTo(0);
+                    response.getNotices().forEach(notice ->
+                        assertThat(notice.getIsEvent()).isTrue());
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(4)
+        @DisplayName("성공 - isEvent=false 로 일반 공지만 조회")
+        void successGetNoticesWithIsEventFalse(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            reqGet(getUrl("/?limit=10&offset=0&isEvent=false"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    NoticeListResponseDto response = expectSuccessAndGetResponse(res, refNoticeList);
+                    assertThat(response).isNotNull();
+                    assertThat(response.getNotices()).isNotNull();
+                    response.getNotices().forEach(notice ->
+                        assertThat(notice.getIsEvent()).isFalse());
+                    tc.completeNow();
+                })));
+        }
     }
-    
+
     @Nested
     @DisplayName("공지사항 상세 조회 테스트")
     class GetNoticeTest {
         
         @Test
-        @Order(3)
+        @Order(5)
         @DisplayName("성공 - 공지사항 상세 조회")
         void successGetNotice(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
@@ -96,7 +132,7 @@ public class NoticeHandlerTest extends HandlerTestBase {
         }
         
         @Test
-        @Order(4)
+        @Order(6)
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/1"))

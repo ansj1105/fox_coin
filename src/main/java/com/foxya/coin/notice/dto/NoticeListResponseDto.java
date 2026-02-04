@@ -31,6 +31,7 @@ public class NoticeListResponseDto {
         private String content;
         private LocalDateTime createdAt;
         private Boolean isImportant;
+        private Boolean isEvent;
     }
 }
 

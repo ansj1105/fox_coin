@@ -1055,6 +1055,9 @@ components:
           format: date-time
         isImportant:
           type: boolean
+        isEvent:
+          type: boolean
+          description: 팝업/이벤트 공지 여부
 
     Notice:
       type: object
@@ -1074,6 +1077,9 @@ components:
           format: date-time
         isImportant:
           type: boolean
+        isEvent:
+          type: boolean
+          description: 팝업/이벤트 공지 여부
 
     # Notification 관련 스키마
     NotificationListResponse:
@@ -4989,7 +4995,7 @@ paths:
   /api/v1/notices:
     get:
       summary: 공지사항 목록 조회
-      description: 공지사항 목록을 조회합니다.
+      description: 공지사항 목록을 조회합니다. isEvent=true 시 팝업/이벤트 공지만 반환합니다.
       tags: [Notice]
       security:
         - BearerAuth: []
@@ -5009,6 +5015,12 @@ paths:
             minimum: 0
             default: 0
           description: 시작 위치
+        - name: isEvent
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: true면 팝업/이벤트 공지만 조회
       responses:
         '200':
           description: 조회 성공
