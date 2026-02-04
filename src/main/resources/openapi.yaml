@@ -5135,6 +5135,31 @@ paths:
         '401':
           description: 인증 실패
 
+    delete:
+      summary: 알림 전체 삭제
+      description: 현재 사용자의 알림 전체 삭제 (알림센터 목록 비우기). 인증 필요.
+      tags: [Notification]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            example: OK
+        '401':
+          description: 인증 실패
+
   /api/v1/notifications/unread-count:
     get:
       summary: 읽지 않은 알림 개수 조회

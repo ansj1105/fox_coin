@@ -143,6 +143,13 @@ public class NotificationService extends BaseService {
         return notificationRepository.markAllAsRead(pool, userId)
             .mapEmpty();
     }
+
+    /**
+     * 현재 사용자의 알림 전체 삭제 (알림센터 목록 비우기, soft delete)
+     */
+    public Future<Void> deleteAllForUser(Long userId) {
+        return notificationRepository.softDeleteNotificationsByUserId(pool, userId);
+    }
 }
 
 
