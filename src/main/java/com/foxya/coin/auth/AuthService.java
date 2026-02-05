@@ -178,7 +178,7 @@ public class AuthService extends BaseService {
                     }
                 }
                 
-                return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                return maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                     .compose(ignored -> {
                         String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
                         String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
@@ -193,6 +193,16 @@ public class AuthService extends BaseService {
                         );
                     });
             });
+    }
+
+    /**
+     * 디바이스 정보가 모두 있으면 등록/갱신, 없으면 스킵 (회원가입 시 선택 전송용).
+     */
+    private Future<Void> maybeRegisterDevice(Long userId, String deviceId, String deviceType, String deviceOs, String appVersion, String clientIp, String userAgent) {
+        if (deviceId == null || deviceId.isBlank() || deviceType == null || deviceType.isBlank() || deviceOs == null || deviceOs.isBlank()) {
+            return Future.succeededFuture();
+        }
+        return registerOrUpdateDevice(userId, deviceId, deviceType, deviceOs, appVersion, clientIp, userAgent);
     }
 
     private Future<Void> registerOrUpdateDevice(Long userId, String deviceId, String deviceType, String deviceOs, String appVersion, String clientIp, String userAgent) {
@@ -681,7 +691,7 @@ public class AuthService extends BaseService {
                         }
                         return Future.succeededFuture(user);
                     })
-                    .compose(user -> registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                    .compose(user -> maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                         .map(ignored -> user))
                     // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
                     .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)

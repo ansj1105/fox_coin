@@ -22,8 +22,8 @@ public class NoticeService extends BaseService {
     
     public Future<NoticeListResponseDto> getNotices(Integer limit, Integer offset, Boolean isEvent) {
         return Future.all(
-            noticeRepository.getNotices(pool, limit, offset, isEvent),
-            noticeRepository.getNoticeCount(pool, isEvent)
+            noticeRepository.getNotices(pool, limit, offset),
+            noticeRepository.getNoticeCount(pool)
         ).map(results -> {
             @SuppressWarnings("unchecked")
             List<Notice> notices = (List<Notice>) results.list().get(0);

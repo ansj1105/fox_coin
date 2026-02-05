@@ -218,6 +218,41 @@ public class AuthHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(34)
+        @DisplayName("성공 - device 없이 회원가입 (deviceId/deviceType/deviceOs 선택)")
+        void successRegisterWithoutDevice(VertxTestContext tc) {
+            String email = "register-no-device@test.com";
+            reqPost(getUrl("/email/send-code"))
+                .sendJson(new JsonObject().put("email", email), tc.succeeding(sendRes -> tc.verify(() -> {
+                    expectSuccess(sendRes);
+                    sqlClient.preparedQuery("SELECT code FROM signup_email_codes WHERE email = $1 ORDER BY created_at DESC LIMIT 1")
+                        .execute(Tuple.of(email))
+                        .onSuccess(rows -> {
+                            if (!rows.iterator().hasNext()) { tc.failNow(new AssertionError("code not found")); return; }
+                            String code = rows.iterator().next().getString(0);
+                            JsonObject reg = new JsonObject()
+                                .put("email", email)
+                                .put("code", code)
+                                .put("password", "Test1234!@")
+                                .put("seedConfirmed", true)
+                                .put("nickname", "nicknode")
+                                .put("name", "NoDevice")
+                                .put("country", "KR");
+                            reqPost(getUrl("/register"))
+                                .sendJson(reg, tc.succeeding(regRes -> tc.verify(() -> {
+                                    assertThat(regRes.statusCode()).as("device 없이 회원가입 성공").isEqualTo(200);
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(regRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getLoginId()).isEqualTo(email);
+                                    tc.completeNow();
+                                })));
+                        })
+                        .onFailure(tc::failNow);
+                })));
+        }
     }
     
     @Nested
@@ -258,6 +293,24 @@ public class AuthHandlerTest extends HandlerTestBase {
             reqPost(getUrl("/login"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(5)
+        @DisplayName("성공 - device 없이 로그인 (deviceId/deviceType/deviceOs 선택)")
+        void successWithoutDevice(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getRefreshToken()).isNotNull();
+                    assertThat(dto.getLoginId()).isEqualTo("testuser");
                     tc.completeNow();
                 })));
         }
