@@ -645,7 +645,7 @@ public class TransferService extends BaseService {
                                         .createdAt(t.getCreatedAt())
                                         .completedAt(t.getCompletedAt())
                                         .build()))
-                                .collect(Collectors.toList()));
+                                .collect(Collectors.toList());
 
                             // 외부 전송 매핑
                             List<Future<TransferResponseDto>> externalDtos = externalTransfers.stream()
@@ -668,7 +668,7 @@ public class TransferService extends BaseService {
                                         .createdAt(t.getCreatedAt())
                                         .completedAt(t.getConfirmedAt())
                                         .build()))
-                                .collect(Collectors.toList()));
+                                .collect(Collectors.toList());
 
                             Set<String> internalOrderNumbers = internalTransfers.stream()
                                 .map(InternalTransfer::getOrderNumber)
