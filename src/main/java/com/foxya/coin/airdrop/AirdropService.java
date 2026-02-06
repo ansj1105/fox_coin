@@ -114,10 +114,10 @@ public class AirdropService extends BaseService {
                     .sorted(Comparator.comparing(AirdropPhaseDto::getPhase))
                     .collect(Collectors.toList());
                 
-                // totalReceived: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
+                // totalReceived: RELEASED && claimed === true 인 phase의 amount 합 (전송가능 금액)
                 BigDecimal totalReceived = phaseDtos.stream()
                     .filter(p -> AirdropPhase.STATUS_RELEASED.equals(p.getStatus())
-                        && !Boolean.FALSE.equals(p.getClaimed()))
+                        && Boolean.TRUE.equals(p.getClaimed()))
                     .map(AirdropPhaseDto::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 
