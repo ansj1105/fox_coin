@@ -312,7 +312,7 @@ public class AirdropService extends BaseService {
                         .status(InternalTransfer.STATUS_COMPLETED)
                         .transferType(InternalTransfer.TYPE_ADMIN_GRANT)
                         .orderNumber(orderNumber)
-                        .transactionType(com.foxya.coin.common.enums.TransactionType.TOKEN_DEPOSIT.getValue())
+                        .transactionType(com.foxya.coin.common.enums.TransactionType.AIRDROP_TRANSFER.getValue())
                         .memo("에어드랍 락업 해제")
                         .requestIp("system")
                         .build();

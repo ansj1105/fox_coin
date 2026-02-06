@@ -272,7 +272,7 @@ public class TransferService extends BaseService {
                             .status(InternalTransfer.STATUS_COMPLETED)
                             .transferType(InternalTransfer.TYPE_REFERRAL_REWARD)
                             .orderNumber(com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber())
-                            .transactionType(com.foxya.coin.common.enums.TransactionType.TOKEN_DEPOSIT.getValue())
+                            .transactionType(com.foxya.coin.common.enums.TransactionType.REFERRAL_REWARD.getValue())
                             .memo(memo != null ? memo : "REFERRAL_REWARD")
                             .requestIp(null)
                             .build();
@@ -627,13 +627,13 @@ public class TransferService extends BaseService {
                 transferRepository.getExternalTransfersByUserId(pool, userId, limit, offset)
                     .compose(externalTransfers ->
                         airdropFuture.compose(airdropTransfers -> {
-                            // 내부 전송 매핑
+                            // 내부 전송 매핑 (래퍼럴/에어드랍은 transactionType 보정하여 라벨 구분)
                             List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
                                 .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
                                     .map(currency -> TransferResponseDto.builder()
                                         .transferId(t.getTransferId())
                                         .transferType("INTERNAL")
-                                        .transactionType(t.getTransactionType())
+                                        .transactionType(resolveInternalTransactionType(t))
                                         .orderNumber(t.getOrderNumber())
                                         .senderId(t.getSenderId())
                                         .receiverId(t.getReceiverId())
@@ -685,7 +685,7 @@ public class TransferService extends BaseService {
                                     .map(currency -> TransferResponseDto.builder()
                                         .transferId(t.getTransferId())
                                         .transferType("INTERNAL")
-                                        .transactionType(TransactionType.TOKEN_DEPOSIT.getValue())
+                                        .transactionType(TransactionType.AIRDROP_TRANSFER.getValue())
                                         .orderNumber(t.getOrderNumber())
                                         .senderId(userId)
                                         .receiverId(userId)
@@ -727,6 +727,22 @@ public class TransferService extends BaseService {
     }
     
     /**
+     * 내부 전송의 노출용 transactionType 결정 (래퍼럴 수익 / 에어드랍 전송 / 기타)
+     */
+    private String resolveInternalTransactionType(InternalTransfer t) {
+        if (InternalTransfer.TYPE_REFERRAL_REWARD.equals(t.getTransferType())) {
+            return TransactionType.REFERRAL_REWARD.getValue();
+        }
+        if (InternalTransfer.TYPE_ADMIN_GRANT.equals(t.getTransferType())) {
+            String memo = t.getMemo();
+            if (memo != null && memo.contains("에어드랍")) {
+                return TransactionType.AIRDROP_TRANSFER.getValue();
+            }
+        }
+        return t.getTransactionType() != null ? t.getTransactionType() : TransactionType.TOKEN_DEPOSIT.getValue();
+    }
+
+    /**
      * 전송 상세 조회
      */
     public Future<TransferResponseDto> getTransferDetail(String transferId) {
@@ -738,7 +754,7 @@ public class TransferService extends BaseService {
                         .map(currency -> TransferResponseDto.builder()
                             .transferId(internalTransfer.getTransferId())
                             .transferType("INTERNAL")
-                            .transactionType(internalTransfer.getTransactionType())
+                            .transactionType(resolveInternalTransactionType(internalTransfer))
                             .orderNumber(internalTransfer.getOrderNumber())
                             .senderId(internalTransfer.getSenderId())
                             .receiverId(internalTransfer.getReceiverId())
