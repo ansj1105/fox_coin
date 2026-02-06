@@ -313,6 +313,11 @@ public class AirdropService extends BaseService {
                         .compose(updatedWallet -> {
                             // 4. 에어드랍 전송 상태를 COMPLETED로 업데이트
                             return airdropRepository.updateTransferStatus(client, transferId, AirdropTransfer.STATUS_COMPLETED);
+                        })
+                        .compose(completedTransfer -> {
+                            // 5. 지급 완료(claimed) Phase 목록에서 제외 (soft delete)
+                            return airdropRepository.softDeleteClaimedPhasesByUserId(client, userId)
+                                .map(v -> completedTransfer);
                         });
                 });
         }).map(completedTransfer -> {

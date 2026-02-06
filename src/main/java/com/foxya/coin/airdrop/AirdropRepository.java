@@ -140,6 +140,24 @@ public class AirdropRepository extends BaseRepository {
     }
     
     /**
+     * 지급 완료(claimed=true)된 Phase만 Soft Delete. transfer 성공 후 목록에서 제외할 때 사용.
+     */
+    public Future<Void> softDeleteClaimedPhasesByUserId(SqlClient client, Long userId) {
+        String sql = "UPDATE airdrop_phases SET deleted_at = #{deleted_at}, updated_at = #{updated_at} " +
+            "WHERE user_id = #{user_id} AND deleted_at IS NULL AND claimed = TRUE";
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+        return query(client, sql, params)
+            .<Void>map(rows -> {
+                log.debug("Claimed airdrop phases soft deleted - userId: {}", userId);
+                return null;
+            })
+            .onFailure(throwable -> log.error("Claimed Phase Soft Delete 실패 - userId: {}", userId, throwable));
+    }
+
+    /**
      * 사용자의 모든 에어드랍 Phase Soft Delete
      */
     public Future<Void> softDeleteAirdropPhasesByUserId(SqlClient client, Long userId) {
