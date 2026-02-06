@@ -108,6 +108,7 @@ public class AirdropService extends BaseService {
                             .claimed(claimed)
                             .unlockDate(phase.getUnlockDate())
                             .daysRemaining(daysRemaining)
+                            .createdAt(phase.getCreatedAt())
                             .build();
                     })
                     .sorted(Comparator.comparing(AirdropPhaseDto::getPhase))
