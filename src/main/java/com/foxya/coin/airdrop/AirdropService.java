@@ -211,13 +211,14 @@ public class AirdropService extends BaseService {
                         
                         LocalDateTime now = LocalDateTime.now();
                         
-                        // 락업 해제 금액: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
+                        // 전송 가능 금액: getStatus와 동일 기준 — (unlockDate <= now 또는 status==RELEASED) 이고 claimed==true 인 phase의 amount 합
                         BigDecimal availableAmount = phases.stream()
                             .filter(phase -> {
-                                boolean isReleased = phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now);
+                                boolean pastUnlock = phase.getUnlockDate() != null
+                                    && (phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now));
+                                boolean isReleased = pastUnlock || AirdropPhase.STATUS_RELEASED.equals(phase.getStatus());
                                 boolean claimed = Boolean.TRUE.equals(phase.getClaimed());
-                                return isReleased && AirdropPhase.STATUS_RELEASED.equals(phase.getStatus())
-                                    && claimed;
+                                return isReleased && claimed;
                             })
                             .map(AirdropPhase::getAmount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
