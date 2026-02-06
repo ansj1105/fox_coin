@@ -168,6 +168,25 @@ public abstract class BaseQueryBuilder<SELF> {
         paramIndex();
         return (SELF) this;
     }
+
+    /**
+     * WHERE ( column1 = #{paramMapping} OR column2 = #{paramMapping} ) 추가.
+     * 괄호로 묶어서 이후 andWhere 조건이 OR 전체에 적용되도록 함.
+     */
+    public SELF whereOrEquals(String column1, String column2, String paramMapping) {
+        append("WHERE (");
+        append(column1);
+        append("=");
+        append("#{" + paramMapping + "}");
+        paramIndex();
+        append("OR");
+        append(column2);
+        append("=");
+        append("#{" + paramMapping + "}");
+        paramIndex();
+        append(")");
+        return (SELF) this;
+    }
     
     /**
      * HAVING, 컬럼, 조건, 파라미터 매핑 추가

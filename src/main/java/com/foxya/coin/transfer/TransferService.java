@@ -1,9 +1,12 @@
 package com.foxya.coin.transfer;
 
+import com.foxya.coin.airdrop.AirdropRepository;
+import com.foxya.coin.airdrop.entities.AirdropTransfer;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.ChainType;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
+import com.foxya.coin.common.enums.TransactionType;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.event.EventPublisher;
@@ -12,6 +15,7 @@ import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.InternalTransferRequestDto;
+import com.foxya.coin.transfer.dto.TransferHistoryResponseDto;
 import com.foxya.coin.transfer.dto.TransferResponseDto;
 import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.transfer.entities.InternalTransfer;
@@ -27,8 +31,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -47,6 +53,7 @@ public class TransferService extends BaseService {
     private final EventPublisher eventPublisher;
     private final RedisAPI redisApi;
     private final NotificationService notificationService;
+    private final AirdropRepository airdropRepository;
 
     // 내부 전송 수수료 (0.1%)
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
@@ -59,7 +66,7 @@ public class TransferService extends BaseService {
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -69,7 +76,7 @@ public class TransferService extends BaseService {
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher,
                           RedisAPI redisApi) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -80,6 +87,18 @@ public class TransferService extends BaseService {
                           EventPublisher eventPublisher,
                           RedisAPI redisApi,
                           NotificationService notificationService) {
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null);
+    }
+
+    public TransferService(PgPool pool,
+                          TransferRepository transferRepository,
+                          UserRepository userRepository,
+                          CurrencyRepository currencyRepository,
+                          WalletRepository walletRepository,
+                          EventPublisher eventPublisher,
+                          RedisAPI redisApi,
+                          NotificationService notificationService,
+                          AirdropRepository airdropRepository) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
@@ -88,6 +107,7 @@ public class TransferService extends BaseService {
         this.eventPublisher = eventPublisher;
         this.redisApi = redisApi;
         this.notificationService = notificationService;
+        this.airdropRepository = airdropRepository;
     }
     
     /**
@@ -595,78 +615,115 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * 전송 내역 조회 (확장: 모든 거래 내역 통합)
+     * 전송 내역 조회 (내부 + 외부 + 에어드랍 통합, OpenAPI TransferHistory 형식으로 반환)
      */
-    public Future<List<TransferResponseDto>> getTransferHistory(Long userId, int limit, int offset) {
-        // 내부 전송과 외부 전송을 모두 조회하여 통합
+    public Future<TransferHistoryResponseDto> getTransferHistory(Long userId, int limit, int offset) {
+        Future<List<AirdropTransfer>> airdropFuture = (airdropRepository != null)
+            ? airdropRepository.getTransfersByUserId(pool, userId, limit * 2, 0)
+            : Future.succeededFuture(List.of());
+
         return transferRepository.getInternalTransfersByUserId(pool, userId, limit, offset)
-            .compose(internalTransfers -> 
+            .compose(internalTransfers ->
                 transferRepository.getExternalTransfersByUserId(pool, userId, limit, offset)
-                    .compose(externalTransfers -> {
-                        // 내부 전송 매핑
-                        List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
-                            .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
-                                .map(currency -> TransferResponseDto.builder()
-                                    .transferId(t.getTransferId())
-                                    .transferType("INTERNAL")
-                                    .transactionType(t.getTransactionType())
-                                    .orderNumber(t.getOrderNumber())
-                                    .senderId(t.getSenderId())
-                                    .receiverId(t.getReceiverId())
-                                    .currencyCode(currency.getCode())
-                                    .amount(t.getAmount())
-                                    .fee(t.getFee())
-                                    .status(t.getStatus())
-                                    .memo(t.getMemo())
-                                    .createdAt(t.getCreatedAt())
-                                    .completedAt(t.getCompletedAt())
-                                    .build()))
-                            .collect(Collectors.toList());
-                        
-                        // 외부 전송 매핑
-                        List<Future<TransferResponseDto>> externalDtos = externalTransfers.stream()
-                            .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
-                                .map(currency -> TransferResponseDto.builder()
-                                    .transferId(t.getTransferId())
-                                    .transferType("EXTERNAL")
-                                    .transactionType(t.getTransactionType())
-                                    .orderNumber(t.getOrderNumber())
-                                    .senderId(t.getUserId())
-                                    .toAddress(t.getToAddress())
-                                    .currencyCode(currency.getCode())
-                                    .network(t.getChain())
-                                    .amount(t.getAmount())
-                                    .fee(t.getFee())
-                                    .networkFee(t.getNetworkFee())
-                                    .status(t.getStatus())
-                                    .txHash(t.getTxHash())
-                                    .memo(t.getMemo())
-                                    .createdAt(t.getCreatedAt())
-                                    .completedAt(t.getConfirmedAt())
-                                    .build()))
-                            .collect(Collectors.toList());
-                        
-                        // 모든 Future 통합
-                        List<Future<TransferResponseDto>> allDtos = new java.util.ArrayList<>();
-                        allDtos.addAll(internalDtos);
-                        allDtos.addAll(externalDtos);
-                        
-                        return Future.all(allDtos)
-                            .map(results -> {
-                                List<TransferResponseDto> allTransfers = results.list();
-                                // 생성일시 기준 내림차순 정렬
-                                allTransfers.sort((a, b) -> {
-                                    if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
-                                    if (a.getCreatedAt() == null) return 1;
-                                    if (b.getCreatedAt() == null) return -1;
-                                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                    .compose(externalTransfers ->
+                        airdropFuture.compose(airdropTransfers -> {
+                            // 내부 전송 매핑
+                            List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
+                                .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                    .map(currency -> TransferResponseDto.builder()
+                                        .transferId(t.getTransferId())
+                                        .transferType("INTERNAL")
+                                        .transactionType(t.getTransactionType())
+                                        .orderNumber(t.getOrderNumber())
+                                        .senderId(t.getSenderId())
+                                        .receiverId(t.getReceiverId())
+                                        .currencyCode(currency.getCode())
+                                        .amount(t.getAmount())
+                                        .fee(t.getFee())
+                                        .status(t.getStatus())
+                                        .memo(t.getMemo())
+                                        .createdAt(t.getCreatedAt())
+                                        .completedAt(t.getCompletedAt())
+                                        .build()))
+                                .collect(Collectors.toList()));
+
+                            // 외부 전송 매핑
+                            List<Future<TransferResponseDto>> externalDtos = externalTransfers.stream()
+                                .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                    .map(currency -> TransferResponseDto.builder()
+                                        .transferId(t.getTransferId())
+                                        .transferType("EXTERNAL")
+                                        .transactionType(t.getTransactionType())
+                                        .orderNumber(t.getOrderNumber())
+                                        .senderId(t.getUserId())
+                                        .toAddress(t.getToAddress())
+                                        .currencyCode(currency.getCode())
+                                        .network(t.getChain())
+                                        .amount(t.getAmount())
+                                        .fee(t.getFee())
+                                        .networkFee(t.getNetworkFee())
+                                        .status(t.getStatus())
+                                        .txHash(t.getTxHash())
+                                        .memo(t.getMemo())
+                                        .createdAt(t.getCreatedAt())
+                                        .completedAt(t.getConfirmedAt())
+                                        .build()))
+                                .collect(Collectors.toList()));
+
+                            Set<String> internalOrderNumbers = internalTransfers.stream()
+                                .map(InternalTransfer::getOrderNumber)
+                                .filter(o -> o != null && !o.isEmpty())
+                                .collect(Collectors.toSet());
+
+                            // 에어드랍 전송 매핑 (internal에 같은 order_number가 없을 때만 포함 — 중복 제거)
+                            List<Future<TransferResponseDto>> airdropDtos = airdropTransfers.stream()
+                                .filter(at -> {
+                                    String on = at.getOrderNumber();
+                                    return on != null && !on.isEmpty() && !internalOrderNumbers.contains(on);
+                                })
+                                .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                    .map(currency -> TransferResponseDto.builder()
+                                        .transferId(t.getTransferId())
+                                        .transferType("INTERNAL")
+                                        .transactionType(TransactionType.TOKEN_DEPOSIT.getValue())
+                                        .orderNumber(t.getOrderNumber())
+                                        .senderId(userId)
+                                        .receiverId(userId)
+                                        .currencyCode(currency.getCode())
+                                        .amount(t.getAmount())
+                                        .fee(BigDecimal.ZERO)
+                                        .status(t.getStatus())
+                                        .memo("에어드랍 락업 해제")
+                                        .createdAt(t.getCreatedAt())
+                                        .completedAt(t.getUpdatedAt() != null ? t.getUpdatedAt() : t.getCreatedAt())
+                                        .build()))
+                                .collect(Collectors.toList());
+
+                            List<Future<TransferResponseDto>> allDtos = new java.util.ArrayList<>();
+                            allDtos.addAll(internalDtos);
+                            allDtos.addAll(externalDtos);
+                            allDtos.addAll(airdropDtos);
+
+                            return Future.all(allDtos)
+                                .map(results -> {
+                                    List<TransferResponseDto> allTransfers = results.list();
+                                    allTransfers.sort((a, b) -> {
+                                        if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
+                                        if (a.getCreatedAt() == null) return 1;
+                                        if (b.getCreatedAt() == null) return -1;
+                                        return b.getCreatedAt().compareTo(a.getCreatedAt());
+                                    });
+                                    List<TransferResponseDto> limited = allTransfers.stream()
+                                        .limit(limit)
+                                        .collect(Collectors.toList());
+                                    return TransferHistoryResponseDto.builder()
+                                        .transfers(limited)
+                                        .total(limited.size())
+                                        .limit(limit)
+                                        .offset(offset)
+                                        .build();
                                 });
-                                // limit 적용
-                                return allTransfers.stream()
-                                    .limit(limit)
-                                    .collect(Collectors.toList());
-                            });
-                    }));
+                        })));
     }
     
     /**

@@ -129,6 +129,27 @@ public class AirdropRepository extends BaseRepository {
     }
     
     /**
+     * 사용자별 에어드랍 전송 내역 조회 (거래내역 API 병합용, deleted_at 제외)
+     */
+    public Future<List<AirdropTransfer>> getTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
+        String sql = QueryBuilder
+            .select("airdrop_transfers")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+        params.put("offset", offset);
+        return query(client, sql, params)
+            .map(rows -> fetchAll(transferMapper, rows))
+            .onFailure(throwable -> log.error("에어드랍 전송 내역 조회 실패 - userId: {}", userId, throwable));
+    }
+
+    /**
      * 전송 상태 업데이트
      */
     public Future<AirdropTransfer> updateTransferStatus(SqlClient client, String transferId, String status) {
@@ -191,25 +212,7 @@ public class AirdropRepository extends BaseRepository {
     }
 
     /**
-     * 지급 완료(claimed=true)된 Phase만 Soft Delete. (전송 후 전체 삭제 시 사용 — 현재는 allocateTransferredAmount 사용으로 대체)
-     */
-    public Future<Void> softDeleteClaimedPhasesByUserId(SqlClient client, Long userId) {
-        String sql = "UPDATE airdrop_phases SET deleted_at = #{deleted_at}, updated_at = #{updated_at} " +
-            "WHERE user_id = #{user_id} AND deleted_at IS NULL AND claimed = TRUE";
-        Map<String, Object> params = new HashMap<>();
-        params.put("user_id", userId);
-        params.put("deleted_at", com.foxya.coin.common.utils.DateUtils.now());
-        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
-        return query(client, sql, params)
-            .<Void>map(rows -> {
-                log.debug("Claimed airdrop phases soft deleted - userId: {}", userId);
-                return null;
-            })
-            .onFailure(throwable -> log.error("Claimed Phase Soft Delete 실패 - userId: {}", userId, throwable));
-    }
-
-    /**
-     * 사용자의 모든 에어드랍 Phase Soft Delete
+     * 사용자의 모든 에어드랍 Phase Soft Delete (회원 탈퇴 등에서만 사용. 전송 시에는 사용하지 않음 — 데이터 정합성)
      */
     public Future<Void> softDeleteAirdropPhasesByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder

@@ -169,13 +169,13 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 사용자의 내부 전송 내역 조회
+     * 사용자의 내부 전송 내역 조회 (sender 또는 receiver인 건만, deleted 제외)
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
         String sql = QueryBuilder
             .select("internal_transfers")
-            .where("sender_id", Op.Equal, "user_id")
-            .orWhere("receiver_id", Op.Equal, "user_id")
+            .whereOrEquals("sender_id", "receiver_id", "user_id")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("created_at", Sort.DESC)
             .limitRefactoring()
             .offsetRefactoring()
