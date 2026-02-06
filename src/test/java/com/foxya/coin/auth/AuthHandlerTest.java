@@ -316,6 +316,24 @@ public class AuthHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @Order(6)
+        @DisplayName("성공 - 로그인 응답에 minAppVersion 포함 (app_config DB 값)")
+        void loginResponseContainsMinAppVersion(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("test-device-minver", "WEB", "WEB"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getMinAppVersion()).isEqualTo("1.1.8");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
         @Order(26)
         @DisplayName("성공 - 동일 슬롯 로그인 시 기존 기기 교체")
         void replaceDeviceOnSameSlot(VertxTestContext tc) {

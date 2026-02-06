@@ -35,6 +35,8 @@ import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
+import com.foxya.coin.app.AppConfigRepository;
+import com.foxya.coin.app.AppHandler;
 import com.foxya.coin.agency.AgencyHandler;
 import com.foxya.coin.agency.AgencyRepository;
 import com.foxya.coin.agency.AgencyService;
@@ -257,13 +259,19 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
+        String minAppVersion = System.getenv("MIN_APP_VERSION");
+        if (minAppVersion == null || minAppVersion.isBlank()) {
+            minAppVersion = config().getJsonObject("frontend", new JsonObject()).getString("minAppVersion");
+        }
+        AppConfigRepository appConfigRepository = new AppConfigRepository();
         AuthService authService = new AuthService(
             pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
             redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig);
+            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig,
+            minAppVersion, appConfigRepository);
         AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
@@ -284,6 +292,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
+        AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
@@ -327,6 +336,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 공개 API (인증 불필요)
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/app", appHandler.getRouter());
         
         // 레벨 API를 먼저 등록 (구체적인 경로 우선)
         mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());

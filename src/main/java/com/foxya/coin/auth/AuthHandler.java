@@ -114,7 +114,7 @@ public class AuthHandler extends BaseHandler {
                     .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
                     .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
                     .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -232,7 +232,7 @@ public class AuthHandler extends BaseHandler {
                     .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
                     .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
                     .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -319,7 +319,7 @@ public class AuthHandler extends BaseHandler {
                     .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
                     .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
                     .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -338,7 +338,7 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
                     .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
                     .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();

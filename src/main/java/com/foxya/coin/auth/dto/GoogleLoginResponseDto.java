@@ -17,4 +17,6 @@ public class GoogleLoginResponseDto {
     private Boolean isNewUser;
     private String signupToken;
     private Integer isTest;
+    /** 앱 최소 필요 버전 (구버전 업데이트 유도용). 없으면 null */
+    private String minAppVersion;
 }

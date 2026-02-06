@@ -19,6 +19,7 @@ import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.device.entities.Device;
@@ -98,7 +99,9 @@ public class AuthService extends BaseService {
     private final EmailService emailService;
     private final WebClient webClient;
     private final JsonObject googleConfig;
-    
+    private final String minAppVersion;
+    private final AppConfigRepository appConfigRepository;
+
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
@@ -115,8 +118,11 @@ public class AuthService extends BaseService {
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
                       SignupEmailCodeRepository signupEmailCodeRepository, DeviceRepository deviceRepository,
-                      ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig) {
+                      ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig,
+                      String minAppVersion, AppConfigRepository appConfigRepository) {
         super(pool);
+        this.minAppVersion = minAppVersion;
+        this.appConfigRepository = appConfigRepository;
         this.userRepository = userRepository;
         this.userService = userService;
         this.jwtAuth = jwtAuth;
@@ -179,19 +185,22 @@ public class AuthService extends BaseService {
                 }
                 
                 return maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                    .compose(ignored -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
-                        return Future.succeededFuture(
-                            LoginResponseDto.builder()
-                                .accessToken(accessToken)
-                                .refreshToken(refreshToken)
-                                .userId(user.getId())
-                                .loginId(user.getLoginId())
-                                .isTest(user.getIsTest())
-                                .build()
-                        );
-                    });
+                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                        .compose(dbMin -> {
+                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                            return Future.succeededFuture(
+                                LoginResponseDto.builder()
+                                    .accessToken(accessToken)
+                                    .refreshToken(refreshToken)
+                                    .userId(user.getId())
+                                    .loginId(user.getLoginId())
+                                    .isTest(user.getIsTest())
+                                    .minAppVersion(min)
+                                    .build()
+                            );
+                        }));
             });
     }
 
@@ -296,19 +305,22 @@ public class AuthService extends BaseService {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                                 }
                                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                    .compose(ignored -> {
-                                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
-                                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
-                                        return redisApi.del(java.util.List.of(key))
-                                            .recover(e -> Future.succeededFuture())
-                                            .map(v -> LoginResponseDto.builder()
-                                                .accessToken(accessToken)
-                                                .refreshToken(refreshToken)
-                                                .userId(user.getId())
-                                                .loginId(user.getLoginId())
-                                                .isTest(user.getIsTest())
-                                                .build());
-                                    });
+                                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                        .compose(dbMin -> {
+                                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                            return redisApi.del(java.util.List.of(key))
+                                                .recover(e -> Future.succeededFuture())
+                                                .map(v -> LoginResponseDto.builder()
+                                                    .accessToken(accessToken)
+                                                    .refreshToken(refreshToken)
+                                                    .userId(user.getId())
+                                                    .loginId(user.getLoginId())
+                                                    .isTest(user.getIsTest())
+                                                    .minAppVersion(min)
+                                                    .build());
+                                        }));
                             });
                     });
             });
@@ -696,17 +708,20 @@ public class AuthService extends BaseService {
                     // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
                     .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
                         .map(ignored -> user))
-                    .compose(user -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
-                        LoginResponseDto loginDto = LoginResponseDto.builder()
-                            .accessToken(accessToken)
-                            .refreshToken(refreshToken)
-                            .userId(user.getId())
-                            .loginId(user.getLoginId())
-                            .isTest(user.getIsTest())
-                            .build();
-                        String refCode = dto.getReferralCode();
+                    .compose(user -> appConfigRepository.getMinAppVersion(pool)
+                        .compose(dbMin -> {
+                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                            LoginResponseDto loginDto = LoginResponseDto.builder()
+                                .accessToken(accessToken)
+                                .refreshToken(refreshToken)
+                                .userId(user.getId())
+                                .loginId(user.getLoginId())
+                                .isTest(user.getIsTest())
+                                .minAppVersion(min)
+                                .build();
+                            String refCode = dto.getReferralCode();
                         if (refCode != null && !refCode.isBlank()) {
                             return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
                                 .compose(referrer -> {
@@ -731,8 +746,8 @@ public class AuthService extends BaseService {
                                 })
                                 .otherwise(loginDto);
                         }
-                        return Future.succeededFuture(loginDto);
-                    });
+                            return Future.succeededFuture(loginDto);
+                        }));
             });
     }
     
@@ -1169,30 +1184,36 @@ public class AuthService extends BaseService {
                                     }
                                     
                                     return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                        .compose(ignored -> {
-                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
-                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
-                                            return Future.succeededFuture(
-                                                GoogleLoginResponseDto.builder()
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                            .map(dbMin -> {
+                                                String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                                String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                                String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                                return GoogleLoginResponseDto.builder()
                                                     .accessToken(jwtAccessToken)
                                                     .refreshToken(jwtRefreshToken)
                                                     .userId(existingUser.getId())
                                                     .loginId(existingUser.getLoginId())
                                                     .isNewUser(false)
                                                     .isTest(existingUser.getIsTest())
-                                                    .build()
-                                            );
-                                        });
+                                                    .minAppVersion(min)
+                                                    .build();
+                                            }));
                                 });
                         } else {
                             // 신규 사용자: 계정 생성
                             log.info("New user registration via Google: {}", email);
                             return createSocialSignupToken("GOOGLE", googleId, email)
-                                .map(signupToken -> GoogleLoginResponseDto.builder()
-                                    .loginId(email)
-                                    .isNewUser(true)
-                                    .signupToken(signupToken)
-                                    .build());
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                                    .map(dbMin -> {
+                                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                        return GoogleLoginResponseDto.builder()
+                                            .loginId(email)
+                                            .isNewUser(true)
+                                            .signupToken(signupToken)
+                                            .minAppVersion(min)
+                                            .build();
+                                    }));
                         }
                     });
             })
