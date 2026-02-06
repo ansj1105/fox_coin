@@ -11,10 +11,13 @@ import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class AirdropRepository extends BaseRepository {
@@ -25,6 +28,7 @@ public class AirdropRepository extends BaseRepository {
         .phase(getIntegerColumnValue(row, "phase"))
         .status(getStringColumnValue(row, "status"))
         .amount(getBigDecimalColumnValue(row, "amount"))
+        .transferredAmount(getBigDecimalColumnValue(row, "transferred_amount") != null ? getBigDecimalColumnValue(row, "transferred_amount") : java.math.BigDecimal.ZERO)
         .claimed(getBooleanColumnValue(row, "claimed"))
         .unlockDate(getLocalDateTimeColumnValue(row, "unlock_date"))
         .daysRemaining(getIntegerColumnValue(row, "days_remaining"))
@@ -50,7 +54,7 @@ public class AirdropRepository extends BaseRepository {
      */
     public Future<List<AirdropPhase>> getPhasesByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder
-            .select("airdrop_phases")
+            .select("airdrop_phases", "id", "user_id", "phase", "status", "amount", "transferred_amount", "claimed", "unlock_date", "days_remaining", "created_at", "updated_at")
             .where("user_id", Op.Equal, "user_id")
             .andWhere("deleted_at", Op.IsNull)
             .orderBy("phase", Sort.ASC)
@@ -140,7 +144,54 @@ public class AirdropRepository extends BaseRepository {
     }
     
     /**
-     * 지급 완료(claimed=true)된 Phase만 Soft Delete. transfer 성공 후 목록에서 제외할 때 사용.
+     * Phase의 transferred_amount에 전송량 추가 (전송 시 해당 Phase에 할당)
+     */
+    public Future<Void> addTransferredAmount(SqlClient client, Long phaseId, Long userId, BigDecimal addAmount) {
+        if (addAmount == null || addAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.succeededFuture();
+        }
+        String sql = "UPDATE airdrop_phases SET transferred_amount = transferred_amount + #{add_amount}, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE id = #{phase_id} AND user_id = #{user_id} AND deleted_at IS NULL AND claimed = TRUE";
+        Map<String, Object> params = new HashMap<>();
+        params.put("phase_id", phaseId);
+        params.put("user_id", userId);
+        params.put("add_amount", addAmount);
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("transferred_amount 추가 실패 - phaseId: {}, userId: {}", phaseId, userId, throwable));
+    }
+
+    /**
+     * 전송한 금액만큼 claimed Phase에 transferred_amount 할당 (id 순). 전송 후 잔량 = amount - transferred_amount 유지.
+     */
+    public Future<Void> allocateTransferredAmount(SqlClient client, Long userId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.succeededFuture();
+        }
+        return getPhasesByUserId(client, userId)
+            .compose(phases -> {
+                List<AirdropPhase> claimed = phases.stream()
+                    .filter(p -> Boolean.TRUE.equals(p.getClaimed()))
+                    .sorted(Comparator.comparing(AirdropPhase::getId))
+                    .collect(Collectors.toList());
+                BigDecimal remaining = amount;
+                io.vertx.core.Future<Void> chain = Future.succeededFuture();
+                for (AirdropPhase p : claimed) {
+                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+                    BigDecimal ta = p.getTransferredAmount() != null ? p.getTransferredAmount() : BigDecimal.ZERO;
+                    BigDecimal available = p.getAmount().subtract(ta);
+                    if (available.compareTo(BigDecimal.ZERO) <= 0) continue;
+                    BigDecimal add = remaining.min(available);
+                    final BigDecimal addFinal = add;
+                    chain = chain.compose(v -> addTransferredAmount(client, p.getId(), userId, addFinal));
+                    remaining = remaining.subtract(add);
+                }
+                return chain;
+            });
+    }
+
+    /**
+     * 지급 완료(claimed=true)된 Phase만 Soft Delete. (전송 후 전체 삭제 시 사용 — 현재는 allocateTransferredAmount 사용으로 대체)
      */
     public Future<Void> softDeleteClaimedPhasesByUserId(SqlClient client, Long userId) {
         String sql = "UPDATE airdrop_phases SET deleted_at = #{deleted_at}, updated_at = #{updated_at} " +

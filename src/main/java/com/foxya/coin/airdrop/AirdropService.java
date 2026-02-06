@@ -114,11 +114,18 @@ public class AirdropService extends BaseService {
                     .sorted(Comparator.comparing(AirdropPhaseDto::getPhase))
                     .collect(Collectors.toList());
                 
-                // totalReceived: RELEASED && claimed === true 인 phase의 amount 합 (전송가능 금액)
-                BigDecimal totalReceived = phaseDtos.stream()
-                    .filter(p -> AirdropPhase.STATUS_RELEASED.equals(p.getStatus())
-                        && Boolean.TRUE.equals(p.getClaimed()))
-                    .map(AirdropPhaseDto::getAmount)
+                // totalReceived: RELEASED && claimed 인 phase의 (amount - transferredAmount) 합 = 전송가능 금액
+                BigDecimal totalReceived = phases.stream()
+                    .filter(p -> {
+                        boolean pastUnlock = p.getUnlockDate() != null && (p.getUnlockDate().isBefore(now) || p.getUnlockDate().isEqual(now));
+                        boolean isReleased = pastUnlock || AirdropPhase.STATUS_RELEASED.equals(p.getStatus());
+                        return isReleased && Boolean.TRUE.equals(p.getClaimed());
+                    })
+                    .map(p -> {
+                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+                        BigDecimal ta = p.getTransferredAmount() != null ? p.getTransferredAmount() : BigDecimal.ZERO;
+                        return amt.subtract(ta);
+                    })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 
                 // totalReward 계산 (모든 Phase의 합)
@@ -211,7 +218,7 @@ public class AirdropService extends BaseService {
                         
                         LocalDateTime now = LocalDateTime.now();
                         
-                        // 전송 가능 금액: getStatus와 동일 기준 — (unlockDate <= now 또는 status==RELEASED) 이고 claimed==true 인 phase의 amount 합
+                        // 전송 가능 금액: (unlockDate <= now 또는 RELEASED) && claimed 인 phase의 (amount - transferredAmount) 합
                         BigDecimal availableAmount = phases.stream()
                             .filter(phase -> {
                                 boolean pastUnlock = phase.getUnlockDate() != null
@@ -220,7 +227,11 @@ public class AirdropService extends BaseService {
                                 boolean claimed = Boolean.TRUE.equals(phase.getClaimed());
                                 return isReleased && claimed;
                             })
-                            .map(AirdropPhase::getAmount)
+                            .map(phase -> {
+                                BigDecimal amt = phase.getAmount() != null ? phase.getAmount() : BigDecimal.ZERO;
+                                BigDecimal ta = phase.getTransferredAmount() != null ? phase.getTransferredAmount() : BigDecimal.ZERO;
+                                return amt.subtract(ta);
+                            })
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                         
                         if (availableAmount.compareTo(request.getAmount()) < 0) {
@@ -316,8 +327,8 @@ public class AirdropService extends BaseService {
                             return airdropRepository.updateTransferStatus(client, transferId, AirdropTransfer.STATUS_COMPLETED);
                         })
                         .compose(completedTransfer -> {
-                            // 5. 지급 완료(claimed) Phase 목록에서 제외 (soft delete)
-                            return airdropRepository.softDeleteClaimedPhasesByUserId(client, userId)
+                            // 5. 전송한 금액만큼 claimed Phase에 transferred_amount 할당 (잔량 유지)
+                            return airdropRepository.allocateTransferredAmount(client, userId, amount)
                                 .map(v -> completedTransfer);
                         });
                 });
