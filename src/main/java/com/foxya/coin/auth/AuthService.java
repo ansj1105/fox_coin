@@ -9,6 +9,7 @@ import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.enums.CountryCode;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.ConflictException;
@@ -506,8 +507,6 @@ public class AuthService extends BaseService {
         java.util.regex.Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
     private static final java.util.regex.Pattern NICKNAME_PATTERN =
         java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{1,8}$");
-    private static final String[] COUNTRY_CODES = {"KR", "US", "JP", "CN", "VN", "TH", "ETC"};
-
     /**
      * 이메일(아이디) 중복 검사 (비인증). available=true면 가입 가능.
      */
@@ -587,7 +586,10 @@ public class AuthService extends BaseService {
             return Future.failedFuture(new BadRequestException("시드 구문 확인 후 계속 진행해주세요."));
         }
         String country = (dto.getCountry() != null && !dto.getCountry().isBlank()) ? dto.getCountry() : dto.getCountryCode();
-        if (country == null || country.isBlank() || java.util.Arrays.stream(COUNTRY_CODES).noneMatch(c -> c.equals(country))) {
+        if (country == null || country.isBlank()) {
+            return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
+        }
+        if (CountryCode.fromCode(country.trim().toUpperCase()) == CountryCode.UNKNOWN) {
             return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
         }
         String g = dto.getGender();
