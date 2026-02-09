@@ -67,6 +67,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
         router.post("/kakao").handler(this.kakaoLoginValidation(parser)).handler(this::kakaoLogin);
+        router.post("/apple").handler(this.appleLoginValidation(parser)).handler(this::appleLogin);
         router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
 
         // 인증 필요 API
@@ -260,7 +261,7 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("provider", com.foxya.coin.common.jsonschema.Schemas.enumStringSchema(new String[]{"KAKAO", "GOOGLE", "EMAIL"}))
+                    .requiredProperty("provider", com.foxya.coin.common.jsonschema.Schemas.enumStringSchema(new String[]{"KAKAO", "GOOGLE", "APPLE", "EMAIL"}))
                     .requiredProperty("token", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))
@@ -334,6 +335,25 @@ public class AuthHandler extends BaseHandler {
             .body(json(
                 objectSchema()
                     .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .property("platform", stringSchema().with(minLength(1)))
+                    .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * Apple 로그인 Validation
+     */
+    private Handler<RoutingContext> appleLoginValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("idToken", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
                     .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
@@ -645,6 +665,41 @@ public class AuthHandler extends BaseHandler {
 
         log.info("Kakao login attempt");
         authService.kakaoLogin(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
+    }
+
+    /**
+     * Apple 로그인
+     */
+    private void appleLogin(RoutingContext ctx) {
+        com.foxya.coin.auth.dto.AppleLoginRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.AppleLoginRequestDto.class
+        );
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()) {
+            dto.setDeviceId(ctx.request().getHeader("X-Device-Id"));
+        }
+        if (dto.getDeviceType() == null || dto.getDeviceType().isBlank()) {
+            dto.setDeviceType(ctx.request().getHeader("X-Device-Type"));
+        }
+        if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
+        }
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
+            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
+            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
+            return;
+        }
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        log.info("Apple login attempt");
+        authService.appleLogin(dto)
             .onSuccess(data -> {
                 setRefreshTokenCookie(ctx, data.getRefreshToken());
                 success(ctx, data);

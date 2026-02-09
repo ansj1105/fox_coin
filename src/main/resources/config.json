@@ -70,7 +70,14 @@
                                 "clientSecret":  "",
                                 "redirectUri":  "http://localhost:3000/auth/kakao/callback",
                                 "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
-                            }
+                            },
+                  "apple":  {
+                                 "teamId":  "",
+                                 "keyId":  "",
+                                 "serviceId":  "com.korion.wallet.signin",
+                                 "privateKeyPath":  "",
+                                 "redirectUri":  "http://localhost:3000/auth/apple/callback"
+                             }
               },
     "local-cluster":  {
                           "http":  {
@@ -148,7 +155,14 @@
                                         "clientSecret":  "",
                                         "redirectUri":  "http://localhost:3000/auth/kakao/callback",
                                         "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
-                                    }
+                                    },
+                          "apple":  {
+                                         "teamId":  "",
+                                         "keyId":  "",
+                                         "serviceId":  "com.korion.wallet.signin",
+                                         "privateKeyPath":  "",
+                                         "redirectUri":  "http://localhost:3000/auth/apple/callback"
+                                     }
                       },
     "prod":  {
                  "http":  {
@@ -220,7 +234,14 @@
                                "clientSecret":  "",
                                "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
                                "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
-                           }
+                           },
+                 "apple":  {
+                                "teamId":  "",
+                                "keyId":  "",
+                                "serviceId":  "com.korion.wallet.signin",
+                                "privateKeyPath":  "",
+                                "redirectUri":  "https://korion.io.kr/auth/apple/callback"
+                            }
              },
     "prod-sentinel":  {
                           "http":  {
@@ -296,6 +317,13 @@
                                         "clientSecret":  "",
                                         "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
                                         "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
-                                    }
+                                    },
+                          "apple":  {
+                                         "teamId":  "",
+                                         "keyId":  "",
+                                         "serviceId":  "com.korion.wallet.signin",
+                                         "privateKeyPath":  "",
+                                         "redirectUri":  "https://korion.io.kr/auth/apple/callback"
+                                     }
                       }
 }

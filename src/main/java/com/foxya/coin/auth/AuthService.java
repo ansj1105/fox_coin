@@ -21,6 +21,7 @@ import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
 import com.foxya.coin.common.utils.KakaoOAuthUtil;
+import com.foxya.coin.common.utils.AppleOAuthUtil;
 import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.device.DeviceRepository;
@@ -45,6 +46,8 @@ import com.foxya.coin.auth.dto.RecoveryResetResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import com.foxya.coin.auth.dto.KakaoLoginRequestDto;
 import com.foxya.coin.auth.dto.KakaoLoginResponseDto;
+import com.foxya.coin.auth.dto.AppleLoginRequestDto;
+import com.foxya.coin.auth.dto.AppleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.transfer.TransferRepository;
@@ -104,6 +107,7 @@ public class AuthService extends BaseService {
     private final WebClient webClient;
     private final JsonObject googleConfig;
     private final JsonObject kakaoConfig;
+    private final JsonObject appleConfig;
     private final String minAppVersion;
     private final AppConfigRepository appConfigRepository;
 
@@ -124,7 +128,7 @@ public class AuthService extends BaseService {
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
                       SignupEmailCodeRepository signupEmailCodeRepository, DeviceRepository deviceRepository,
                       ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig,
-                      JsonObject kakaoConfig,
+                      JsonObject kakaoConfig, JsonObject appleConfig,
                       String minAppVersion, AppConfigRepository appConfigRepository) {
         super(pool);
         this.minAppVersion = minAppVersion;
@@ -159,6 +163,7 @@ public class AuthService extends BaseService {
         this.webClient = webClient;
         this.googleConfig = googleConfig;
         this.kakaoConfig = kakaoConfig;
+        this.appleConfig = appleConfig;
     }
     
     /**
@@ -1324,6 +1329,113 @@ public class AuthService extends BaseService {
                 log.error("Kakao login failed", throwable);
                 return Future.<KakaoLoginResponseDto>failedFuture(new BadRequestException("Kakao login failed: " + throwable.getMessage()));
             });
+    }
+
+    /**
+     * Apple 로그인
+     * @param dto Apple 로그인 요청 DTO (Authorization Code 포함)
+     * @return Apple 로그인 응답 DTO
+     */
+    public Future<AppleLoginResponseDto> appleLogin(AppleLoginRequestDto dto) {
+        log.info("Apple login attempt with code");
+
+        String clientId = appleConfig.getString("serviceId");
+        String teamId = appleConfig.getString("teamId");
+        String keyId = appleConfig.getString("keyId");
+        String privateKeyPath = appleConfig.getString("privateKeyPath");
+        String redirectUri = appleConfig.getString("redirectUri");
+
+        if (clientId == null || clientId.isBlank() || teamId == null || teamId.isBlank()
+            || keyId == null || keyId.isBlank() || privateKeyPath == null || privateKeyPath.isBlank()) {
+            log.error("Apple OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Apple OAuth configuration is missing"));
+        }
+
+        String clientSecret;
+        try {
+            clientSecret = AppleOAuthUtil.createClientSecret(teamId, keyId, clientId, privateKeyPath);
+        } catch (Exception e) {
+            log.error("Failed to create Apple client_secret", e);
+            return Future.failedFuture(new BadRequestException("Apple OAuth configuration is missing"));
+        }
+
+        return AppleOAuthUtil.exchangeToken(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+            .compose(tokenResponse -> {
+                String idToken = tokenResponse.getString("id_token");
+                return AppleOAuthUtil.verifyIdToken(webClient, idToken, clientId);
+            })
+            .compose(userInfo -> {
+                String appleId = userInfo.getString("sub");
+                String email = userInfo.getString("email");
+
+                // 이메일이 없으면 provider_user_id로 기존 계정 조회
+                if (email == null || email.isBlank()) {
+                    return socialLinkRepository.findUserIdByProviderUserId(pool, "APPLE", appleId)
+                        .compose(userId -> {
+                            if (userId == null) {
+                                return Future.failedFuture(new BadRequestException("Apple email is required for first login."));
+                            }
+                            return userRepository.getUserById(pool, userId)
+                                .compose(existingUser -> buildAppleLoginResponse(existingUser, appleId, null, dto));
+                        });
+                }
+
+                return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+                    .compose(existingUser -> {
+                        if (existingUser != null && existingUser.getDeletedAt() != null) {
+                            return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
+                        }
+                        if (existingUser != null) {
+                            return buildAppleLoginResponse(existingUser, appleId, email, dto);
+                        }
+
+                        log.info("New user registration via Apple: {}", email);
+                        return createSocialSignupToken("APPLE", appleId, email)
+                            .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                                .map(dbMin -> {
+                                    String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                    return AppleLoginResponseDto.builder()
+                                        .loginId(email)
+                                        .isNewUser(true)
+                                        .signupToken(signupToken)
+                                        .minAppVersion(min)
+                                        .build();
+                                }));
+                    });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.<AppleLoginResponseDto>failedFuture((UnauthorizedException) throwable);
+                }
+                if (throwable instanceof BadRequestException) {
+                    return Future.<AppleLoginResponseDto>failedFuture((BadRequestException) throwable);
+                }
+                log.error("Apple login failed", throwable);
+                return Future.<AppleLoginResponseDto>failedFuture(new BadRequestException("Apple login failed: " + throwable.getMessage()));
+            });
+    }
+
+    private Future<AppleLoginResponseDto> buildAppleLoginResponse(User existingUser, String appleId, String email, AppleLoginRequestDto dto) {
+        if (existingUser == null) {
+            return Future.failedFuture(new BadRequestException("사용자를 찾을 수 없습니다."));
+        }
+        return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "APPLE", appleId, email != null ? email : existingUser.getLoginId())
+            .compose(linked -> registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                    .map(dbMin -> {
+                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                        String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                        String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                        return AppleLoginResponseDto.builder()
+                            .accessToken(jwtAccessToken)
+                            .refreshToken(jwtRefreshToken)
+                            .userId(existingUser.getId())
+                            .loginId(existingUser.getLoginId())
+                            .isNewUser(false)
+                            .isTest(existingUser.getIsTest())
+                            .minAppVersion(min)
+                            .build();
+                    })));
     }
     
     /**

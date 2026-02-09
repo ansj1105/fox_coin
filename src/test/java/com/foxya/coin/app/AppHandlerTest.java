@@ -46,7 +46,7 @@ public class AppHandlerTest extends HandlerTestBase {
 
     }
 
-    /** GET /api/v1/app/config 응답 data 타입 */
+    /** GET f 응답 data 타입 */
     @lombok.Getter
     @lombok.Setter
     public static class AppConfigResponse {

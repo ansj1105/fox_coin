@@ -259,6 +259,8 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
         // Kakao OAuth 설정 (환경 변수 우선)
         JsonObject kakaoConfig = applyKakaoEnvOverrides(config().getJsonObject("kakao", new JsonObject()));
+        // Apple OAuth 설정 (환경 변수 우선)
+        JsonObject appleConfig = applyAppleEnvOverrides(config().getJsonObject("apple", new JsonObject()));
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
         String minAppVersion = System.getenv("MIN_APP_VERSION");
@@ -272,7 +274,7 @@ public class ApiVerticle extends AbstractVerticle {
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig, kakaoConfig,
+            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig, kakaoConfig, appleConfig,
             minAppVersion, appConfigRepository);
         AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
@@ -794,6 +796,16 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "clientSecret", "KAKAO_CLIENT_SECRET");
         putIfEnvSet(config, "redirectUri", "KAKAO_REDIRECT_URI");
         putIfEnvSet(config, "androidRedirectUri", "KAKAO_ANDROID_REDIRECT_URI");
+        return config;
+    }
+
+    private static JsonObject applyAppleEnvOverrides(JsonObject baseConfig) {
+        JsonObject config = baseConfig.copy();
+        putIfEnvSet(config, "teamId", "APPLE_TEAM_ID");
+        putIfEnvSet(config, "keyId", "APPLE_KEY_ID");
+        putIfEnvSet(config, "serviceId", "APPLE_SERVICE_ID");
+        putIfEnvSet(config, "privateKeyPath", "APPLE_PRIVATE_KEY_PATH");
+        putIfEnvSet(config, "redirectUri", "APPLE_REDIRECT_URI");
         return config;
     }
 

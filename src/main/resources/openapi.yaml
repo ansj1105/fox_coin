@@ -298,6 +298,96 @@ components:
               description: 신규 사용자 여부
               example: false
 
+    AppleLoginRequest:
+      type: object
+      required:
+        - code
+        - deviceId
+        - deviceType
+        - deviceOs
+      properties:
+        code:
+          type: string
+          description: Apple OAuth Authorization Code
+          example: "c5d6f..."
+        idToken:
+          type: string
+          description: Apple ID Token (선택)
+        platform:
+          type: string
+          description: 클라이언트 플랫폼 (WEB 또는 IOS)
+          example: IOS
+        deviceId:
+          type: string
+        deviceType:
+          type: string
+          enum: [WEB, MOBILE]
+        deviceOs:
+          type: string
+          enum: [WEB, IOS, ANDROID]
+        appVersion:
+          type: string
+
+    AppleLoginResponseData:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT Access Token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refreshToken:
+          type: string
+          description: JWT Refresh Token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        userId:
+          type: integer
+          format: int64
+          description: 사용자 ID
+          example: 123
+        loginId:
+          type: string
+          description: 로그인 ID (이메일)
+          example: "user@example.com"
+        isNewUser:
+          type: boolean
+          description: 신규 사용자 여부
+          example: false
+        signupToken:
+          type: string
+          description: 신규 사용자용 소셜 가입 토큰 (신규 사용자일 때만 제공)
+
+    AppleLoginResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [OK]
+          example: OK
+        data:
+          type: object
+          properties:
+            accessToken:
+              type: string
+              description: JWT Access Token
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            refreshToken:
+              type: string
+              description: JWT Refresh Token
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            userId:
+              type: integer
+              format: int64
+              description: 사용자 ID
+              example: 123
+            loginId:
+              type: string
+              description: 로그인 ID (이메일)
+              example: "user@example.com"
+            isNewUser:
+              type: boolean
+              description: 신규 사용자 여부
+              example: false
+
     # User 관련 스키마
     User:
       type: object
@@ -1381,7 +1471,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [KAKAO, GOOGLE, EMAIL]
+          enum: [KAKAO, GOOGLE, APPLE, EMAIL]
         token:
           type: string
           description: 소셜 토큰 또는 이메일 주소
@@ -2504,6 +2594,52 @@ paths:
                   value:
                     status: ERROR
                     message: Failed to verify Kakao token
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/apple:
+    post:
+      summary: Apple 로그인
+      description: |
+        Apple OAuth Authorization Code를 사용한 로그인
+
+        **흐름:**
+        1. 프론트엔드: Apple 로그인 버튼 클릭 → Authorization Code 받기
+        2. 프론트엔드 → 백엔드로 code 전달
+        3. 백엔드: code로 Apple 토큰 교환 + id_token 검증
+        4. 백엔드: 우리 서비스 계정 생성/연동 후 JWT 발급
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleLoginRequest'
+            example:
+              code: "c5d6f..."
+              idToken: "eyJhbGciOi..."
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AppleLoginResponseData'
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '400':
           description: 잘못된 요청
           content:

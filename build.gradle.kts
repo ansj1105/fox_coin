@@ -59,6 +59,9 @@ dependencies {
     
     // Vert.x Auth JWT
     implementation("io.vertx:vertx-auth-jwt")
+
+    // JWT (Apple Sign In)
+    implementation("org.bitbucket.b_c:jose4j:0.9.6")
     
     // Vert.x Redis Client
     implementation("io.vertx:vertx-redis-client")
