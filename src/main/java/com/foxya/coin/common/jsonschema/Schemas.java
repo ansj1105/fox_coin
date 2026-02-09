@@ -18,15 +18,10 @@ import static io.vertx.json.schema.draft7.dsl.Keywords.format;
 public abstract class Schemas {
     
     /**
-     * 비밀번호 스키마 (8-20자, 영문·숫자 각 1자 이상, 특수문자 전부 허용)
+     * 비밀번호 스키마 (8~20자)
      */
     public static StringSchemaBuilder passwordSchema() {
-        return stringSchema().with(
-            minLength(8),
-            maxLength(20),
-            pattern(Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{8,20}$")),
-            format(StringFormat.REGEX)
-        );
+        return stringSchema().with(minLength(8), maxLength(20));
     }
     
     /**

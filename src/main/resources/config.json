@@ -69,7 +69,7 @@
                                 "clientId":  "",
                                 "clientSecret":  "",
                                 "redirectUri":  "http://localhost:3000/auth/kakao/callback",
-                                "androidRedirectUri":  "com.korion.wallet://auth/kakao/callback"
+                                "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
                             }
               },
     "local-cluster":  {
@@ -147,7 +147,7 @@
                                         "clientId":  "",
                                         "clientSecret":  "",
                                         "redirectUri":  "http://localhost:3000/auth/kakao/callback",
-                                        "androidRedirectUri":  "com.korion.wallet://auth/kakao/callback"
+                                        "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
                                     }
                       },
     "prod":  {
@@ -219,7 +219,7 @@
                                "clientId":  "",
                                "clientSecret":  "",
                                "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
-                               "androidRedirectUri":  "com.korion.wallet://auth/kakao/callback"
+                               "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                            }
              },
     "prod-sentinel":  {
@@ -295,7 +295,7 @@
                                         "clientId":  "",
                                         "clientSecret":  "",
                                         "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
-                                        "androidRedirectUri":  "com.korion.wallet://auth/kakao/callback"
+                                        "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                                     }
                       }
 }
