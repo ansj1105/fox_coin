@@ -12,6 +12,7 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
+import io.vertx.core.MultiMap;
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
@@ -32,6 +33,8 @@ import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
 import static io.vertx.json.schema.common.dsl.Schemas.*;
 import static com.foxya.coin.common.jsonschema.Schemas.*;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @Slf4j
 public class AuthHandler extends BaseHandler {
@@ -68,6 +71,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
         router.post("/kakao").handler(this.kakaoLoginValidation(parser)).handler(this::kakaoLogin);
         router.post("/apple").handler(this.appleLoginValidation(parser)).handler(this::appleLogin);
+        router.post("/apple/callback").handler(this::appleFormPostCallback);
         router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
 
         // 인증 필요 API
@@ -705,6 +709,61 @@ public class AuthHandler extends BaseHandler {
                 success(ctx, data);
             })
             .onFailure(ctx::fail);
+    }
+
+    /**
+     * Apple OAuth form_post 콜백 처리
+     * - Apple은 name/email scope 요청 시 response_mode=form_post만 허용
+     * - form_post로 들어온 값을 프론트 라우트로 GET 리다이렉트하여 기존 흐름 유지
+     */
+    private void appleFormPostCallback(RoutingContext ctx) {
+        MultiMap form = ctx.request().formAttributes();
+        String code = form.get("code");
+        String state = form.get("state");
+        String idToken = form.get("id_token");
+        String error = form.get("error");
+        String errorDescription = form.get("error_description");
+
+        String scheme = ctx.request().getHeader("X-Forwarded-Proto");
+        if (scheme == null || scheme.isBlank()) {
+            scheme = ctx.request().scheme();
+        }
+        String host = ctx.request().getHeader("X-Forwarded-Host");
+        if (host == null || host.isBlank()) {
+            host = ctx.request().getHeader(HttpHeaders.HOST.toString());
+        }
+
+        StringBuilder redirectUrl = new StringBuilder();
+        redirectUrl.append(scheme).append("://").append(host).append("/auth/apple/callback");
+        String sep = "?";
+        if (code != null && !code.isBlank()) {
+            redirectUrl.append(sep).append("code=").append(urlEncode(code));
+            sep = "&";
+        }
+        if (state != null && !state.isBlank()) {
+            redirectUrl.append(sep).append("state=").append(urlEncode(state));
+            sep = "&";
+        }
+        if (idToken != null && !idToken.isBlank()) {
+            redirectUrl.append(sep).append("id_token=").append(urlEncode(idToken));
+            sep = "&";
+        }
+        if (error != null && !error.isBlank()) {
+            redirectUrl.append(sep).append("error=").append(urlEncode(error));
+            sep = "&";
+        }
+        if (errorDescription != null && !errorDescription.isBlank()) {
+            redirectUrl.append(sep).append("error_description=").append(urlEncode(errorDescription));
+        }
+
+        ctx.response()
+            .setStatusCode(302)
+            .putHeader(HttpHeaders.LOCATION, redirectUrl.toString())
+            .end();
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     /**
