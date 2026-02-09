@@ -66,6 +66,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/recovery/reset-password").handler(this.recoveryResetValidation(parser)).handler(this::resetPasswordWithRecovery);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
+        router.post("/kakao").handler(this.kakaoLoginValidation(parser)).handler(this::kakaoLogin);
         router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
 
         // 인증 필요 API
@@ -316,6 +317,24 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("code", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
+                    .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * Kakao 로그인 Validation
+     */
+    private Handler<RoutingContext> kakaoLoginValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .property("platform", stringSchema().with(minLength(1)))
                     .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
                     .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
                     .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
@@ -591,6 +610,41 @@ public class AuthHandler extends BaseHandler {
 
         log.info("Google login attempt");
         authService.googleLogin(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
+    }
+
+    /**
+     * Kakao 로그인
+     */
+    private void kakaoLogin(RoutingContext ctx) {
+        com.foxya.coin.auth.dto.KakaoLoginRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.KakaoLoginRequestDto.class
+        );
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()) {
+            dto.setDeviceId(ctx.request().getHeader("X-Device-Id"));
+        }
+        if (dto.getDeviceType() == null || dto.getDeviceType().isBlank()) {
+            dto.setDeviceType(ctx.request().getHeader("X-Device-Type"));
+        }
+        if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
+        }
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
+            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
+            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
+            return;
+        }
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        log.info("Kakao login attempt");
+        authService.kakaoLogin(dto)
             .onSuccess(data -> {
                 setRefreshTokenCookie(ctx, data.getRefreshToken());
                 success(ctx, data);

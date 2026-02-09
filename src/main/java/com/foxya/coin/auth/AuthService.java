@@ -20,6 +20,7 @@ import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
+import com.foxya.coin.common.utils.KakaoOAuthUtil;
 import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.device.DeviceRepository;
@@ -42,6 +43,8 @@ import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.RecoveryChallengeResponseDto;
 import com.foxya.coin.auth.dto.RecoveryResetResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
+import com.foxya.coin.auth.dto.KakaoLoginRequestDto;
+import com.foxya.coin.auth.dto.KakaoLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.transfer.TransferRepository;
@@ -100,6 +103,7 @@ public class AuthService extends BaseService {
     private final EmailService emailService;
     private final WebClient webClient;
     private final JsonObject googleConfig;
+    private final JsonObject kakaoConfig;
     private final String minAppVersion;
     private final AppConfigRepository appConfigRepository;
 
@@ -120,6 +124,7 @@ public class AuthService extends BaseService {
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
                       SignupEmailCodeRepository signupEmailCodeRepository, DeviceRepository deviceRepository,
                       ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig,
+                      JsonObject kakaoConfig,
                       String minAppVersion, AppConfigRepository appConfigRepository) {
         super(pool);
         this.minAppVersion = minAppVersion;
@@ -153,6 +158,7 @@ public class AuthService extends BaseService {
         this.emailService = emailService;
         this.webClient = webClient;
         this.googleConfig = googleConfig;
+        this.kakaoConfig = kakaoConfig;
     }
     
     /**
@@ -1228,6 +1234,95 @@ public class AuthService extends BaseService {
                 }
                 log.error("Google login failed", throwable);
                 return Future.<GoogleLoginResponseDto>failedFuture(new BadRequestException("Google login failed: " + throwable.getMessage()));
+            });
+    }
+
+    /**
+     * Kakao 로그인
+     * @param dto Kakao 로그인 요청 DTO (Authorization Code 포함)
+     * @return Kakao 로그인 응답 DTO
+     */
+    public Future<KakaoLoginResponseDto> kakaoLogin(KakaoLoginRequestDto dto) {
+        log.info("Kakao login attempt with code");
+
+        String platform = dto.getPlatform();
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+
+        String clientId = kakaoConfig.getString("clientId");
+        String clientSecret = kakaoConfig.getString("clientSecret");
+        String redirectUri = isAndroid
+            ? kakaoConfig.getString("androidRedirectUri", kakaoConfig.getString("redirectUri"))
+            : kakaoConfig.getString("redirectUri");
+
+        if (clientId == null || clientId.isBlank()) {
+            log.error("Kakao OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Kakao OAuth configuration is missing"));
+        }
+
+        // 1. Kakao OAuth 인증 (토큰 교환 + 사용자 정보 조회)
+        return KakaoOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+            .compose(userInfo -> {
+                String kakaoId = userInfo.getString("id");
+                String email = userInfo.getString("email");
+
+                // 2. 기존 계정 확인 (이메일로)
+                return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+                    .compose(existingUser -> {
+                        if (existingUser != null && existingUser.getDeletedAt() != null) {
+                            return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
+                        }
+                        if (existingUser != null) {
+                            // 기존 사용자: 소셜 링크 연동 및 로그인
+                            log.info("Existing user found: {}", email);
+                            return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "KAKAO", kakaoId, email)
+                                .compose(linked -> {
+                                    if (!linked) {
+                                        log.warn("Failed to link Kakao account, but continuing login");
+                                    }
+
+                                    return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                            .map(dbMin -> {
+                                                String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                                String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                                String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                                return KakaoLoginResponseDto.builder()
+                                                    .accessToken(jwtAccessToken)
+                                                    .refreshToken(jwtRefreshToken)
+                                                    .userId(existingUser.getId())
+                                                    .loginId(existingUser.getLoginId())
+                                                    .isNewUser(false)
+                                                    .isTest(existingUser.getIsTest())
+                                                    .minAppVersion(min)
+                                                    .build();
+                                            }));
+                                });
+                        } else {
+                            // 신규 사용자: 계정 생성
+                            log.info("New user registration via Kakao: {}", email);
+                            return createSocialSignupToken("KAKAO", kakaoId, email)
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                                    .map(dbMin -> {
+                                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                        return KakaoLoginResponseDto.builder()
+                                            .loginId(email)
+                                            .isNewUser(true)
+                                            .signupToken(signupToken)
+                                            .minAppVersion(min)
+                                            .build();
+                                    }));
+                        }
+                    });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.<KakaoLoginResponseDto>failedFuture((UnauthorizedException) throwable);
+                }
+                if (throwable instanceof BadRequestException) {
+                    return Future.<KakaoLoginResponseDto>failedFuture((BadRequestException) throwable);
+                }
+                log.error("Kakao login failed", throwable);
+                return Future.<KakaoLoginResponseDto>failedFuture(new BadRequestException("Kakao login failed: " + throwable.getMessage()));
             });
     }
     

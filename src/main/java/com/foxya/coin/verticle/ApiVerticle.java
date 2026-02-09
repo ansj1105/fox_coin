@@ -257,6 +257,8 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Google OAuth 설정 (환경 변수 우선)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
+        // Kakao OAuth 설정 (환경 변수 우선)
+        JsonObject kakaoConfig = applyKakaoEnvOverrides(config().getJsonObject("kakao", new JsonObject()));
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
         String minAppVersion = System.getenv("MIN_APP_VERSION");
@@ -270,7 +272,7 @@ public class ApiVerticle extends AbstractVerticle {
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig,
+            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig, kakaoConfig,
             minAppVersion, appConfigRepository);
         AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
@@ -783,6 +785,15 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "redirectUri", "GOOGLE_REDIRECT_URI");
         putIfEnvSet(config, "androidClientId", "GOOGLE_ANDROID_CLIENT_ID");
         putIfEnvSet(config, "androidRedirectUri", "GOOGLE_ANDROID_REDIRECT_URI");
+        return config;
+    }
+
+    private static JsonObject applyKakaoEnvOverrides(JsonObject baseConfig) {
+        JsonObject config = baseConfig.copy();
+        putIfEnvSet(config, "clientId", "KAKAO_CLIENT_ID");
+        putIfEnvSet(config, "clientSecret", "KAKAO_CLIENT_SECRET");
+        putIfEnvSet(config, "redirectUri", "KAKAO_REDIRECT_URI");
+        putIfEnvSet(config, "androidRedirectUri", "KAKAO_ANDROID_REDIRECT_URI");
         return config;
     }
 

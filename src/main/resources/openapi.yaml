@@ -211,6 +211,93 @@ components:
               description: 신규 사용자 여부
               example: false
 
+    KakaoLoginRequest:
+      type: object
+      required:
+        - code
+        - deviceId
+        - deviceType
+        - deviceOs
+      properties:
+        code:
+          type: string
+          description: Kakao OAuth Authorization Code
+          example: "3e7f3f0a..."
+        platform:
+          type: string
+          description: 클라이언트 플랫폼 (WEB 또는 ANDROID)
+          example: ANDROID
+        deviceId:
+          type: string
+        deviceType:
+          type: string
+          enum: [WEB, MOBILE]
+        deviceOs:
+          type: string
+          enum: [WEB, IOS, ANDROID]
+        appVersion:
+          type: string
+
+    KakaoLoginResponseData:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT Access Token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refreshToken:
+          type: string
+          description: JWT Refresh Token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        userId:
+          type: integer
+          format: int64
+          description: 사용자 ID
+          example: 123
+        loginId:
+          type: string
+          description: 로그인 ID (이메일)
+          example: "user@example.com"
+        isNewUser:
+          type: boolean
+          description: 신규 사용자 여부
+          example: false
+        signupToken:
+          type: string
+          description: 신규 사용자용 소셜 가입 토큰 (신규 사용자일 때만 제공)
+
+    KakaoLoginResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [OK]
+          example: OK
+        data:
+          type: object
+          properties:
+            accessToken:
+              type: string
+              description: JWT Access Token
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            refreshToken:
+              type: string
+              description: JWT Refresh Token
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            userId:
+              type: integer
+              format: int64
+              description: 사용자 ID
+              example: 123
+            loginId:
+              type: string
+              description: 로그인 ID (이메일)
+              example: "user@example.com"
+            isNewUser:
+              type: boolean
+              description: 신규 사용자 여부
+              example: false
+
     # User 관련 스키마
     User:
       type: object
@@ -2346,6 +2433,77 @@ paths:
                   value:
                     status: ERROR
                     message: Failed to verify Google token
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/kakao:
+    post:
+      summary: Kakao 로그인
+      description: |
+        Kakao OAuth 2.0 Authorization Code를 사용한 로그인
+
+        **흐름:**
+        1. 프론트엔드: Kakao 로그인 버튼 클릭 → Authorization Code 받기
+        2. 프론트엔드 → 백엔드로 code 전달
+        3. 백엔드: code로 Kakao 토큰 교환 + 사용자 정보 조회
+        4. 백엔드: 우리 서비스 계정 생성/연동 후 JWT 발급
+
+        **제약사항:**
+        - `code`: Kakao OAuth Authorization Code (일회용, 짧은 수명)
+        - 백엔드에서 Kakao API를 호출하여 code를 access_token으로 교환
+        - 기존 계정이 있으면 연동, 없으면 신규 가입 토큰 발급
+        - `isNewUser`: true면 신규 가입 (signupToken 제공), false면 기존 사용자 로그인
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KakaoLoginRequest'
+            example:
+              code: "3e7f3f0a..."
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/KakaoLoginResponseData'
+              example:
+                status: OK
+                data:
+                  accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  userId: 123
+                  loginId: "user@example.com"
+                  isNewUser: false
+                  signupToken: "social_signup_token"
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidCode:
+                  summary: 유효하지 않은 Authorization Code
+                  value:
+                    status: ERROR
+                    message: Invalid authorization code
+                verifyFailed:
+                  summary: Kakao 토큰 검증 실패
+                  value:
+                    status: ERROR
+                    message: Failed to verify Kakao token
         '400':
           description: 잘못된 요청
           content:
