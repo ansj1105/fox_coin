@@ -31,7 +31,34 @@ public class AppConfigRepository extends BaseRepository {
             });
     }
 
+    /**
+     * min_app_version 설정값 조회.
+     * Android: config_value 사용, iOS: config_value_apple 사용 (비어 있으면 config_value 사용).
+     */
+    public Future<String> getMinAppVersion(SqlClient client, boolean isIos) {
+        String sql = QueryBuilder.select("app_config", "config_value", "config_value_apple")
+            .where("config_key", Op.Equal, "configKey")
+            .build();
+        Map<String, Object> params = Collections.singletonMap("configKey", KEY_MIN_APP_VERSION);
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.size() == 0) return null;
+                var row = rows.iterator().next();
+                String value = row.getString("config_value");
+                String valueApple = getStringColumnValue(row, "config_value_apple");
+                if (isIos && valueApple != null && !valueApple.isBlank()) {
+                    return valueApple.trim();
+                }
+                return (value != null && !value.isBlank()) ? value.trim() : null;
+            });
+    }
+
+    /**
+     * min_app_version 설정값 조회 (Android 기준 config_value).
+     * @deprecated 플랫폼별 버전이 필요하면 {@link #getMinAppVersion(SqlClient, boolean)} 사용
+     */
+    @Deprecated
     public Future<String> getMinAppVersion(SqlClient client) {
-        return getByKey(client, KEY_MIN_APP_VERSION);
+        return getMinAppVersion(client, false);
     }
 }

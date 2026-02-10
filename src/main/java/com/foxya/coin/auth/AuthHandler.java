@@ -378,9 +378,9 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("address", stringSchema().with(minLength(1)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
-                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
-                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
-                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
                     .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
@@ -623,12 +623,6 @@ public class AuthHandler extends BaseHandler {
         if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
             dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
         }
-        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
-            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
-            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
-            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
-            return;
-        }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));
 
@@ -658,12 +652,6 @@ public class AuthHandler extends BaseHandler {
         if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
             dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
         }
-        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
-            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
-            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
-            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
-            return;
-        }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));
 
@@ -692,12 +680,6 @@ public class AuthHandler extends BaseHandler {
         }
         if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
             dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
-        }
-        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
-            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
-            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
-            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
-            return;
         }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));

@@ -35,7 +35,16 @@ public class AppHandler extends BaseHandler {
     }
 
     private void getConfig(RoutingContext ctx) {
-        Future<JsonObject> future = appConfigRepository.getMinAppVersion(pool)
+        // X-Device-Os: IOS / ANDROID / WEB 또는 query platform=ios 등. 없으면 Android(config_value) 기준.
+        String deviceOs = ctx.request().getHeader("X-Device-Os");
+        if (deviceOs == null || deviceOs.isBlank()) {
+            String platform = ctx.request().getParam("platform");
+            if (platform != null && !platform.isBlank()) {
+                deviceOs = "ios".equalsIgnoreCase(platform.trim()) ? "IOS" : platform.trim().toUpperCase();
+            }
+        }
+        boolean isIos = deviceOs != null && "IOS".equalsIgnoreCase(deviceOs.trim());
+        Future<JsonObject> future = appConfigRepository.getMinAppVersion(pool, isIos)
             .map(dbMin -> {
                 String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : fallbackMinAppVersion;
                 JsonObject data = new JsonObject();

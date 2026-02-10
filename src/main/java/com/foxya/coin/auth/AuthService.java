@@ -197,7 +197,7 @@ public class AuthService extends BaseService {
                 }
                 
                 return maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                         .compose(dbMin -> {
                             String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                             String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
@@ -317,7 +317,7 @@ public class AuthService extends BaseService {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                                 }
                                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                         .compose(dbMin -> {
                                             String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                             String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
@@ -351,6 +351,11 @@ public class AuthService extends BaseService {
                 String masked = maskLoginId(user.getLoginId());
                 return Future.succeededFuture(FindLoginIdDataDto.builder().maskedLoginId(masked).build());
             });
+    }
+
+    /** deviceOs가 iOS인지 여부. 로그인 시 min_app_version 조회에 사용 (iOS면 config_value_apple, 아니면 config_value). */
+    private static boolean isIos(String deviceOs) {
+        return deviceOs != null && "IOS".equalsIgnoreCase(deviceOs.trim());
     }
 
     /**
@@ -721,7 +726,7 @@ public class AuthService extends BaseService {
                     // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
                     .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
                         .map(ignored -> user))
-                    .compose(user -> appConfigRepository.getMinAppVersion(pool)
+                    .compose(user -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                         .compose(dbMin -> {
                             String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                             String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
@@ -1197,7 +1202,7 @@ public class AuthService extends BaseService {
                                     }
                                     
                                     return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                             .map(dbMin -> {
                                                 String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                                 String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
@@ -1217,7 +1222,7 @@ public class AuthService extends BaseService {
                             // 신규 사용자: 계정 생성
                             log.info("New user registration via Google: {}", email);
                             return createSocialSignupToken("GOOGLE", googleId, email)
-                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                     .map(dbMin -> {
                                         String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                         return GoogleLoginResponseDto.builder()
@@ -1286,7 +1291,7 @@ public class AuthService extends BaseService {
                                     }
 
                                     return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                             .map(dbMin -> {
                                                 String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                                 String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
@@ -1306,7 +1311,7 @@ public class AuthService extends BaseService {
                             // 신규 사용자: 계정 생성
                             log.info("New user registration via Kakao: {}", email);
                             return createSocialSignupToken("KAKAO", kakaoId, email)
-                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                     .map(dbMin -> {
                                         String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                         return KakaoLoginResponseDto.builder()
@@ -1391,7 +1396,7 @@ public class AuthService extends BaseService {
 
                         log.info("New user registration via Apple: {}", email);
                         return createSocialSignupToken("APPLE", appleId, email)
-                            .compose(signupToken -> appConfigRepository.getMinAppVersion(pool)
+                            .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                 .map(dbMin -> {
                                     String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                                     return AppleLoginResponseDto.builder()
@@ -1421,7 +1426,7 @@ public class AuthService extends BaseService {
         }
         return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "APPLE", appleId, email != null ? email : existingUser.getLoginId())
             .compose(linked -> registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                .compose(ignored -> appConfigRepository.getMinAppVersion(pool)
+                .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                     .map(dbMin -> {
                         String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
                         String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
