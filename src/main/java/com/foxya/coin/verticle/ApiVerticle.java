@@ -472,7 +472,12 @@ public class ApiVerticle extends AbstractVerticle {
     private void setupGlobalHandlers(Router router) {
         // CORS - 웹 사용 시 널널하게 (preflight 캐시, 노출 헤더 확대)
         router.route().handler(CorsHandler.create()
-            .addRelativeOrigin(".*")
+            .addAllowedOriginPattern(".*")
+            .addAllowedOrigin("capacitor://localhost")
+            .addAllowedOrigin("ionic://localhost")
+            .addAllowedOrigin("http://localhost")
+            .addAllowedOrigin("https://localhost")
+            .addAllowedOrigin("null")
             .allowCredentials(true)
             .maxAgeSeconds(86400)
             .allowedMethod(HttpMethod.GET)
