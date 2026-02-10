@@ -14,7 +14,6 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.auth.jwt.JWTAuthOptions;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
-import io.vertx.ext.web.handler.CorsHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
@@ -470,51 +469,37 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private void setupGlobalHandlers(Router router) {
-        // CORS - 웹 사용 시 널널하게 (preflight 캐시, 노출 헤더 확대)
-        router.route().handler(CorsHandler.create()
-            .addRelativeOrigin(".*")
-            .addOrigin("capacitor://localhost")
-            .addOrigin("ionic://localhost")
-            .addOrigin("http://localhost")
-            .addOrigin("https://localhost")
-            .addOrigin("null")
-            .allowCredentials(true)
-            .maxAgeSeconds(86400)
-            .allowedMethod(HttpMethod.GET)
-            .allowedMethod(HttpMethod.POST)
-            .allowedMethod(HttpMethod.PUT)
-            .allowedMethod(HttpMethod.DELETE)
-            .allowedMethod(HttpMethod.PATCH)
-            .allowedMethod(HttpMethod.OPTIONS)
-            .allowedHeader("Content-Type")
-            .allowedHeader("Authorization")
-            .allowedHeader("Accept")
-            .allowedHeader("Origin")
-            .allowedHeader("X-Requested-With")
-            .allowedHeader("X-Device-Id")
-            .allowedHeader("X-Device-Type")
-            .allowedHeader("X-Device-Os")
-            .allowedHeader("X-App-Version")
-            .allowedHeader("X-Platform")
-            .allowedHeader("X-Client-Version")
-            .allowedHeader("X-Client-Type")
-            .allowedHeader("X-App-Build")
-            .allowedHeader("User-Agent")
-            .allowedHeader("Referer")
-            .allowedHeader("X-Forwarded-For")
-            .allowedHeader("X-Real-IP")
-            .allowedHeader("X-Forwarded-Proto")
-            .allowedHeader("Cache-Control")
-            .allowedHeader("Pragma")
-            .allowedHeader("If-Modified-Since")
-            .allowedHeader("If-None-Match")
-            .allowedHeader("Accept-Language")
-            .allowedHeader("Accept-Encoding")
-            .allowedHeader("Access-Control-Request-Method")
-            .allowedHeader("Access-Control-Request-Headers")
-            .exposedHeader("Content-Length")
-            .exposedHeader("Content-Type")
-            .exposedHeader("Authorization"));
+        // CORS - custom handler to allow non-standard origins (capacitor://, ionic://)
+        router.route().handler(ctx -> {
+            String origin = ctx.request().getHeader("Origin");
+            if (origin != null && !origin.isBlank()) {
+                ctx.response().putHeader("Access-Control-Allow-Origin", origin);
+                ctx.response().putHeader("Vary", "Origin");
+                ctx.response().putHeader("Access-Control-Allow-Credentials", "true");
+                ctx.response().putHeader("Access-Control-Max-Age", "86400");
+                ctx.response().putHeader("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization");
+            }
+
+            if (ctx.request().method() == HttpMethod.OPTIONS) {
+                ctx.response().putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+                String reqHeaders = ctx.request().getHeader("Access-Control-Request-Headers");
+                if (reqHeaders != null && !reqHeaders.isBlank()) {
+                    ctx.response().putHeader("Access-Control-Allow-Headers", reqHeaders);
+                } else {
+                    ctx.response().putHeader(
+                        "Access-Control-Allow-Headers",
+                        "Content-Type, Authorization, Accept, Origin, X-Requested-With, X-Device-Id, X-Device-Type, " +
+                        "X-Device-Os, X-App-Version, X-Platform, X-Client-Version, X-Client-Type, X-App-Build, User-Agent, " +
+                        "Referer, X-Forwarded-For, X-Real-IP, X-Forwarded-Proto, Cache-Control, Pragma, If-Modified-Since, " +
+                        "If-None-Match, Accept-Language, Accept-Encoding, Access-Control-Request-Method, Access-Control-Request-Headers"
+                    );
+                }
+                ctx.response().setStatusCode(204).end();
+                return;
+            }
+
+            ctx.next();
+        });
         
         // Body Handler
         router.route().handler(BodyHandler.create());
