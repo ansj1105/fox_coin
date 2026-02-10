@@ -94,10 +94,16 @@ public class AppleOAuthUtil {
                         .build();
 
                     JwtClaims claims = jwtConsumer.processToClaims(idToken);
+                    Object emailVerified = null;
+                    try {
+                        emailVerified = claims.getClaimValue("email_verified");
+                    } catch (Exception ignore) {
+                        // ignore claim parsing issues
+                    }
                     JsonObject json = new JsonObject()
                         .put("sub", claims.getSubject())
                         .put("email", claims.getStringClaimValue("email"))
-                        .put("email_verified", claims.getStringClaimValue("email_verified"));
+                        .put("email_verified", emailVerified != null ? String.valueOf(emailVerified) : null);
                     return Future.succeededFuture(json);
                 } catch (Exception e) {
                     log.error("Apple id_token verification failed", e);
