@@ -108,6 +108,10 @@ public class WalletHandler extends BaseHandler {
                     .requiredProperty("address", stringSchema().with(minLength(10), maxLength(255)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -120,6 +124,10 @@ public class WalletHandler extends BaseHandler {
                     .requiredProperty("currencyCode", stringSchema().with(minLength(1), maxLength(10)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("privateKey", stringSchema().with(minLength(1), maxLength(512)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
