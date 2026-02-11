@@ -777,6 +777,8 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "redirectUri", "GOOGLE_REDIRECT_URI");
         putIfEnvSet(config, "androidClientId", "GOOGLE_ANDROID_CLIENT_ID");
         putIfEnvSet(config, "androidRedirectUri", "GOOGLE_ANDROID_REDIRECT_URI");
+        putIfEnvSet(config, "iosClientId", "GOOGLE_IOS_CLIENT_ID");
+        putIfEnvSet(config, "iosRedirectUri", "GOOGLE_IOS_REDIRECT_URI");
         return config;
     }
 
@@ -786,6 +788,7 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "clientSecret", "KAKAO_CLIENT_SECRET");
         putIfEnvSet(config, "redirectUri", "KAKAO_REDIRECT_URI");
         putIfEnvSet(config, "androidRedirectUri", "KAKAO_ANDROID_REDIRECT_URI");
+        putIfEnvSet(config, "iosRedirectUri", "KAKAO_IOS_REDIRECT_URI");
         return config;
     }
 

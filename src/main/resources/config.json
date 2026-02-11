@@ -63,13 +63,16 @@
                   "google":  {
                                  "clientSecret":  "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",
                                  "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
-                                 "redirectUri":  "http://localhost:3000/auth/google/callback"
+                                 "redirectUri":  "http://localhost:3000/auth/google/callback",
+                                 "iosClientId":  "658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6.apps.googleusercontent.com",
+                                 "iosRedirectUri":  "com.googleusercontent.apps.658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6:/oauth2redirect"
                              },
                   "kakao":  {
                                 "clientId":  "",
                                 "clientSecret":  "",
                                 "redirectUri":  "http://localhost:3000/auth/kakao/callback",
-                                "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
+                                "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback",
+                                "iosRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                             },
                   "apple":  {
                                  "teamId":  "",
@@ -148,13 +151,16 @@
                           "google":  {
                                          "clientSecret":  "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",
                                          "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
-                                         "redirectUri":  "http://localhost:3000/auth/google/callback"
+                                         "redirectUri":  "http://localhost:3000/auth/google/callback",
+                                         "iosClientId":  "658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6.apps.googleusercontent.com",
+                                         "iosRedirectUri":  "com.googleusercontent.apps.658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6:/oauth2redirect"
                                      },
                           "kakao":  {
                                         "clientId":  "",
                                         "clientSecret":  "",
                                         "redirectUri":  "http://localhost:3000/auth/kakao/callback",
-                                        "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback"
+                                        "androidRedirectUri":  "http://localhost:3000/auth/kakao/callback",
+                                        "iosRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                                     },
                           "apple":  {
                                          "teamId":  "",
@@ -227,13 +233,16 @@
                  "google":  {
                                 "clientSecret":  "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",
                                 "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
-                                "redirectUri":  "https://korion.io.kr/auth/google/callback"
+                                "redirectUri":  "https://korion.io.kr/auth/google/callback",
+                                "iosClientId":  "658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6.apps.googleusercontent.com",
+                                "iosRedirectUri":  "com.googleusercontent.apps.658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6:/oauth2redirect"
                             },
                  "kakao":  {
                                "clientId":  "",
                                "clientSecret":  "",
                                "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
-                               "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
+                               "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback",
+                               "iosRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                            },
                  "apple":  {
                                 "teamId":  "",
@@ -310,13 +319,16 @@
                           "google":  {
                                          "clientSecret":  "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",
                                          "clientId":  "658980808178-dkgebjhtl42v8si66o1b521vgiq9pf4h.apps.googleusercontent.com",
-                                         "redirectUri":  "https://korion.io.kr/auth/google/callback"
+                                         "redirectUri":  "https://korion.io.kr/auth/google/callback",
+                                         "iosClientId":  "658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6.apps.googleusercontent.com",
+                                         "iosRedirectUri":  "com.googleusercontent.apps.658980808178-g7o90te4p44e6np6r816sakjrkk9t1h6:/oauth2redirect"
                                      },
                           "kakao":  {
                                         "clientId":  "",
                                         "clientSecret":  "",
                                         "redirectUri":  "https://korion.io.kr/auth/kakao/callback",
-                                        "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
+                                        "androidRedirectUri":  "https://korion.io.kr/auth/kakao/callback",
+                                        "iosRedirectUri":  "https://korion.io.kr/auth/kakao/callback"
                                     },
                           "apple":  {
                                          "teamId":  "",

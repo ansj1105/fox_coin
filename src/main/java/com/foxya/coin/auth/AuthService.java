@@ -1183,15 +1183,25 @@ public class AuthService extends BaseService {
         
         String platform = dto.getPlatform();
         boolean hasCodeVerifier = dto.getCodeVerifier() != null && !dto.getCodeVerifier().isEmpty();
-        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform) || hasCodeVerifier;
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+        boolean isIos = "IOS".equalsIgnoreCase(platform);
+
+        // 플랫폼 미지정 + PKCE면 기존 Android 처리 유지 (레거시 호환)
+        if (!isAndroid && !isIos && hasCodeVerifier) {
+            isAndroid = true;
+        }
 
         String clientId = isAndroid
             ? googleConfig.getString("androidClientId", googleConfig.getString("clientId"))
-            : googleConfig.getString("clientId");
-        String clientSecret = isAndroid ? null : googleConfig.getString("clientSecret");
+            : isIos
+                ? googleConfig.getString("iosClientId", googleConfig.getString("clientId"))
+                : googleConfig.getString("clientId");
+        String clientSecret = (isAndroid || isIos) ? null : googleConfig.getString("clientSecret");
         String redirectUri = isAndroid
             ? googleConfig.getString("androidRedirectUri", googleConfig.getString("redirectUri"))
-            : googleConfig.getString("redirectUri");
+            : isIos
+                ? googleConfig.getString("iosRedirectUri", googleConfig.getString("redirectUri"))
+                : googleConfig.getString("redirectUri");
         
         if (clientId == null) {
             log.error("Google OAuth configuration is missing");
@@ -1287,12 +1297,15 @@ public class AuthService extends BaseService {
 
         String platform = dto.getPlatform();
         boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+        boolean isIos = "IOS".equalsIgnoreCase(platform);
 
         String clientId = kakaoConfig.getString("clientId");
         String clientSecret = kakaoConfig.getString("clientSecret");
         String redirectUri = isAndroid
             ? kakaoConfig.getString("androidRedirectUri", kakaoConfig.getString("redirectUri"))
-            : kakaoConfig.getString("redirectUri");
+            : isIos
+                ? kakaoConfig.getString("iosRedirectUri", kakaoConfig.getString("redirectUri"))
+                : kakaoConfig.getString("redirectUri");
 
         if (clientId == null || clientId.isBlank()) {
             log.error("Kakao OAuth configuration is missing");
