@@ -1210,6 +1210,9 @@ components:
           type: number
           format: decimal
           description: 채굴량
+        efficiency:
+          type: integer
+          description: 채굴 효율
         type:
           type: string
           enum: [BROADCAST_PROGRESS, BROADCAST_WATCH]

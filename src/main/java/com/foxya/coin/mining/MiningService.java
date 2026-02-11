@@ -167,6 +167,7 @@ public class MiningService extends BaseService {
                                 .level(mh.getLevel())
                                 .nickname(nickname)
                                 .amount(mh.getAmount())
+                                .efficiency(mh.getEfficiency())
                                 .type(mh.getType())
                                 .status(mh.getStatus())
                                 .createdAt(mh.getCreatedAt())
@@ -410,7 +411,29 @@ public class MiningService extends BaseService {
         return userRepository.getUserById(pool, userId)
             .compose(u -> {
                 Integer ul = (u != null && u.getLevel() != null) ? u.getLevel() : 1;
-                return miningRepository.insertMiningHistory(pool, userId, ul, session.getRatePerHour(), "BROADCAST_WATCH", "COMPLETED");
+                return miningRepository.getMiningLevelByLevel(pool, ul)
+                    .compose(miningLevel -> {
+                        Integer efficiency = null;
+                        if (miningLevel != null
+                            && miningLevel.getDailyMaxMining() != null
+                            && miningLevel.getDailyMaxMining().compareTo(BigDecimal.ZERO) > 0
+                            && miningLevel.getDailyMaxVideos() != null
+                            && miningLevel.getDailyMaxVideos() > 0
+                            && session.getRatePerHour() != null) {
+                            BigDecimal perVideoBase = miningLevel.getDailyMaxMining()
+                                .divide(BigDecimal.valueOf(miningLevel.getDailyMaxVideos()), 18, RoundingMode.DOWN);
+                            if (perVideoBase.compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal ratio = session.getRatePerHour()
+                                    .divide(perVideoBase, 6, RoundingMode.HALF_UP);
+                                efficiency = ratio.subtract(BigDecimal.ONE)
+                                    .multiply(BigDecimal.valueOf(100))
+                                    .setScale(0, RoundingMode.HALF_UP)
+                                    .intValue();
+                                if (efficiency < 0) efficiency = 0;
+                            }
+                        }
+                        return miningRepository.insertMiningHistory(pool, userId, ul, session.getRatePerHour(), efficiency, "BROADCAST_WATCH", "COMPLETED");
+                    });
             })
             .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
             .compose(x -> levelService.syncLevelFromExp(userId))

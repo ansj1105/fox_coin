@@ -50,6 +50,7 @@ public class MiningRepository extends BaseRepository {
         .userId(row.getLong("user_id"))
         .level(row.getInteger("level"))
         .amount(row.getBigDecimal("amount"))
+        .efficiency(row.getInteger("efficiency"))
         .type(row.getString("type"))
         .status(row.getString("status"))
         .createdAt(row.getLocalDateTime("created_at"))
@@ -144,14 +145,15 @@ public class MiningRepository extends BaseRepository {
     /**
      * 채굴 내역 1건 추가 (1시간 채굴 세션 완료 시 1건, amount = 해당 세션의 1시간 채굴량)
      */
-    public Future<MiningHistory> insertMiningHistory(SqlClient client, Long userId, Integer level, BigDecimal amount, String type, String status) {
+    public Future<MiningHistory> insertMiningHistory(SqlClient client, Long userId, Integer level, BigDecimal amount, Integer efficiency, String type, String status) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("level", level != null ? level : 1);
         params.put("amount", amount);
+        params.put("efficiency", efficiency);
         params.put("type", type != null ? type : "BROADCAST_WATCH");
         params.put("status", status != null ? status : "COMPLETED");
-        String sql = QueryBuilder.insert("mining_history", params, "id, user_id, level, amount, type, status, created_at");
+        String sql = QueryBuilder.insert("mining_history", params, "id, user_id, level, amount, efficiency, type, status, created_at");
         return query(client, sql, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
@@ -175,7 +177,7 @@ public class MiningRepository extends BaseRepository {
         
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
             .selectAlias("mining_history", "mh", 
-                "mh.id", "mh.user_id", "mh.level", "mh.amount", "mh.type", "mh.status", "mh.created_at")
+                "mh.id", "mh.user_id", "mh.level", "mh.amount", "mh.efficiency", "mh.type", "mh.status", "mh.created_at")
             .where("mh.user_id", Op.Equal, "userId")
             .andWhere("mh.status", Op.Equal, "status")
             .andWhere("mh.deleted_at", Op.IsNull);
@@ -474,4 +476,3 @@ public class MiningRepository extends BaseRepository {
             .onFailure(throwable -> log.error("오늘 채굴 세션 수 조회 실패 - userId: {}", userId, throwable));
     }
 }
-

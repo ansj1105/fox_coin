@@ -34,9 +34,9 @@ public class MiningHistoryResponseDto {
         private Integer level;
         private String nickname;
         private BigDecimal amount;
+        private Integer efficiency;
         private String type;
         private String status;
         private LocalDateTime createdAt;
     }
 }
-
