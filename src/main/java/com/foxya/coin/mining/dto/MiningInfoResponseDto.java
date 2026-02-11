@@ -30,5 +30,10 @@ public class MiningInfoResponseDto {
     private BigDecimal inviteBonusMultiplier;
     /** 유효 직접 초대 수 (이메일 인증+채굴 기록 있는 referred 수). 채굴 보너스 % 구간용 */
     private Integer validDirectReferralCount;
+    /** 경고 여부 */
+    private Boolean warning;
+    /** 채굴정지 여부 */
+    private Boolean miningSuspended;
+    /** 계정차단 여부 */
+    private Boolean accountBlocked;
 }
-

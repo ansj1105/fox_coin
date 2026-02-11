@@ -53,7 +53,7 @@ public class RankingRepository extends BaseRepository {
         if (startDate != null) {
             cteSql.append(" AND dm.mining_date >= #{start_date}");
         }
-        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD'");
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         if (startDate != null) {
             cteSql.append(" AND it.created_at >= #{start_date}");
         }
@@ -115,7 +115,7 @@ public class RankingRepository extends BaseRepository {
         if (startDate != null) {
             cteSql.append(" AND dm.mining_date >= #{start_date}");
         }
-        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD'");
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         if (startDate != null) {
             cteSql.append(" AND it.created_at >= #{start_date}");
         }
@@ -226,7 +226,7 @@ public class RankingRepository extends BaseRepository {
         }
         
         cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         
         // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -318,7 +318,7 @@ public class RankingRepository extends BaseRepository {
         }
         
         cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         
         // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {

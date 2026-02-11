@@ -43,6 +43,10 @@ public class UserService extends BaseService {
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
     private final JsonObject jwtConfig;
+
+    private static Boolean toRestrictionFlag(Integer value) {
+        return value != null && value == 1;
+    }
     private final String frontendBaseUrl;
     private final EmailVerificationRepository emailVerificationRepository;
     private final EmailService emailService;
@@ -100,6 +104,9 @@ public class UserService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                 }
+                if (user.getIsAccountBlocked() != null && user.getIsAccountBlocked() == 1) {
+                    return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                }
                 
                 // 비밀번호 검증
                 if (!BCrypt.checkpw(dto.getPassword(), user.getPasswordHash())) {
@@ -121,6 +128,9 @@ public class UserService extends BaseService {
                         .userId(user.getId())
                         .loginId(user.getLoginId())
                         .isTest(user.getIsTest())
+                        .warning(toRestrictionFlag(user.getIsWarning()))
+                        .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                        .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
                         .build()
                 );
             });

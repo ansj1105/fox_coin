@@ -352,6 +352,24 @@ public class AuthHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @Order(8)
+        @DisplayName("실패 - 계정 차단(is_account_blocked) 시 로그인 불가 (V41)")
+        void failLoginWhenAccountBlocked(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "blocked_user")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("blocked-device-1", "WEB", "WEB"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    String message = res.bodyAsJsonObject().getString("message");
+                    assertThat(message).isNotNull().contains("차단");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
         @Order(26)
         @DisplayName("성공 - 동일 슬롯 로그인 시 기존 기기 교체")
         void replaceDeviceOnSameSlot(VertxTestContext tc) {

@@ -165,6 +165,10 @@ public class AuthService extends BaseService {
         this.kakaoConfig = kakaoConfig;
         this.appleConfig = appleConfig;
     }
+
+    private static Boolean toRestrictionFlag(Integer value) {
+        return value != null && value == 1;
+    }
     
     /**
      * 로그인
@@ -180,6 +184,9 @@ public class AuthService extends BaseService {
                             }
                             return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                         });
+                }
+                if (isAccountBlocked(user)) {
+                    return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
                 }
                 
                 // 비밀번호 검증: 소셜 전용(비밀번호 미설정)은 빈 문자열로 로그인 허용
@@ -210,6 +217,9 @@ public class AuthService extends BaseService {
                                     .loginId(user.getLoginId())
                                     .isTest(user.getIsTest())
                                     .minAppVersion(min)
+                                    .warning(toRestrictionFlag(user.getIsWarning()))
+                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
                                     .build()
                             );
                         }));
@@ -316,6 +326,9 @@ public class AuthService extends BaseService {
                                 if (user == null) {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                                 }
+                                if (isAccountBlocked(user)) {
+                                    return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                                }
                                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                                     .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                                         .compose(dbMin -> {
@@ -331,6 +344,9 @@ public class AuthService extends BaseService {
                                                     .loginId(user.getLoginId())
                                                     .isTest(user.getIsTest())
                                                     .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(user.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
                                                     .build());
                                         }));
                             });
@@ -351,6 +367,11 @@ public class AuthService extends BaseService {
                 String masked = maskLoginId(user.getLoginId());
                 return Future.succeededFuture(FindLoginIdDataDto.builder().maskedLoginId(masked).build());
             });
+    }
+
+    /** 계정 차단 여부 (is_account_blocked = 1). V41/coin_system V46 */
+    private static boolean isAccountBlocked(User user) {
+        return user != null && user.getIsAccountBlocked() != null && user.getIsAccountBlocked() != 0;
     }
 
     /** deviceOs가 iOS인지 여부. 로그인 시 min_app_version 조회에 사용 (iOS면 config_value_apple, 아니면 config_value). */
@@ -738,6 +759,9 @@ public class AuthService extends BaseService {
                                 .loginId(user.getLoginId())
                                 .isTest(user.getIsTest())
                                 .minAppVersion(min)
+                                .warning(toRestrictionFlag(user.getIsWarning()))
+                                .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
                                 .build();
                             String refCode = dto.getReferralCode();
                         if (refCode != null && !refCode.isBlank()) {
@@ -1193,6 +1217,9 @@ public class AuthService extends BaseService {
                             return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
                         }
                         if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
                             // 기존 사용자: 소셜 링크 연동 및 로그인
                             log.info("Existing user found: {}", email);
                             return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "GOOGLE", googleId, email)
@@ -1215,6 +1242,9 @@ public class AuthService extends BaseService {
                                                     .isNewUser(false)
                                                     .isTest(existingUser.getIsTest())
                                                     .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
                                                     .build();
                                             }));
                                 });
@@ -1282,6 +1312,9 @@ public class AuthService extends BaseService {
                             return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
                         }
                         if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
                             // 기존 사용자: 소셜 링크 연동 및 로그인
                             log.info("Existing user found: {}", email);
                             return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "KAKAO", kakaoId, email)
@@ -1304,6 +1337,9 @@ public class AuthService extends BaseService {
                                                     .isNewUser(false)
                                                     .isTest(existingUser.getIsTest())
                                                     .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
                                                     .build();
                                             }));
                                 });
@@ -1391,6 +1427,9 @@ public class AuthService extends BaseService {
                             return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
                         }
                         if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
                             return buildAppleLoginResponse(existingUser, appleId, email, dto);
                         }
 
@@ -1424,6 +1463,9 @@ public class AuthService extends BaseService {
         if (existingUser == null) {
             return Future.failedFuture(new BadRequestException("사용자를 찾을 수 없습니다."));
         }
+        if (isAccountBlocked(existingUser)) {
+            return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+        }
         return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "APPLE", appleId, email != null ? email : existingUser.getLoginId())
             .compose(linked -> registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                 .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
@@ -1439,6 +1481,9 @@ public class AuthService extends BaseService {
                             .isNewUser(false)
                             .isTest(existingUser.getIsTest())
                             .minAppVersion(min)
+                            .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                            .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                            .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
                             .build();
                     })));
     }

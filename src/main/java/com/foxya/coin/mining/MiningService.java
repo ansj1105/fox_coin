@@ -45,6 +45,10 @@ public class MiningService extends BaseService {
     private final BonusRepository bonusRepository;
     private final WalletRepository walletRepository;
     private final ReferralService referralService;
+
+    private static Boolean toRestrictionFlag(Integer value) {
+        return value != null && value == 1;
+    }
     private final TransferRepository transferRepository;
     private final CurrencyRepository currencyRepository;
     private final EmailVerificationRepository emailVerificationRepository;
@@ -310,6 +314,9 @@ public class MiningService extends BaseService {
                                     .ratePerHour(ratePerHour)
                                     .inviteBonusMultiplier(inviteBonusMultiplier != null ? inviteBonusMultiplier : BigDecimal.ONE)
                                     .validDirectReferralCount(validDirectReferralCount != null ? validDirectReferralCount : 0)
+                                    .warning(toRestrictionFlag(user.getIsWarning()))
+                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
                                     .build();
                             });
                     });
@@ -572,4 +579,3 @@ public class MiningService extends BaseService {
             });
     }
 }
-

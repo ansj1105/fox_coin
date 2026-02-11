@@ -96,7 +96,7 @@ public class ReferralRepository extends BaseRepository {
         LEFT JOIN users u ON u.id = rr.referred_id
         LEFT JOIN daily_mining dm ON dm.user_id = rr.referred_id
         LEFT JOIN internal_transfers it ON it.receiver_id = rr.referred_id
-            AND it.transfer_type = 'REFERRAL_REWARD'
+            AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)
         WHERE rr.referrer_id = #{referrer_id}
           AND rr.status = 'ACTIVE'
           AND rr.deleted_at IS NULL

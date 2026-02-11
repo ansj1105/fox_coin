@@ -178,6 +178,33 @@ components:
         signupToken:
           type: string
           description: 신규 사용자용 소셜 가입 토큰 (신규 사용자일 때만 제공)
+        warning:
+          type: boolean
+          description: 경고 여부
+        miningSuspended:
+          type: boolean
+          description: 채굴정지 여부
+        accountBlocked:
+          type: boolean
+          description: 계정차단 여부
+        warning:
+          type: boolean
+          description: 경고 여부
+        miningSuspended:
+          type: boolean
+          description: 채굴정지 여부
+        accountBlocked:
+          type: boolean
+          description: 계정차단 여부
+        warning:
+          type: boolean
+          description: 경고 여부
+        miningSuspended:
+          type: boolean
+          description: 채굴정지 여부
+        accountBlocked:
+          type: boolean
+          description: 계정차단 여부
 
     GoogleLoginResponse:
       type: object
@@ -210,6 +237,33 @@ components:
               type: boolean
               description: 신규 사용자 여부
               example: false
+            warning:
+              type: boolean
+              description: 경고 여부
+            miningSuspended:
+              type: boolean
+              description: 채굴정지 여부
+            accountBlocked:
+              type: boolean
+              description: 계정차단 여부
+            warning:
+              type: boolean
+              description: 경고 여부
+            miningSuspended:
+              type: boolean
+              description: 채굴정지 여부
+            accountBlocked:
+              type: boolean
+              description: 계정차단 여부
+            warning:
+              type: boolean
+              description: 경고 여부
+            miningSuspended:
+              type: boolean
+              description: 채굴정지 여부
+            accountBlocked:
+              type: boolean
+              description: 계정차단 여부
 
     KakaoLoginRequest:
       type: object
@@ -1130,6 +1184,15 @@ components:
         validDirectReferralCount:
           type: integer
           description: 유효 직접 초대 수 (이메일 인증+채굴 기록 있는 referred 수). 채굴 보너스 % 구간용
+        warning:
+          type: boolean
+          description: 경고 여부
+        miningSuspended:
+          type: boolean
+          description: 채굴정지 여부
+        accountBlocked:
+          type: boolean
+          description: 계정차단 여부
 
     MiningHistoryItem:
       type: object
@@ -2116,6 +2179,24 @@ paths:
                             type: integer
                           loginId:
                             type: string
+                          warning:
+                            type: boolean
+                            description: 경고 여부
+                          miningSuspended:
+                            type: boolean
+                            description: 채굴정지 여부
+                          accountBlocked:
+                            type: boolean
+                            description: 계정차단 여부
+                          warning:
+                            type: boolean
+                            description: 경고 여부
+                          miningSuspended:
+                            type: boolean
+                            description: 채굴정지 여부
+                          accountBlocked:
+                            type: boolean
+                            description: 계정차단 여부
         '400':
           description: 인증코드 오류·만료, 닉네임 중복, 형식 오류 등
           content:
