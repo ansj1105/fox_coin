@@ -1490,7 +1490,7 @@ public class AuthService extends BaseService {
             .mapEmpty()
             .recover(err -> {
                 log.warn("Failed to cache Kakao OAuth response: {}", err.getMessage());
-                return Future.succeededFuture();
+                return Future.<Void>succeededFuture();
             });
     }
 
