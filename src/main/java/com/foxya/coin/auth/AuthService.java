@@ -1,6 +1,8 @@
 package com.foxya.coin.auth;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.authentication.TokenCredentials;
 import io.vertx.ext.auth.jwt.JWTAuth;
@@ -116,6 +118,10 @@ public class AuthService extends BaseService {
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
     private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
     private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
+    private static final String KAKAO_OAUTH_CACHE_PREFIX = "oauth:kakao:code:";
+    private static final String KAKAO_OAUTH_LOCK_PREFIX = "oauth:kakao:lock:";
+    private static final int KAKAO_OAUTH_CACHE_TTL_SECONDS = 60;
+    private static final int KAKAO_OAUTH_LOCK_TTL_SECONDS = 10;
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
@@ -1319,8 +1325,16 @@ public class AuthService extends BaseService {
             return Future.failedFuture(new BadRequestException("Kakao OAuth configuration is missing"));
         }
 
+        final String authCode = dto.getCode();
+        final String cacheKey = (authCode == null || authCode.isBlank()) ? null : KAKAO_OAUTH_CACHE_PREFIX + authCode;
+        final String lockKey = (authCode == null || authCode.isBlank()) ? null : KAKAO_OAUTH_LOCK_PREFIX + authCode;
+
+        // 중복 콜백 대응: 캐시가 있으면 바로 반환
+        Future<KakaoLoginResponseDto> cachedResponse = getCachedKakaoResponse(cacheKey);
+
         // 1. Kakao OAuth 인증 (토큰 교환 + 사용자 정보 조회)
-        return KakaoOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+        Future<KakaoLoginResponseDto> loginFlow = acquireKakaoLock(lockKey, cacheKey)
+            .compose(ignored -> KakaoOAuthUtil.authenticate(webClient, authCode, clientId, clientSecret, redirectUri))
             .compose(userInfo -> {
                 String kakaoId = userInfo.getString("id");
                 String email = userInfo.getString("email");
@@ -1361,7 +1375,8 @@ public class AuthService extends BaseService {
                                                     .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
                                                     .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
                                                     .build();
-                                            }));
+                                            })
+                                            .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp));
                                 });
                         } else {
                             // 신규 사용자: 계정 생성
@@ -1376,11 +1391,15 @@ public class AuthService extends BaseService {
                                             .signupToken(signupToken)
                                             .minAppVersion(min)
                                             .build();
-                                    }));
+                                    })
+                                    .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp)));
                         }
                     });
             })
             .recover(throwable -> {
+                if (throwable instanceof CachedKakaoResponseException cachedErr) {
+                    return Future.succeededFuture(cachedErr.response);
+                }
                 if (throwable instanceof UnauthorizedException) {
                     return Future.<KakaoLoginResponseDto>failedFuture((UnauthorizedException) throwable);
                 }
@@ -1390,6 +1409,102 @@ public class AuthService extends BaseService {
                 log.error("Kakao login failed", throwable);
                 return Future.<KakaoLoginResponseDto>failedFuture(new BadRequestException("Kakao login failed: " + throwable.getMessage()));
             });
+
+        return cachedResponse.recover(err -> loginFlow);
+    }
+
+    private Future<Void> acquireKakaoLock(String lockKey, String cacheKey) {
+        if (redisApi == null || lockKey == null) {
+            return Future.succeededFuture();
+        }
+        return redisApi
+            .set(java.util.List.of(lockKey, "1", "NX", "EX", String.valueOf(KAKAO_OAUTH_LOCK_TTL_SECONDS)))
+            .compose(resp -> {
+                if (resp == null) {
+                    return waitForCachedKakaoResponse(cacheKey, 1, 300)
+                        .compose(cached -> Future.<Void>failedFuture(new CachedKakaoResponseException(cached)));
+                }
+                return Future.succeededFuture();
+            })
+            .recover(err -> {
+                log.warn("Failed to acquire Kakao OAuth lock, proceeding without lock: {}", err.getMessage());
+                return Future.succeededFuture();
+            });
+    }
+
+    private Future<KakaoLoginResponseDto> getCachedKakaoResponse(String cacheKey) {
+        if (redisApi == null || cacheKey == null) {
+            return Future.failedFuture(new CacheMissException());
+        }
+        return redisApi.get(cacheKey)
+            .compose(res -> {
+                if (res == null) {
+                    return Future.failedFuture(new CacheMissException());
+                }
+                try {
+                    JsonObject payload = new JsonObject(res.toString());
+                    KakaoLoginResponseDto dto = payload.mapTo(KakaoLoginResponseDto.class);
+                    return Future.succeededFuture(dto);
+                } catch (Exception e) {
+                    return Future.failedFuture(e);
+                }
+            });
+    }
+
+    private Future<KakaoLoginResponseDto> waitForCachedKakaoResponse(String cacheKey, int attempts, long delayMs) {
+        if (redisApi == null || cacheKey == null) {
+            return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+        }
+        return redisApi.get(cacheKey)
+            .compose(res -> {
+                if (res != null) {
+                    try {
+                        JsonObject payload = new JsonObject(res.toString());
+                        KakaoLoginResponseDto dto = payload.mapTo(KakaoLoginResponseDto.class);
+                        return Future.succeededFuture(dto);
+                    } catch (Exception e) {
+                        return Future.failedFuture(e);
+                    }
+                }
+                if (attempts <= 0) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+                }
+                Vertx vertx = Vertx.currentContext() != null ? Vertx.currentContext().owner() : null;
+                if (vertx == null) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+                }
+                Promise<KakaoLoginResponseDto> promise = Promise.promise();
+                vertx.setTimer(delayMs, id -> {
+                    waitForCachedKakaoResponse(cacheKey, attempts - 1, delayMs).onComplete(promise);
+                });
+                return promise.future();
+            });
+    }
+
+    private Future<Void> cacheKakaoResponse(String cacheKey, KakaoLoginResponseDto response) {
+        if (redisApi == null || cacheKey == null || response == null) {
+            return Future.succeededFuture();
+        }
+        JsonObject payload = JsonObject.mapFrom(response);
+        return redisApi.setex(cacheKey, String.valueOf(KAKAO_OAUTH_CACHE_TTL_SECONDS), payload.encode())
+            .mapEmpty()
+            .recover(err -> {
+                log.warn("Failed to cache Kakao OAuth response: {}", err.getMessage());
+                return Future.succeededFuture();
+            });
+    }
+
+    private static class CachedKakaoResponseException extends RuntimeException {
+        private final KakaoLoginResponseDto response;
+
+        private CachedKakaoResponseException(KakaoLoginResponseDto response) {
+            this.response = response;
+        }
+    }
+
+    private static class CacheMissException extends RuntimeException {
+        private CacheMissException() {
+        }
     }
 
     /**
