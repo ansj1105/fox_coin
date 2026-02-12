@@ -1486,12 +1486,10 @@ public class AuthService extends BaseService {
             return Future.succeededFuture();
         }
         JsonObject payload = JsonObject.mapFrom(response);
-        return redisApi.setex(cacheKey, String.valueOf(KAKAO_OAUTH_CACHE_TTL_SECONDS), payload.encode())
-            .mapEmpty()
-            .recover(err -> {
-                log.warn("Failed to cache Kakao OAuth response: {}", err.getMessage());
-                return Future.<Void>succeededFuture();
-            });
+        Future<Void> future = redisApi.setex(cacheKey, String.valueOf(KAKAO_OAUTH_CACHE_TTL_SECONDS), payload.encode())
+            .mapEmpty();
+        future.onFailure(err -> log.warn("Failed to cache Kakao OAuth response: {}", err.getMessage()));
+        return future;
     }
 
     private static class CachedKakaoResponseException extends RuntimeException {
