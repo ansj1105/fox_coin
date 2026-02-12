@@ -319,7 +319,8 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("idToken", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
                     .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
@@ -625,6 +626,12 @@ public class AuthHandler extends BaseHandler {
         }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        if ((dto.getCode() == null || dto.getCode().isBlank())
+            && (dto.getIdToken() == null || dto.getIdToken().isBlank())) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("Missing code or idToken"));
+            return;
+        }
 
         log.info("Google login attempt");
         authService.googleLogin(dto)

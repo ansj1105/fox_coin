@@ -1213,7 +1213,14 @@ public class AuthService extends BaseService {
         }
         
         // 1. Google OAuth 인증 (토큰 교환 + 사용자 정보 조회)
-        return GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier())
+        Future<JsonObject> userInfoFuture;
+        if (dto.getCode() != null && !dto.getCode().isBlank()) {
+            userInfoFuture = GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier());
+        } else {
+            userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), clientId);
+        }
+
+        return userInfoFuture
             .compose(userInfo -> {
                 String googleId = userInfo.getString("id");
                 String email = userInfo.getString("email");
