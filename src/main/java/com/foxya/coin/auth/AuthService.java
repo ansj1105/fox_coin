@@ -1375,8 +1375,8 @@ public class AuthService extends BaseService {
                                                     .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
                                                     .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
                                                     .build();
-                                            })
-                                            .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp));
+                                            }))
+                                        .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp));
                                 });
                         } else {
                             // 신규 사용자: 계정 생성
