@@ -13,6 +13,7 @@ import lombok.Setter;
 @Builder
 public class KakaoLoginRequestDto {
     private String code;
+    private String accessToken;
     private String platform;
     private String deviceId;
     private String deviceType;

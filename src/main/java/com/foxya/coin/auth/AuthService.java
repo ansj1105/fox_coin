@@ -1308,7 +1308,7 @@ public class AuthService extends BaseService {
      * @return Kakao 로그인 응답 DTO
      */
     public Future<KakaoLoginResponseDto> kakaoLogin(KakaoLoginRequestDto dto) {
-        log.info("Kakao login attempt with code");
+        log.info("Kakao login attempt");
 
         String platform = dto.getPlatform();
         boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
@@ -1328,15 +1328,23 @@ public class AuthService extends BaseService {
         }
 
         final String authCode = dto.getCode();
-        final String cacheKey = (authCode == null || authCode.isBlank()) ? null : KAKAO_OAUTH_CACHE_PREFIX + authCode;
-        final String lockKey = (authCode == null || authCode.isBlank()) ? null : KAKAO_OAUTH_LOCK_PREFIX + authCode;
+        final String accessToken = dto.getAccessToken();
+        final boolean hasCode = authCode != null && !authCode.isBlank();
+        final boolean hasAccessToken = accessToken != null && !accessToken.isBlank();
 
-        // 중복 콜백 대응: 캐시가 있으면 바로 반환
-        Future<KakaoLoginResponseDto> cachedResponse = getCachedKakaoResponse(cacheKey);
+        if (!hasCode && !hasAccessToken) {
+            return Future.failedFuture(new BadRequestException("Missing code or accessToken"));
+        }
 
-        // 1. Kakao OAuth 인증 (토큰 교환 + 사용자 정보 조회)
-        Future<KakaoLoginResponseDto> loginFlow = acquireKakaoLock(lockKey, cacheKey)
-            .compose(ignored -> KakaoOAuthUtil.authenticate(webClient, authCode, clientId, clientSecret, redirectUri))
+        final String cacheKey = hasCode ? KAKAO_OAUTH_CACHE_PREFIX + authCode : null;
+        final String lockKey = hasCode ? KAKAO_OAUTH_LOCK_PREFIX + authCode : null;
+
+        Future<JsonObject> userInfoFuture = hasAccessToken
+            ? KakaoOAuthUtil.getUserInfo(webClient, accessToken)
+            : acquireKakaoLock(lockKey, cacheKey)
+                .compose(ignored -> KakaoOAuthUtil.authenticate(webClient, authCode, clientId, clientSecret, redirectUri));
+
+        Future<KakaoLoginResponseDto> loginFlow = userInfoFuture
             .compose(userInfo -> {
                 String kakaoId = userInfo.getString("id");
                 String email = userInfo.getString("email");
@@ -1419,6 +1427,10 @@ public class AuthService extends BaseService {
                 return Future.<KakaoLoginResponseDto>failedFuture(new BadRequestException("Kakao login failed: " + throwable.getMessage()));
             });
 
+        if (!hasCode) {
+            return loginFlow;
+        }
+        Future<KakaoLoginResponseDto> cachedResponse = getCachedKakaoResponse(cacheKey);
         return cachedResponse.recover(err -> loginFlow);
     }
 
