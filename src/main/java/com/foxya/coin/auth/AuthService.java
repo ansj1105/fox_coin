@@ -1213,14 +1213,15 @@ public class AuthService extends BaseService {
             log.error("Google OAuth configuration is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
-        if (clientSecret == null && (dto.getCodeVerifier() == null || dto.getCodeVerifier().isEmpty())) {
+        boolean usingCode = dto.getCode() != null && !dto.getCode().isBlank();
+        if (usingCode && clientSecret == null && (dto.getCodeVerifier() == null || dto.getCodeVerifier().isEmpty())) {
             log.error("Google OAuth client secret is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
         
         // 1. Google OAuth 인증 (토큰 교환 + 사용자 정보 조회)
         Future<JsonObject> userInfoFuture;
-        if (dto.getCode() != null && !dto.getCode().isBlank()) {
+        if (usingCode) {
             userInfoFuture = GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier());
         } else {
             userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), clientId);
