@@ -1402,6 +1402,13 @@ public class AuthService extends BaseService {
                 if (throwable instanceof CachedKakaoResponseException cachedErr) {
                     return Future.succeededFuture(cachedErr.response);
                 }
+                // 중복 콜백으로 인한 invalid_grant는 캐시 응답이 없으면 성공/실패 여부를 알 수 없으므로
+                // 클라이언트 재시도에 맡기고 에러 로그만 남긴다.
+                if (throwable instanceof UnauthorizedException
+                    && throwable.getMessage() != null
+                    && throwable.getMessage().contains("Invalid authorization code")) {
+                    log.warn("Kakao OAuth invalid_grant (likely duplicate).");
+                }
                 if (throwable instanceof UnauthorizedException) {
                     return Future.<KakaoLoginResponseDto>failedFuture((UnauthorizedException) throwable);
                 }
@@ -1423,9 +1430,17 @@ public class AuthService extends BaseService {
             .set(java.util.List.of(lockKey, "1", "NX", "EX", String.valueOf(KAKAO_OAUTH_LOCK_TTL_SECONDS)))
             .compose(resp -> {
                 if (resp == null) {
-                    return waitForCachedKakaoResponse(cacheKey, 2, 300)
+                    return waitForCachedKakaoResponse(cacheKey, 5, 500)
                         .compose(cached -> Future.<Void>failedFuture(new CachedKakaoResponseException(cached)));
                 }
+                return Future.succeededFuture();
+            })
+            .recover(err -> {
+                if (err instanceof UnauthorizedException) {
+                    log.warn("Kakao OAuth cache miss after wait, proceeding to exchange.");
+                    return Future.succeededFuture();
+                }
+                log.warn("Failed to acquire Kakao OAuth lock, proceeding without lock: {}", err.getMessage());
                 return Future.succeededFuture();
             });
     }
