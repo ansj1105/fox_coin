@@ -1224,7 +1224,8 @@ public class AuthService extends BaseService {
         if (usingCode) {
             userInfoFuture = GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier());
         } else {
-            userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), clientId);
+            String expectedAud = googleConfig.getString("clientId", clientId);
+            userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), expectedAud);
         }
 
         return userInfoFuture
