@@ -1421,13 +1421,9 @@ public class AuthService extends BaseService {
             .set(java.util.List.of(lockKey, "1", "NX", "EX", String.valueOf(KAKAO_OAUTH_LOCK_TTL_SECONDS)))
             .compose(resp -> {
                 if (resp == null) {
-                    return waitForCachedKakaoResponse(cacheKey, 1, 300)
+                    return waitForCachedKakaoResponse(cacheKey, 2, 300)
                         .compose(cached -> Future.<Void>failedFuture(new CachedKakaoResponseException(cached)));
                 }
-                return Future.succeededFuture();
-            })
-            .recover(err -> {
-                log.warn("Failed to acquire Kakao OAuth lock, proceeding without lock: {}", err.getMessage());
                 return Future.succeededFuture();
             });
     }
