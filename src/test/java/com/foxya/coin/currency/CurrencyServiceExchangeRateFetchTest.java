@@ -87,7 +87,7 @@ public class CurrencyServiceExchangeRateFetchTest {
 
                 srv.close();
                 tc.completeNow();
-            })).onFailure(tc::failNow));
+            })));
         }));
     }
 
@@ -168,7 +168,7 @@ public class CurrencyServiceExchangeRateFetchTest {
 
                 srv.close();
                 tc.completeNow();
-            })).onFailure(tc::failNow));
+            })));
         }));
     }
 
@@ -218,4 +218,3 @@ public class CurrencyServiceExchangeRateFetchTest {
         }
     }
 }
-

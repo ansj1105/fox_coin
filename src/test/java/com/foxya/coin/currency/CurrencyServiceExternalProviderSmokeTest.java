@@ -67,7 +67,7 @@ public class CurrencyServiceExternalProviderSmokeTest {
             assertThat(internal.rates().get("KRWT")).isEqualByComparingTo(BigDecimal.ONE);
 
             tc.completeNow();
-        })).onFailure(tc::failNow));
+        })));
     }
 
     private static void assertPositive(BigDecimal v) {
@@ -118,4 +118,3 @@ public class CurrencyServiceExternalProviderSmokeTest {
         }
     }
 }
-
