@@ -2,7 +2,9 @@ package com.foxya.coin.currency;
 
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.currency.dto.ExchangeRatesDto;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
@@ -10,139 +12,246 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 통화 관련 서비스
+ * Currency/exchange-rate service.
+ *
+ * Goal: return a reliable, real-time-ish USDT->KRW (and ETH->KRW) rate.
+ * - Public price APIs are rate-limited: cache results with TTL.
+ * - If the primary provider fails, try a secondary provider.
+ * - On failures, serve the last cached value instead of hard-failing.
  */
 @Slf4j
 public class CurrencyService extends BaseService {
-    
-    private final CurrencyRepository currencyRepository;
+
+    private final CurrencyRepository currencyRepository; // kept for future use
     private final WebClient webClient;
-    
-    // CoinGecko API URL (무료, API 키 불필요)
+
     private static final String COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
-    
-    // 임시 환율 (API 실패 시 사용)
-    private static final BigDecimal RATE_ETH = new BigDecimal("5000000.0");
-    private static final BigDecimal RATE_USDT = new BigDecimal("1300.0");
+    private static final String COINPAPRIKA_API_URL = "https://api.coinpaprika.com/v1/tickers";
+
+    // Cache/HTTP tuning
+    private static final long CACHE_TTL_MS = parseLongEnv("EXCHANGE_RATE_CACHE_TTL_MS", 60_000L);
+    private static final long HTTP_TIMEOUT_MS = parseLongEnv("EXCHANGE_RATE_HTTP_TIMEOUT_MS", 10_000L);
+
+    // Optional CoinGecko API keys (header-based)
+    private static final String COINGECKO_DEMO_KEY = System.getenv("COINGECKO_DEMO_API_KEY"); // x-cg-demo-api-key
+    private static final String COINGECKO_PRO_KEY = System.getenv("COINGECKO_PRO_API_KEY");   // x-cg-pro-api-key
+
+    // Fallback defaults (used only until we get a successful refresh)
+    private static final BigDecimal DEFAULT_ETH_KRW = new BigDecimal("5000000.0");
+    private static final BigDecimal DEFAULT_USDT_KRW = new BigDecimal("1300.0");
     private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
-    
-    // 캐시된 환율 (API 성공 시 업데이트)
-    private final AtomicReference<BigDecimal> cachedEthRate = new AtomicReference<>(RATE_ETH);
-    private final AtomicReference<BigDecimal> cachedUsdtRate = new AtomicReference<>(RATE_USDT);
-    
+
+    // Cached values
+    private final AtomicReference<BigDecimal> cachedEthRate = new AtomicReference<>(DEFAULT_ETH_KRW);
+    private final AtomicReference<BigDecimal> cachedUsdtRate = new AtomicReference<>(DEFAULT_USDT_KRW);
+    private final AtomicReference<Instant> cachedUpdatedAt = new AtomicReference<>(Instant.now());
+
+    // Prevent thundering herd refreshes
+    private final AtomicReference<Future<ExchangeRatesDto>> refreshInFlight = new AtomicReference<>(null);
+
     public CurrencyService(PgPool pool, CurrencyRepository currencyRepository, WebClient webClient) {
         super(pool);
         this.currencyRepository = currencyRepository;
         this.webClient = webClient;
     }
-    
+
     /**
-     * 통화별 한화(KRW) 환율 조회
+     * Returns KRW per 1 unit of each currency.
+     * - USDT: 1 USDT -> KRW
+     * - ETH:  1 ETH  -> KRW
+     * - KRWT: always 1.0
      */
     public Future<ExchangeRatesDto> getExchangeRates() {
-        // CoinGecko API 호출 (ETH, USDT의 KRW 가격)
-        String ids = "ethereum,tether";
-        String vsCurrencies = "krw";
-        String url = String.format("%s?ids=%s&vs_currencies=%s", COINGECKO_API_URL, ids, vsCurrencies);
-        
-        log.info("CoinGecko API 호출 시작: {}", url);
-        
-        return webClient.getAbs(url)
-            .timeout(10000) // 10초 타임아웃
-            .send()
-            .compose(response -> {
-                log.info("CoinGecko API 응답 수신: status={}", response.statusCode());
-                
-                if (response.statusCode() == 200) {
-                    JsonObject body = response.bodyAsJsonObject();
-                    Map<String, BigDecimal> rates = new HashMap<>();
-                    boolean apiSuccess = false;
-                    
-                    // ETH 환율
-                    if (body.containsKey("ethereum") && body.getJsonObject("ethereum").containsKey("krw")) {
-                        BigDecimal ethRate = new BigDecimal(body.getJsonObject("ethereum").getDouble("krw").toString());
-                        rates.put("ETH", ethRate);
-                        cachedEthRate.set(ethRate); // 캐시 업데이트
-                        log.info("ETH 환율 업데이트: {} KRW", ethRate);
-                        apiSuccess = true;
-                    } else {
-                        rates.put("ETH", cachedEthRate.get());
-                        log.warn("ETH 환율을 응답에서 찾을 수 없음, 캐시된 값 사용: {}", cachedEthRate.get());
-                    }
-                    
-                    // USDT 환율
-                    if (body.containsKey("tether") && body.getJsonObject("tether").containsKey("krw")) {
-                        BigDecimal usdtRate = new BigDecimal(body.getJsonObject("tether").getDouble("krw").toString());
-                        rates.put("USDT", usdtRate);
-                        cachedUsdtRate.set(usdtRate); // 캐시 업데이트
-                        log.info("USDT 환율 업데이트: {} KRW", usdtRate);
-                        apiSuccess = true;
-                    } else {
-                        rates.put("USDT", cachedUsdtRate.get());
-                        log.warn("USDT 환율을 응답에서 찾을 수 없음, 캐시된 값 사용: {}", cachedUsdtRate.get());
-                    }
-                    
-                    // KRWT는 항상 1.0
-                    rates.put("KRWT", RATE_KRWT);
-                    
-                    if (apiSuccess) {
-                        log.info("CoinGecko API 호출 성공 - 환율 캐시 업데이트 완료");
-                    }
-                    
-                    return Future.succeededFuture(ExchangeRatesDto.builder()
-                        .rates(rates)
-                        .updatedAt(Instant.now())
-                        .build());
-                } else {
-                    String responseBody = "";
-                    try {
-                        if (response.body() != null) {
-                            responseBody = response.bodyAsString();
+        Instant now = Instant.now();
+        Instant updatedAt = cachedUpdatedAt.get();
+
+        // Fresh cache
+        if (Duration.between(updatedAt, now).toMillis() < CACHE_TTL_MS) {
+            return Future.succeededFuture(buildRatesFromCache());
+        }
+
+        // Reuse in-flight refresh if present
+        Future<ExchangeRatesDto> inFlight = refreshInFlight.get();
+        if (inFlight != null && !inFlight.isComplete()) {
+            return inFlight;
+        }
+
+        Promise<ExchangeRatesDto> promise = Promise.promise();
+        Future<ExchangeRatesDto> created = promise.future();
+
+        if (!refreshInFlight.compareAndSet(inFlight, created)) {
+            Future<ExchangeRatesDto> raced = refreshInFlight.get();
+            return raced != null ? raced : Future.succeededFuture(buildRatesFromCache());
+        }
+
+        refreshRatesFromProviders()
+            .onComplete(ar -> {
+                try {
+                    if (ar.succeeded()) {
+                        boolean anyUpdated = applyRates(ar.result());
+                        if (anyUpdated) {
+                            cachedUpdatedAt.set(Instant.now());
                         }
-                    } catch (Exception e) {
-                        // 무시
+                    } else {
+                        log.warn("Exchange rate refresh failed; serving cached rates. Error: {}", ar.cause().getMessage());
                     }
-                    log.warn("CoinGecko API 호출 실패 (status: {}, response: {}), 캐시된 환율 사용", 
-                        response.statusCode(), responseBody);
-                    return getFallbackRates();
+                } finally {
+                    refreshInFlight.set(null);
+                    promise.complete(buildRatesFromCache());
                 }
-            })
-            .recover(throwable -> {
-                log.error("CoinGecko API 호출 중 오류 발생 (URL: {}), 캐시된 환율 사용 - Error: {}", 
-                    url, throwable.getMessage(), throwable);
-                return getFallbackRates();
+            });
+
+        return created;
+    }
+
+    private Future<Map<String, BigDecimal>> refreshRatesFromProviders() {
+        return fetchFromCoinGecko()
+            .recover(err -> {
+                log.warn("CoinGecko fetch failed, trying CoinPaprika. Error: {}", err.getMessage());
+                return fetchFromCoinPaprika();
             });
     }
-    
-    /**
-     * 임시 환율 반환 (API 실패 시)
-     * 캐시된 환율이 있으면 사용하고, 없으면 기본값 사용
-     */
-    private Future<ExchangeRatesDto> getFallbackRates() {
+
+    private Future<Map<String, BigDecimal>> fetchFromCoinGecko() {
+        String url = COINGECKO_API_URL + "?ids=ethereum,tether&vs_currencies=krw";
+
+        var req = webClient.getAbs(url)
+            .timeout(HTTP_TIMEOUT_MS)
+            .putHeader("Accept", "application/json")
+            .putHeader("User-Agent", "foxya-coin-service/1.0");
+
+        if (COINGECKO_DEMO_KEY != null && !COINGECKO_DEMO_KEY.isBlank()) {
+            req.putHeader("x-cg-demo-api-key", COINGECKO_DEMO_KEY);
+        }
+        if (COINGECKO_PRO_KEY != null && !COINGECKO_PRO_KEY.isBlank()) {
+            req.putHeader("x-cg-pro-api-key", COINGECKO_PRO_KEY);
+        }
+
+        return req.send().compose(res -> {
+            if (res.statusCode() != 200) {
+                String body = "";
+                try { body = res.bodyAsString(); } catch (Exception ignored) {}
+                return Future.failedFuture("CoinGecko non-200: status=" + res.statusCode() + " body=" + body);
+            }
+
+            JsonObject json;
+            try {
+                json = res.bodyAsJsonObject();
+            } catch (Exception e) {
+                String body = "";
+                try { body = res.bodyAsString(); } catch (Exception ignored) {}
+                return Future.failedFuture("CoinGecko invalid JSON: " + e.getMessage() + " body=" + body);
+            }
+
+            Map<String, BigDecimal> rates = new HashMap<>();
+            BigDecimal eth = extractNestedDecimal(json, "ethereum", "krw");
+            if (eth != null) rates.put("ETH", eth);
+
+            BigDecimal usdt = extractNestedDecimal(json, "tether", "krw");
+            if (usdt != null) rates.put("USDT", usdt);
+
+            if (rates.isEmpty()) {
+                return Future.failedFuture("CoinGecko response missing ETH/USDT krw");
+            }
+
+            return Future.succeededFuture(rates);
+        });
+    }
+
+    private Future<Map<String, BigDecimal>> fetchFromCoinPaprika() {
+        // /v1/tickers/{coinId}?quotes=KRW
+        Future<BigDecimal> ethF = fetchCoinPaprikaKrwPrice("eth-ethereum")
+            .recover(e -> Future.succeededFuture(null));
+        Future<BigDecimal> usdtF = fetchCoinPaprikaKrwPrice("usdt-tether")
+            .recover(e -> Future.succeededFuture(null));
+
+        return CompositeFuture.all(ethF, usdtF)
+            .map(cf -> {
+                Map<String, BigDecimal> rates = new HashMap<>();
+                BigDecimal eth = cf.resultAt(0);
+                BigDecimal usdt = cf.resultAt(1);
+
+                if (eth != null) rates.put("ETH", eth);
+                if (usdt != null) rates.put("USDT", usdt);
+
+                return rates;
+            })
+            .compose(rates -> {
+                if (rates.isEmpty()) {
+                    return Future.failedFuture("CoinPaprika response missing ETH/USDT krw");
+                }
+                return Future.succeededFuture(rates);
+            });
+    }
+
+    private Future<BigDecimal> fetchCoinPaprikaKrwPrice(String coinId) {
+        String url = COINPAPRIKA_API_URL + "/" + coinId + "?quotes=KRW";
+
+        return webClient.getAbs(url)
+            .timeout(HTTP_TIMEOUT_MS)
+            .putHeader("Accept", "application/json")
+            .putHeader("User-Agent", "foxya-coin-service/1.0")
+            .send()
+            .compose(res -> {
+                if (res.statusCode() != 200) {
+                    return Future.failedFuture("CoinPaprika non-200: status=" + res.statusCode());
+                }
+
+                JsonObject json;
+                try {
+                    json = res.bodyAsJsonObject();
+                } catch (Exception e) {
+                    return Future.failedFuture("CoinPaprika invalid JSON: " + e.getMessage());
+                }
+
+                BigDecimal price = extractNestedDecimal(json, "quotes", "KRW", "price");
+                if (price == null) {
+                    return Future.failedFuture("CoinPaprika missing quotes.KRW.price");
+                }
+
+                return Future.succeededFuture(price);
+            });
+    }
+
+    private boolean applyRates(Map<String, BigDecimal> rates) {
+        boolean updated = false;
+
+        BigDecimal eth = rates.get("ETH");
+        if (eth != null) {
+            cachedEthRate.set(eth);
+            updated = true;
+            log.info("ETH rate updated: {} KRW", eth);
+        }
+
+        BigDecimal usdt = rates.get("USDT");
+        if (usdt != null) {
+            cachedUsdtRate.set(usdt);
+            updated = true;
+            log.info("USDT rate updated: {} KRW", usdt);
+        }
+
+        return updated;
+    }
+
+    private ExchangeRatesDto buildRatesFromCache() {
         Map<String, BigDecimal> rates = new HashMap<>();
         rates.put("ETH", cachedEthRate.get());
         rates.put("USDT", cachedUsdtRate.get());
         rates.put("KRWT", RATE_KRWT);
-        
-        log.info("Fallback 환율 사용 - ETH: {}, USDT: {}", cachedEthRate.get(), cachedUsdtRate.get());
-        
-        return Future.succeededFuture(ExchangeRatesDto.builder()
+
+        return ExchangeRatesDto.builder()
             .rates(rates)
-            .updatedAt(Instant.now())
-            .build());
+            .updatedAt(cachedUpdatedAt.get())
+            .build();
     }
-    
-    /**
-     * 통화별 KRWT 기준 환율 조회 (동기 메서드, 캐시된 환율 사용)
-     * SwapService에서 사용하기 위한 메서드
-     * API 성공 시 업데이트된 환율을 사용하고, 실패 시 기본값 사용
-     */
+
     public BigDecimal getRateForCurrency(String currencyCode) {
         switch (currencyCode) {
             case "ETH":
@@ -152,22 +261,41 @@ public class CurrencyService extends BaseService {
             case "KRWT":
                 return RATE_KRWT;
             default:
-                // 기본값: 1:1
                 return BigDecimal.ONE;
         }
     }
-    
+
     /**
-     * 두 통화 간 환율 계산
-     * fromCurrency -> KRWT -> toCurrency 환율 계산
+     * fromCurrency -> KRWT -> toCurrency
+     * e.g. ETH -> USDT = (ETH/KRWT) / (USDT/KRWT)
      */
     public BigDecimal getExchangeRate(String fromCurrencyCode, String toCurrencyCode) {
         BigDecimal fromRate = getRateForCurrency(fromCurrencyCode);
         BigDecimal toRate = getRateForCurrency(toCurrencyCode);
-        
-        // fromCurrency -> KRWT -> toCurrency 환율 계산
-        // 예: ETH -> USDT = (ETH/KRWT) / (USDT/KRWT) = 5000000 / 1300 = 3846.15...
         return fromRate.divide(toRate, 18, RoundingMode.HALF_UP);
     }
-}
 
+    private static BigDecimal extractNestedDecimal(JsonObject obj, String... path) {
+        Object cur = obj;
+        for (String key : path) {
+            if (!(cur instanceof JsonObject)) return null;
+            cur = ((JsonObject) cur).getValue(key);
+            if (cur == null) return null;
+        }
+        try {
+            return new BigDecimal(cur.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static long parseLongEnv(String key, long defaultValue) {
+        String v = System.getenv(key);
+        if (v == null || v.isBlank()) return defaultValue;
+        try {
+            return Long.parseLong(v.trim());
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
+    }
+}
