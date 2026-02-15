@@ -15,6 +15,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -41,14 +42,16 @@ public class CurrencyService extends BaseService {
     private static final String COINGECKO_PRO_KEY = System.getenv("COINGECKO_PRO_API_KEY");   // x-cg-pro-api-key
 
     // Defaults (used until DB seed + first refresh)
+    // Keep these as coarse fallbacks only; scheduler refresh should overwrite quickly.
     private static final BigDecimal DEFAULT_ETH_KRW = new BigDecimal("5000000.0");
     private static final BigDecimal DEFAULT_USDT_KRW = new BigDecimal("1300.0");
+    private static final BigDecimal DEFAULT_BTC_KRW = new BigDecimal("80000000.0");
+    private static final BigDecimal DEFAULT_TRX_KRW = new BigDecimal("180.0");
     private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
 
     // In-memory cache for internal services (swap/exchange calculations etc).
     // This cache is updated on DB read and on refresh success.
-    private final AtomicReference<BigDecimal> cachedEthRate = new AtomicReference<>(DEFAULT_ETH_KRW);
-    private final AtomicReference<BigDecimal> cachedUsdtRate = new AtomicReference<>(DEFAULT_USDT_KRW);
+    private final ConcurrentHashMap<String, BigDecimal> cachedRates = new ConcurrentHashMap<>();
     private final AtomicReference<Instant> cachedUpdatedAt = new AtomicReference<>(Instant.now());
 
     // Prevent overlapping refresh jobs
@@ -62,6 +65,13 @@ public class CurrencyService extends BaseService {
         this.currencyRepository = currencyRepository;
         this.exchangeRateRepository = exchangeRateRepository;
         this.webClient = webClient;
+
+        // Seed cache with coarse defaults so internal calculations keep working even if DB is temporarily unavailable.
+        cachedRates.put("ETH", DEFAULT_ETH_KRW);
+        cachedRates.put("USDT", DEFAULT_USDT_KRW);
+        cachedRates.put("BTC", DEFAULT_BTC_KRW);
+        cachedRates.put("TRX", DEFAULT_TRX_KRW);
+        cachedRates.put("KRWT", RATE_KRWT);
     }
 
     /**
@@ -107,16 +117,24 @@ public class CurrencyService extends BaseService {
                 Map<String, BigDecimal> providerRates = fetch.rates();
                 // Persist provider rates with provider source
                 Future<Void> upsertProvider = exchangeRateRepository.upsertRates(pool, providerRates, fetch.source());
-                // Persist KRWT always as 1.0 (internal)
-                Map<String, BigDecimal> krwt = Map.of("KRWT", RATE_KRWT);
-                Future<Void> upsertKrwt = exchangeRateRepository.upsertRates(pool, krwt, "INTERNAL");
 
-                return CompositeFuture.all(upsertProvider, upsertKrwt).mapEmpty()
+                // Persist internal rates (no external provider calls)
+                Map<String, BigDecimal> internalRates = new HashMap<>();
+                internalRates.put("KRWT", RATE_KRWT);
+                BigDecimal koriKrw = parseDecimalEnv("KORI_KRW_RATE");
+                if (koriKrw != null) {
+                    internalRates.put("KORI", koriKrw);
+                }
+                Future<Void> upsertInternal = exchangeRateRepository.upsertRates(pool, internalRates, "INTERNAL");
+
+                return CompositeFuture.all(upsertProvider, upsertInternal).mapEmpty()
                     .onSuccess(v -> {
                         Instant now = Instant.now();
-                        applyToCache(ExchangeRatesDto.builder().rates(providerRates).updatedAt(now).build());
+                        Map<String, BigDecimal> merged = new HashMap<>(providerRates);
+                        merged.putAll(internalRates);
+                        applyToCache(ExchangeRatesDto.builder().rates(merged).updatedAt(now).build());
                         cachedUpdatedAt.set(now);
-                        log.info("Exchange rates refreshed and persisted. source={}, rates={}", fetch.source(), providerRates.keySet());
+                        log.info("Exchange rates refreshed and persisted. providerSource={}, rates={}", fetch.source(), merged.keySet());
                     });
             })
             .onComplete(ar -> {
@@ -143,7 +161,7 @@ public class CurrencyService extends BaseService {
     }
 
     private Future<FetchResult> fetchFromCoinGecko() {
-        String url = COINGECKO_API_URL + "?ids=ethereum,tether&vs_currencies=krw";
+        String url = COINGECKO_API_URL + "?ids=ethereum,tether,bitcoin,tron&vs_currencies=krw";
 
         var req = webClient.getAbs(url)
             .timeout(HTTP_TIMEOUT_MS)
@@ -181,8 +199,14 @@ public class CurrencyService extends BaseService {
                 BigDecimal usdt = extractNestedDecimal(json, "tether", "krw");
                 if (usdt != null) rates.put("USDT", usdt);
 
+                BigDecimal btc = extractNestedDecimal(json, "bitcoin", "krw");
+                if (btc != null) rates.put("BTC", btc);
+
+                BigDecimal trx = extractNestedDecimal(json, "tron", "krw");
+                if (trx != null) rates.put("TRX", trx);
+
                 if (rates.isEmpty()) {
-                    return Future.failedFuture("CoinGecko response missing ETH/USDT krw");
+                    return Future.failedFuture("CoinGecko response missing rates");
                 }
 
                 return Future.succeededFuture(new FetchResult("COINGECKO", rates));
@@ -193,18 +217,24 @@ public class CurrencyService extends BaseService {
         // /v1/tickers/{coinId}?quotes=KRW
         Future<BigDecimal> ethF = fetchCoinPaprikaKrwPrice("eth-ethereum").recover(e -> Future.succeededFuture(null));
         Future<BigDecimal> usdtF = fetchCoinPaprikaKrwPrice("usdt-tether").recover(e -> Future.succeededFuture(null));
+        Future<BigDecimal> btcF = fetchCoinPaprikaKrwPrice("btc-bitcoin").recover(e -> Future.succeededFuture(null));
+        Future<BigDecimal> trxF = fetchCoinPaprikaKrwPrice("trx-tron").recover(e -> Future.succeededFuture(null));
 
-        return CompositeFuture.all(ethF, usdtF)
+        return CompositeFuture.all(ethF, usdtF, btcF, trxF)
             .compose(cf -> {
                 Map<String, BigDecimal> rates = new HashMap<>();
                 BigDecimal eth = cf.resultAt(0);
                 BigDecimal usdt = cf.resultAt(1);
+                BigDecimal btc = cf.resultAt(2);
+                BigDecimal trx = cf.resultAt(3);
 
                 if (eth != null) rates.put("ETH", eth);
                 if (usdt != null) rates.put("USDT", usdt);
+                if (btc != null) rates.put("BTC", btc);
+                if (trx != null) rates.put("TRX", trx);
 
                 if (rates.isEmpty()) {
-                    return Future.failedFuture("CoinPaprika response missing ETH/USDT krw");
+                    return Future.failedFuture("CoinPaprika response missing rates");
                 }
                 return Future.succeededFuture(new FetchResult("COINPAPRIKA", rates));
             });
@@ -242,20 +272,17 @@ public class CurrencyService extends BaseService {
     private void applyToCache(ExchangeRatesDto dto) {
         if (dto == null || dto.getRates() == null) return;
 
-        BigDecimal eth = dto.getRates().get("ETH");
-        if (eth != null) cachedEthRate.set(eth);
-
-        BigDecimal usdt = dto.getRates().get("USDT");
-        if (usdt != null) cachedUsdtRate.set(usdt);
+        dto.getRates().forEach((k, v) -> {
+            if (k == null || v == null) return;
+            cachedRates.put(k.toUpperCase(), v);
+        });
 
         if (dto.getUpdatedAt() != null) cachedUpdatedAt.set(dto.getUpdatedAt());
     }
 
     private ExchangeRatesDto buildRatesFromCache() {
-        Map<String, BigDecimal> rates = new HashMap<>();
-        rates.put("ETH", cachedEthRate.get());
-        rates.put("USDT", cachedUsdtRate.get());
-        rates.put("KRWT", RATE_KRWT);
+        Map<String, BigDecimal> rates = new HashMap<>(cachedRates);
+        rates.putIfAbsent("KRWT", RATE_KRWT);
 
         return ExchangeRatesDto.builder()
             .rates(rates)
@@ -264,16 +291,10 @@ public class CurrencyService extends BaseService {
     }
 
     public BigDecimal getRateForCurrency(String currencyCode) {
-        switch (currencyCode) {
-            case "ETH":
-                return cachedEthRate.get();
-            case "USDT":
-                return cachedUsdtRate.get();
-            case "KRWT":
-                return RATE_KRWT;
-            default:
-                return BigDecimal.ONE;
-        }
+        if (currencyCode == null || currencyCode.isBlank()) return BigDecimal.ONE;
+        String code = currencyCode.trim().toUpperCase();
+        if ("KRWT".equals(code)) return RATE_KRWT;
+        return cachedRates.getOrDefault(code, BigDecimal.ONE);
     }
 
     /**
@@ -306,6 +327,16 @@ public class CurrencyService extends BaseService {
             return Long.parseLong(v.trim());
         } catch (Exception ignored) {
             return defaultValue;
+        }
+    }
+
+    private static BigDecimal parseDecimalEnv(String key) {
+        String v = System.getenv(key);
+        if (v == null || v.isBlank()) return null;
+        try {
+            return new BigDecimal(v.trim());
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
