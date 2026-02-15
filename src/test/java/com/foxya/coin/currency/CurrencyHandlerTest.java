@@ -38,9 +38,11 @@ public class CurrencyHandlerTest extends HandlerTestBase {
                     ExchangeRatesDto exchangeRates = expectSuccessAndGetResponse(res, refExchangeRates);
                     
                     assertThat(exchangeRates.getRates()).isNotNull();
-                    assertThat(exchangeRates.getRates()).containsKeys("ETH", "USDT", "KRWT");
+                    assertThat(exchangeRates.getRates()).containsKeys("ETH", "USDT", "BTC", "TRX", "KRWT");
                     assertThat(exchangeRates.getRates().get("ETH")).isNotNull();
                     assertThat(exchangeRates.getRates().get("USDT")).isNotNull();
+                    assertThat(exchangeRates.getRates().get("BTC")).isNotNull();
+                    assertThat(exchangeRates.getRates().get("TRX")).isNotNull();
                     assertThat(exchangeRates.getRates().get("KRWT")).isEqualTo(java.math.BigDecimal.ONE);
                     assertThat(exchangeRates.getUpdatedAt()).isNotNull();
                     

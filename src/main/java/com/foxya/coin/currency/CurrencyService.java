@@ -32,8 +32,11 @@ public class CurrencyService extends BaseService {
     private final WebClient webClient;
 
     // Providers
-    private static final String COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
-    private static final String COINPAPRIKA_API_URL = "https://api.coinpaprika.com/v1/tickers";
+    private static final String DEFAULT_COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
+    private static final String DEFAULT_COINPAPRIKA_API_URL = "https://api.coinpaprika.com/v1/tickers";
+
+    private final String coingeckoApiUrl;
+    private final String coinpaprikaApiUrl;
 
     private static final long HTTP_TIMEOUT_MS = parseLongEnv("EXCHANGE_RATE_HTTP_TIMEOUT_MS", 10_000L);
 
@@ -61,10 +64,22 @@ public class CurrencyService extends BaseService {
                            CurrencyRepository currencyRepository,
                            ExchangeRateRepository exchangeRateRepository,
                            WebClient webClient) {
+        this(pool, currencyRepository, exchangeRateRepository, webClient, DEFAULT_COINGECKO_API_URL, DEFAULT_COINPAPRIKA_API_URL);
+    }
+
+    // Visible for tests: lets unit tests point providers to a local mock server.
+    CurrencyService(PgPool pool,
+                    CurrencyRepository currencyRepository,
+                    ExchangeRateRepository exchangeRateRepository,
+                    WebClient webClient,
+                    String coingeckoApiUrl,
+                    String coinpaprikaApiUrl) {
         super(pool);
         this.currencyRepository = currencyRepository;
         this.exchangeRateRepository = exchangeRateRepository;
         this.webClient = webClient;
+        this.coingeckoApiUrl = (coingeckoApiUrl != null && !coingeckoApiUrl.isBlank()) ? coingeckoApiUrl.trim() : DEFAULT_COINGECKO_API_URL;
+        this.coinpaprikaApiUrl = (coinpaprikaApiUrl != null && !coinpaprikaApiUrl.isBlank()) ? coinpaprikaApiUrl.trim() : DEFAULT_COINPAPRIKA_API_URL;
 
         // Seed cache with coarse defaults so internal calculations keep working even if DB is temporarily unavailable.
         cachedRates.put("ETH", DEFAULT_ETH_KRW);
@@ -161,7 +176,7 @@ public class CurrencyService extends BaseService {
     }
 
     private Future<FetchResult> fetchFromCoinGecko() {
-        String url = COINGECKO_API_URL + "?ids=ethereum,tether,bitcoin,tron&vs_currencies=krw";
+        String url = coingeckoApiUrl + "?ids=ethereum,tether,bitcoin,tron&vs_currencies=krw";
 
         var req = webClient.getAbs(url)
             .timeout(HTTP_TIMEOUT_MS)
@@ -241,7 +256,7 @@ public class CurrencyService extends BaseService {
     }
 
     private Future<BigDecimal> fetchCoinPaprikaKrwPrice(String coinId) {
-        String url = COINPAPRIKA_API_URL + "/" + coinId + "?quotes=KRW";
+        String url = coinpaprikaApiUrl + "/" + coinId + "?quotes=KRW";
 
         return webClient.getAbs(url)
             .timeout(HTTP_TIMEOUT_MS)
