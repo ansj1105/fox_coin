@@ -94,6 +94,7 @@ import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
+import com.foxya.coin.currency.ExchangeRateRepository;
 import com.foxya.coin.security.SecurityHandler;
 import com.foxya.coin.inquiry.InquiryHandler;
 import com.foxya.coin.inquiry.InquiryRepository;
@@ -230,7 +231,8 @@ public class ApiVerticle extends AbstractVerticle {
             pool, bannerRepository);
         
         // CurrencyService 초기화 (다른 서비스에서 사용)
-        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, webClient);
+        ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
+        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, webClient);
         
         SwapRepository swapRepository = new SwapRepository();
         SwapService swapService = new SwapService(
@@ -292,6 +294,9 @@ public class ApiVerticle extends AbstractVerticle {
 
         // 채굴 정산 배치: 1시간마다 미정산 세션을 mining_history·internal_transfers에 반영 (API 미호출 유저 대응)
         startMiningSettlementBatch(miningService);
+
+        // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
+        startExchangeRateRefreshScheduler(currencyService);
 
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -675,6 +680,35 @@ public class ApiVerticle extends AbstractVerticle {
                 .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable));
         });
         log.info("Mining settlement batch started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * Exchange rate refresh scheduler.
+     * - Refreshes rates from external providers and upserts into DB.
+     * - Clients read rates from DB only (no per-user external calls).
+     */
+    private void startExchangeRateRefreshScheduler(CurrencyService currencyService) {
+        long intervalMs = parseLongEnv("EXCHANGE_RATE_REFRESH_MS", 300_000L); // 5 minutes default
+
+        // Kick once shortly after startup.
+        vertx.setTimer(1500, id -> currencyService.refreshExchangeRates()
+            .onSuccess(v -> log.info("Exchange rates refreshed on startup"))
+            .onFailure(t -> log.warn("Exchange rate startup refresh failed", t)));
+
+        vertx.setPeriodic(intervalMs, id -> currencyService.refreshExchangeRates()
+            .onFailure(t -> log.warn("Exchange rate scheduled refresh failed", t)));
+
+        log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
+    }
+
+    private static long parseLongEnv(String key, long defaultValue) {
+        String v = System.getenv(key);
+        if (v == null || v.isBlank()) return defaultValue;
+        try {
+            return Long.parseLong(v.trim());
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
     }
 
     /**
