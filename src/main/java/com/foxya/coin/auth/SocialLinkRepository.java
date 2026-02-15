@@ -49,6 +49,27 @@ public class SocialLinkRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> rows.rowCount() > 0);
     }
+
+    public Future<Long> findUserIdByProviderUserId(SqlClient client, String provider, String providerUserId) {
+        String sql = QueryBuilder
+            .select("social_links", "user_id")
+            .where("provider", Op.Equal, "provider")
+            .andWhere("provider_user_id", Op.Equal, "provider_user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("provider", provider);
+        params.put("provider_user_id", providerUserId);
+
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return rows.iterator().next().getLong("user_id");
+                }
+                return null;
+            });
+    }
     
     /**
      * 사용자의 모든 소셜 링크 Soft Delete
@@ -73,4 +94,3 @@ public class SocialLinkRepository extends BaseRepository {
             .onFailure(throwable -> log.error("소셜 링크 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

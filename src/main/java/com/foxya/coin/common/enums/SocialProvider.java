@@ -9,6 +9,7 @@ import lombok.Getter;
 public enum SocialProvider {
     KAKAO("KAKAO", "카카오"),
     GOOGLE("GOOGLE", "구글"),
+    APPLE("APPLE", "애플"),
     EMAIL("EMAIL", "이메일");
     
     private final String value;
@@ -31,4 +32,3 @@ public enum SocialProvider {
         return null;
     }
 }
-

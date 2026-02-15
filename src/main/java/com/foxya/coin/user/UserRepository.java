@@ -31,6 +31,9 @@ public class UserRepository extends BaseRepository {
         .gender(getStringColumnValue(row, "gender"))
         .phone(getStringColumnValue(row, "phone"))
         .isTest(getIntegerColumnValue(row, "is_test"))
+        .isWarning(getIntegerColumnValue(row, "is_warning"))
+        .isMiningSuspended(getIntegerColumnValue(row, "is_mining_suspended"))
+        .isAccountBlocked(getIntegerColumnValue(row, "is_account_blocked"))
         .deletedAt(getLocalDateTimeColumnValue(row, "deleted_at"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
@@ -126,6 +129,46 @@ public class UserRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 Soft Delete 실패 - userId: {}", userId));
+    }
+    
+    /**
+     * 경험치(EXP) 증가 (친구 초대 1명당 +0.5 EXP 등)
+     */
+    public Future<User> addExp(SqlClient client, Long userId, java.math.BigDecimal delta) {
+        if (delta == null || delta.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            return getUserById(client, userId);
+        }
+        String sql = QueryBuilder.update("users")
+            .setCustom("exp = COALESCE(exp, 0) + #{delta}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("delta", delta);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("EXP 증가 실패 - userId: {}", userId, throwable));
+    }
+    
+    /**
+     * 레벨 업데이트 (EXP 연동 레벨업용)
+     */
+    public Future<User> updateLevel(SqlClient client, Long userId, int level) {
+        String sql = QueryBuilder
+            .update("users", "level", "updated_at")
+            .whereById()
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("level", level);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("레벨 업데이트 실패 - userId: {}", userId, throwable));
     }
     
     /**
@@ -278,6 +321,25 @@ public class UserRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> (Void) null)
             .onFailure(throwable -> log.error("로그인 비밀번호 업데이트 실패 - userId: {}", userId));
+    }
+
+    /**
+     * 로그인 ID(이메일) 업데이트. 이메일 변경 완료 시 새 이메일로 로그인 가능하도록.
+     */
+    public Future<Void> updateLoginId(SqlClient client, Long userId, String newLoginId) {
+        String sql = QueryBuilder
+            .update("users", "login_id", "updated_at")
+            .whereById()
+            .build();
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("login_id", newLoginId);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("로그인 ID 업데이트 실패 - userId: {}", userId));
     }
 
     /**

@@ -3,6 +3,8 @@
 
 -- 기존 테스트 데이터 삭제
 DELETE FROM mining_history WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
+DELETE FROM mining_sessions WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
+DELETE FROM daily_mining WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
 DELETE FROM internal_transfers;
 DELETE FROM external_transfers;
 DELETE FROM user_wallets WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('testuser', 'testuser2', 'admin_user', 'blocked_user', 'referrer_user', 'no_code_user'));
@@ -340,13 +342,14 @@ WHERE NOT EXISTS (
 -- 시퀀스 리셋
 SELECT setval('mining_history_id_seq', (SELECT COALESCE(MAX(id), 1) FROM mining_history));
 
--- 테스트용 일일 채굴량 데이터 (개인 랭킹 테스트용)
--- testuser (ID:1)의 오늘 채굴량
+-- 테스트용 일일 채굴량 데이터 (개인 랭킹 테스트용 + credit-video 성공 테스트용)
+-- LV1 daily_max_mining=1.0 이하로 설정하여 credit-video(부스터 영상) 테스트가 성공하도록 함
+-- testuser (ID:1)의 오늘 채굴량 (한도 미만 - Order 15 successCreditVideoReturnsStructure)
 INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
 SELECT 
     (SELECT id FROM users WHERE login_id = 'testuser'),
     CURRENT_DATE,
-    1000.12345,
+    0.5,
     (CURRENT_DATE + INTERVAL '1 day')::timestamp,
     NOW(),
     NOW()
@@ -356,12 +359,12 @@ WHERE NOT EXISTS (
     AND mining_date = CURRENT_DATE
 );
 
--- testuser2 (ID:2)의 오늘 채굴량
+-- testuser2 (ID:2)의 오늘 채굴량 (한도 미만 - Order 16 successCreditVideoThenMiningInfoHasMiningUntil)
 INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
 SELECT 
     (SELECT id FROM users WHERE login_id = 'testuser2'),
     CURRENT_DATE,
-    500.54321,
+    0.3,
     (CURRENT_DATE + INTERVAL '1 day')::timestamp,
     NOW(),
     NOW()
@@ -383,6 +386,21 @@ SELECT
 WHERE NOT EXISTS (
     SELECT 1 FROM daily_mining 
     WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
+    AND mining_date = CURRENT_DATE
+);
+
+-- no_code_user (ID:6)의 오늘 채굴량 = 1.0 (LV1 daily_max_mining과 동일, 일일 한도 도달 테스트용)
+INSERT INTO daily_mining (user_id, mining_date, mining_amount, reset_at, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'no_code_user'),
+    CURRENT_DATE,
+    1.0,
+    (CURRENT_DATE + INTERVAL '1 day')::timestamp,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM daily_mining 
+    WHERE user_id = (SELECT id FROM users WHERE login_id = 'no_code_user')
     AND mining_date = CURRENT_DATE
 );
 

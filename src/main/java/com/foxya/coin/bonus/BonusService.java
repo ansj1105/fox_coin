@@ -56,6 +56,10 @@ public class BonusService extends BaseService {
         this.phoneVerificationRepository = phoneVerificationRepository;
     }
     
+    /**
+     * 8-type 보너스 효율 합산 (소셜연동, 본인인증, 광고시청, 친구초대, 구독, 리뷰, 에이전시, 추천인코드입력).
+     * -old: 채굴 보너스는 현재 친구 초대(유효 직접 초대 수) 티어만 사용. 본 메서드는 GET /api/v1/bonus/efficiency API 및 추후 8-type 재적용 시 사용.
+     */
     public Future<BonusEfficiencyResponseDto> getBonusEfficiency(Long userId) {
         List<Future<BonusEfficiencyResponseDto.BonusInfo>> futures = Arrays.asList(
             getSocialLinkBonus(userId),

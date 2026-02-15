@@ -13,6 +13,7 @@ import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.wallet.dto.CreateWalletRequestDto;
 import com.foxya.coin.wallet.dto.RegisterWalletChallengeRequestDto;
 import com.foxya.coin.wallet.dto.RegisterWalletChallengeResponseDto;
+import com.foxya.coin.wallet.dto.RegisterWalletPrivateKeyRequestDto;
 import com.foxya.coin.wallet.dto.RegisterWalletRequestDto;
 import io.vertx.json.schema.SchemaParser;
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +61,17 @@ public class WalletHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(registerWalletValidation(parser))
             .handler(this::registerWallet);
+
+        // 시드 구문 존재 여부 확인
+        router.get("/has-seed")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::hasSeed);
+
+        // 개인키 기반 지갑 등록
+        router.post("/register-private-key")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(registerPrivateKeyValidation(parser))
+            .handler(this::registerPrivateKey);
         
         return router;
     }
@@ -83,6 +95,10 @@ public class WalletHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("address", stringSchema().with(minLength(10), maxLength(255)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -96,6 +112,26 @@ public class WalletHandler extends BaseHandler {
                     .requiredProperty("address", stringSchema().with(minLength(10), maxLength(255)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> registerPrivateKeyValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("currencyCode", stringSchema().with(minLength(1), maxLength(10)))
+                    .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
+                    .requiredProperty("privateKey", stringSchema().with(minLength(1), maxLength(512)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -142,5 +178,21 @@ public class WalletHandler extends BaseHandler {
         );
         log.info("Wallet register - userId: {}, currencyCode: {}", userId, dto.getCurrencyCode());
         response(ctx, walletService.registerWalletWithSignature(userId, dto.getCurrencyCode(), dto.getChain(), dto.getAddress(), dto.getSignature()));
+    }
+
+    private void hasSeed(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Has seed check - userId: {}", userId);
+        response(ctx, walletService.hasSeed(userId), hasSeed -> new io.vertx.core.json.JsonObject().put("hasSeed", hasSeed));
+    }
+
+    private void registerPrivateKey(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        RegisterWalletPrivateKeyRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            RegisterWalletPrivateKeyRequestDto.class
+        );
+        log.info("Register private key - userId: {}, currencyCode: {}, chain: {}", userId, dto.getCurrencyCode(), dto.getChain());
+        response(ctx, walletService.storeWalletPrivateKey(userId, dto.getCurrencyCode(), dto.getChain(), dto.getPrivateKey()));
     }
 }

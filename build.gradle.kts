@@ -59,6 +59,9 @@ dependencies {
     
     // Vert.x Auth JWT
     implementation("io.vertx:vertx-auth-jwt")
+
+    // JWT (Apple Sign In)
+    implementation("org.bitbucket.b_c:jose4j:0.9.6")
     
     // Vert.x Redis Client
     implementation("io.vertx:vertx-redis-client")
@@ -95,6 +98,9 @@ dependencies {
     // Crypto verification (recovery signatures)
     implementation("org.web3j:core:4.10.3")
     implementation("org.bitcoinj:bitcoinj-core:0.16.2")
+
+    // FCM (Firebase Cloud Messaging) 푸시 알림
+    implementation("com.google.firebase:firebase-admin:9.2.0")
     
     // Lombok
     compileOnly("org.projectlombok:lombok:$lombokVersion")

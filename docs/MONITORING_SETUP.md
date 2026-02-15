@@ -73,9 +73,11 @@ curl http://your-domain/metrics
   ```
 
 #### Grafana UI
-- **URL**: http://localhost:3001
+- **프로덕션 URL**: **https://dev.korion.io.kr/** (루트 제공, subpath 없음)
+- **로컬**: http://localhost:3001
 - **로그인**: `admin` / `admin` (또는 `.env`의 `GRAFANA_PASSWORD`)
 - **데이터 소스**: 자동으로 Prometheus가 설정됨
+- **대시보드·패널 뭐 만들어 두면 좋은지**: [GRAFANA_DASHBOARD_GUIDE.md](./GRAFANA_DASHBOARD_GUIDE.md) 참고
 
 ### 3. 대시보드 생성
 
@@ -135,6 +137,17 @@ GRAFANA_PASSWORD=your_secure_password
 
 ## 문제 해결
 
+### Grafana / Prometheus가 안 열릴 때 (우리 서비스 연동)
+
+Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.  
+“열어봤는데 안 열린다”면 **컨테이너 기동 → Nginx 경로 → 접속 URL과 Grafana ROOT_URL 일치** 순으로 확인하면 됩니다.
+
+**체크리스트·원인 정리**는 **[OPERATIONS.md § 5. Prometheus / Grafana 연동 및 안 열릴 때](./OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때)**를 참고하세요.
+
+- 컨테이너: `docker compose -f docker-compose.prod.yml up -d prometheus grafana`
+- Grafana 접속: **https://dev.korion.io.kr/** — `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_SERVE_FROM_SUB_PATH=false` 로 설정되어 있어야 함
+- Nginx dev 블록에 `location /prometheus/` → Prometheus(9090), 루트 → Grafana(3000) 확인
+
 ### 메트릭이 보이지 않을 때
 
 1. **API 서버 확인**
@@ -143,7 +156,7 @@ GRAFANA_PASSWORD=your_secure_password
    ```
 
 2. **Prometheus 타겟 확인**
-   - http://localhost:9090/targets 접속
+   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/targets`)
    - `foxya-api` 타겟이 `UP` 상태인지 확인
 
 3. **로그 확인**

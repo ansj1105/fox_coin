@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U foxya -d coin_system_cloud"]
       interval: 10s
@@ -36,7 +36,7 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -68,10 +68,23 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID}
       GOOGLE_ANDROID_REDIRECT_URI: ${GOOGLE_ANDROID_REDIRECT_URI}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID}
+      GOOGLE_IOS_REDIRECT_URI: ${GOOGLE_IOS_REDIRECT_URI}
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+      KAKAO_REDIRECT_URI: ${KAKAO_REDIRECT_URI}
+      KAKAO_ANDROID_REDIRECT_URI: ${KAKAO_ANDROID_REDIRECT_URI}
+      KAKAO_IOS_REDIRECT_URI: ${KAKAO_IOS_REDIRECT_URI}
+      APPLE_KEY_ID: ${APPLE_KEY_ID}
+      APPLE_SERVICE_ID: ${APPLE_SERVICE_ID}
+      APPLE_PRIVATE_KEY_PATH: ${APPLE_PRIVATE_KEY_PATH}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID}
     ports:
       - "8080:8080"
     volumes:
       - ./logs:/app/logs
+      - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +93,7 @@ services:
       tron-service:
         condition: service_started
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -92,34 +105,79 @@ services:
         max-size: "100m"
         max-file: "5"
 
-  # ==================== TRON Service (Node.js) ====================
-  tron-service:
-    # 외부 프로젝트 경로를 build context로 사용
+  # 앱 2번 인스턴스 (무중단 배포용: Nginx가 app + app2 둘 다 바라보고, 한 대씩 순서 업데이트)
+  app2:
     build:
-      context: ${TRON_SERVICE_PATH:-/var/www/coin_publish}  # TRON 서비스 프로젝트 경로
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        - APP_ENV=${APP_ENV:-prod}
+    image: foxya-coin-api:${APP_VERSION:-latest}
+    container_name: foxya-api-2
+    environment:
+      TZ: Asia/Seoul
+      APP_ENV: ${APP_ENV:-prod}
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID}
+      GOOGLE_ANDROID_REDIRECT_URI: ${GOOGLE_ANDROID_REDIRECT_URI}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID}
+      GOOGLE_IOS_REDIRECT_URI: ${GOOGLE_IOS_REDIRECT_URI}
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+      KAKAO_REDIRECT_URI: ${KAKAO_REDIRECT_URI}
+      KAKAO_ANDROID_REDIRECT_URI: ${KAKAO_ANDROID_REDIRECT_URI}
+      KAKAO_IOS_REDIRECT_URI: ${KAKAO_IOS_REDIRECT_URI}
+      APPLE_KEY_ID: ${APPLE_KEY_ID}
+      APPLE_SERVICE_ID: ${APPLE_SERVICE_ID}
+      APPLE_PRIVATE_KEY_PATH: ${APPLE_PRIVATE_KEY_PATH}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+    # 포트 미노출 (Nginx가 내부 네트워크로만 접근)
+    volumes:
+      - ./logs:/app/logs
+      - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tron-service:
+        condition: service_started
+    networks:
+      - coin-shared
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ==================== TRON Service (Node.js) — 2컨테이너 (Nginx 로드밸런싱) ====================
+  tron-service:
+    build:
+      context: ${TRON_SERVICE_PATH:-/var/www/coin_publish}
       dockerfile: Dockerfile
-    # 또는 방법 2: 이미 빌드된 이미지 사용
-    # image: foxya-tron-service:latest
-    
+    image: foxya-tron-service:${TRON_VERSION:-latest}
     container_name: foxya-tron-service
     restart: unless-stopped
-    # 포트를 외부에 노출하지 않음 (Nginx를 통해서만 접근)
-    # ports:
-    #   - "3000:3000"
-    # .env 파일의 모든 변수를 자동으로 로드 (중복 없이 자동 반영)
-    # .env.example에 정의된 모든 TRON 서비스 변수가 자동으로 전달됩니다.
     env_file:
-      - .env  # Foxya Coin Service의 .env 파일 사용
+      - .env
     environment:
-      # Docker 네트워크 내에서 컨테이너 이름으로 오버라이드 (필수)
       - DB_HOST=postgres
       - REDIS_HOST=redis
-      # 기본 환경 변수 (env_file에 없어도 사용 가능)
       - NODE_ENV=production
       - PORT=3000
       - TZ=Asia/Seoul
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,8 +186,43 @@ services:
     volumes:
       - ./logs/tron:/app/logs
     healthcheck:
-      # TRON 서비스 healthcheck (간단한 포트 체크)
-      # wget/curl/nc가 없을 수 있으므로 node를 사용하여 HTTP 요청
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\" || exit 0"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  tron-service2:
+    image: foxya-tron-service:${TRON_VERSION:-latest}
+    container_name: foxya-tron-service-2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=Asia/Seoul
+    networks:
+      - coin-shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs/tron2:/app/logs
+    healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\" || exit 0"]
       interval: 30s
       timeout: 5s
@@ -158,10 +251,11 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
+      - '--web.external-url=https://api.korion.io.kr/'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -178,14 +272,14 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      # nginx를 통한 HTTPS 접근을 위해 subpath 설정
-      - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      - GF_SERVER_ROOT_URL=https://korion.io.kr/6s9ex74204/grafana/
-      # 쿠키 설정 (subpath에서 인증 문제 해결)
+      # dev.korion.io.kr 루트로 서비스 (서브경로 없음 → 리다이렉트 루프 근본 해결)
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+      - GF_SERVER_ROOT_URL=https://dev.korion.io.kr/
+      - GF_SERVER_DOMAIN=dev.korion.io.kr
       - GF_SERVER_COOKIE_SAMESITE=none
       - GF_SERVER_COOKIE_SECURE=true
-      # 리다이렉트 방지
       - GF_SERVER_ENABLE_GZIP=true
+      - GF_SERVER_ENABLE_ROUTER_LOGGING=false
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -193,7 +287,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     deploy:
       resources:
@@ -219,9 +313,10 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       - app
+      - app2
       # tron-service는 선택사항 (없어도 nginx 시작 가능)
     networks:
-      - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
     # DNS 설정 (Docker 내부 DNS 사용)
     dns:
@@ -242,5 +337,5 @@ volumes:
     driver: local
 
 networks:
-  fox_coin_foxya-network:  # coin_csms와 공유하는 네트워크
-    driver: bridge
+  coin-shared:  # coin_csms와 공유하는 외부 네트워크
+    external: true

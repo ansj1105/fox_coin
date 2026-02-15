@@ -136,6 +136,30 @@ public class EmailVerificationRepository extends BaseRepository {
     }
     
     /**
+     * 회원가입 완료 시 이메일 인증 기록 삽입 (is_verified = true).
+     * 레퍼럴 코드 등록 등에서 email_verifications를 조회하므로 회원가입 시 기록 필수.
+     */
+    public Future<Boolean> insertVerifiedEmail(SqlClient client, Long userId, String email) {
+        String sql = QueryBuilder
+            .insert("email_verifications", "user_id", "email", "verification_code", "is_verified", "verified_at", "expires_at")
+            .onConflict("user_id")
+            .doUpdateCustom("email = EXCLUDED.email, is_verified = true, verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP")
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("email", email);
+        params.put("verification_code", "SIGNUP"); // 회원가입 인증 완료
+        params.put("is_verified", true);
+        params.put("verified_at", LocalDateTime.now());
+        params.put("expires_at", LocalDateTime.now().plusYears(10)); // 만료 없음
+
+        return query(client, sql, params)
+            .map(rows -> rows.rowCount() > 0)
+            .onFailure(throwable -> log.error("회원가입 이메일 인증 기록 실패 - userId: {}, email: {}", userId, email, throwable));
+    }
+
+    /**
      * 사용자의 이메일 인증 Soft Delete
      */
     public Future<Void> softDeleteEmailVerificationByUserId(SqlClient client, Long userId) {

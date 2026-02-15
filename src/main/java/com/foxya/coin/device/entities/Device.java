@@ -19,6 +19,7 @@ public class Device {
     private String deviceId;
     private String deviceType;
     private String deviceOs;
+    private String fcmToken;   // FCM 푸시 알림용 등록 토큰
     private String appVersion;
     private String userAgent;
     private String lastIp;

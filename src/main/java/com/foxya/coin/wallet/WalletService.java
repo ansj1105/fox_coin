@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.web3j.crypto.Credentials;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -29,6 +30,8 @@ public class WalletService extends BaseService {
 
     private static final String WALLET_RECOVERY_NONCE_PREFIX = "wallet:nonce:";
     private static final int WALLET_RECOVERY_TTL_SECONDS = 600;
+    /** TRON 체인에서 동일 지갑 주소를 쓰는 통화 (KORI, TRX, USDT) */
+    private static final Set<String> TRON_SAME_ADDRESS_CURRENCIES = Set.of("KORI", "TRX", "USDT");
     
     public WalletService(PgPool pool, WalletRepository walletRepository, CurrencyRepository currencyRepository, WebClient webClient, String tronServiceUrl, RedisAPI redisApi) {
         super(pool);
@@ -347,7 +350,7 @@ public class WalletService extends BaseService {
         }
         String normalized = chain.trim().toUpperCase();
         return switch (normalized) {
-            case "ETH", "TRON", "BTC" -> normalized;
+            case "ETH", "TRON", "BTC", "INTERNAL" -> normalized;
             default -> null;
         };
     }
@@ -404,25 +407,44 @@ public class WalletService extends BaseService {
     }
     
     /**
-     * 지갑 주소 생성
-     * TRON, BTC, ETH 모두 블록체인 서비스(TRON 서비스)를 호출하여 실제 주소 생성
+     * 지갑 주소 생성.
+     * KORI/TRX/USDT on TRON = 동일 주소 사용. 이미 TRON 지갑이 있으면 그 주소 재사용.
+     * TRON/ETH/BTC = 블록체인 서비스 호출 또는 기존 주소 재사용.
      */
     private Future<String> generateWalletAddress(Long userId, com.foxya.coin.currency.entities.Currency currency, String currencyCode) {
-        // TRON, BTC, ETH 모두 블록체인 서비스 호출
-        if ("TRON".equalsIgnoreCase(currency.getChain()) || 
-            "BTC".equalsIgnoreCase(currency.getChain()) || 
+        if ("TRON".equalsIgnoreCase(currency.getChain()) && TRON_SAME_ADDRESS_CURRENCIES.contains(currencyCode.toUpperCase())) {
+            // KORI, TRX, USDT on TRON: 이미 사용 중인 TRON 주소가 있으면 동일 주소 재사용
+            return walletRepository.getWalletsByUserId(pool, userId)
+                .compose(wallets -> {
+                    if (wallets == null) return Future.succeededFuture((String) null);
+                    String existing = wallets.stream()
+                        .filter(w -> "TRON".equalsIgnoreCase(w.getNetwork()))
+                        .map(Wallet::getAddress)
+                        .findFirst()
+                        .orElse(null);
+                    return Future.succeededFuture(existing);
+                })
+                .compose(existingAddress -> {
+                    if (existingAddress != null && !existingAddress.isEmpty()) {
+                        log.info("KORI/TRX/USDT TRON 동일 주소 재사용 - userId: {}, currencyCode: {}", userId, currencyCode);
+                        return Future.succeededFuture(existingAddress);
+                    }
+                    if (tronServiceUrl != null && !tronServiceUrl.isEmpty()) {
+                        return callTronServiceToCreateWallet(userId, currencyCode);
+                    }
+                    return Future.failedFuture("블록체인 서비스 URL이 설정되지 않았습니다. 환경변수를 확인해주세요.");
+                });
+        }
+        if ("TRON".equalsIgnoreCase(currency.getChain()) ||
+            "BTC".equalsIgnoreCase(currency.getChain()) ||
             "ETH".equalsIgnoreCase(currency.getChain())) {
             if (tronServiceUrl != null && !tronServiceUrl.isEmpty()) {
-                // 블록체인 서비스가 설정되어 있다면 실패 시에도 더미로 넘기지 않고 에러 반환
                 return callTronServiceToCreateWallet(userId, currencyCode);
-            } else {
-                // 설정이 없으면 명확하게 실패 반환 (운영에서는 실주소 필요)
-                return Future.failedFuture("블록체인 서비스 URL이 설정되지 않았습니다. 환경변수를 확인해주세요.");
             }
-        } else {
-            // INTERNAL 등 다른 체인은 더미 주소 생성
-            return Future.succeededFuture(generateDummyAddress(currencyCode, currency.getChain()));
+            return Future.failedFuture("블록체인 서비스 URL이 설정되지 않았습니다. 환경변수를 확인해주세요.");
         }
+        // INTERNAL 등: 더미 주소
+        return Future.succeededFuture(generateDummyAddress(currencyCode, currency.getChain()));
     }
     
     /**
@@ -576,6 +598,14 @@ public class WalletService extends BaseService {
                     if (!hasKori) {
                         walletFutures.add(createWalletWithAddress(userId, "KORI", "TRON", tronAddress));
                     }
+                }
+
+                // KORI(INTERNAL) 지갑 생성 (채굴·에어드랍·래퍼럴 적립용, 없으면 생성)
+                boolean hasKoriInternal = existingWallets.stream()
+                    .anyMatch(w -> "KORI".equalsIgnoreCase(w.getCurrencyCode()) && "INTERNAL".equalsIgnoreCase(w.getNetwork()));
+                if (!hasKoriInternal) {
+                    String koriInternalAddress = "KORI_INTERNAL_" + userId;
+                    walletFutures.add(createWalletWithAddress(userId, "KORI", "INTERNAL", koriInternalAddress));
                 }
 
                 // BTC 지갑 생성 (없는 경우만)

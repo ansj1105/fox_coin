@@ -19,41 +19,64 @@ import java.util.Map;
 
 @Slf4j
 public class RankingRepository extends BaseRepository {
-    
+
     /**
-     * 국가별 팀 랭킹 조회
+     * CTE user_stats 결과를 조회하는 SELECT (개인 랭킹용).
+     * 랭킹 집계 = (채굴된 코인 + 레퍼럴 수익) + (팀원 수 × 20).
+     */
+    private static final String SQL_PERSONAL_RANKING_FROM_USER_STATS =
+        "SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats";
+
+    /**
+     * 국가별 팀 랭킹 조회.
+     * 집계 기준: 개인 랭킹과 동일 — totalMinedCoins = (채굴+레퍼럴) 합계(수익 0인 사용자 제외), aggregation = totalMinedCoins + (totalMembers × 20).
+     * 표출: totalMinedCoins > 0 인 국가만 포함.
+     *
      * @param period 기간 (ALL, TODAY, WEEK, MONTH, YEAR)
      */
     public Future<List<CountryRanking>> getCountryRankings(SqlClient client, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        String sql = """
-            WITH country_stats AS (
-                SELECT 
-                    COALESCE(u.country_code, 'UNKNOWN') as country_code,
-                    COUNT(DISTINCT u.id) as total_members,
-                    COALESCE(SUM(dm.mining_amount), 0) as total_mined_coins
-                FROM users u
-                LEFT JOIN referral_relations rr ON rr.referred_id = u.id
-                LEFT JOIN daily_mining dm ON dm.user_id = u.id
-                    AND (dm.mining_date >= #{start_date} OR #{start_date} IS NULL)
-                WHERE u.status = 'ACTIVE'
-                    AND (rr.id IS NOT NULL OR u.referral_code IS NOT NULL)
-                GROUP BY u.country_code
-            )
-            SELECT 
-                country_code,
-                total_members,
-                total_mined_coins,
-                (total_mined_coins + (total_members * 20)) as aggregation
-            FROM country_stats
-            ORDER BY aggregation DESC, total_mined_coins DESC
-            LIMIT 50
-            """;
+        StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
+            .append(" SELECT ")
+            .append(" u.id as user_id,")
+            .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
+            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
+        if (startDate != null) {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' AND it.created_at >= #{start_date} THEN it.amount ELSE 0 END), 0) as referral_reward");
+        } else {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' THEN it.amount ELSE 0 END), 0) as referral_reward");
+        }
+        cteSql.append(" FROM users u")
+            .append(" LEFT JOIN referral_relations rr ON rr.referred_id = u.id")
+            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id");
+        if (startDate != null) {
+            cteSql.append(" AND dm.mining_date >= #{start_date}");
+        }
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
+        if (startDate != null) {
+            cteSql.append(" AND it.created_at >= #{start_date}");
+        }
+        cteSql.append(" WHERE u.status = 'ACTIVE' AND (rr.id IS NOT NULL OR u.referral_code IS NOT NULL)")
+            .append(" GROUP BY u.id, u.country_code")
+            .append(" ), country_stats AS (")
+            .append(" SELECT country_code,")
+            .append(" COUNT(DISTINCT user_id) as total_members,")
+            .append(" SUM(CASE WHEN (mining_amount + referral_reward) > 0 THEN (mining_amount + referral_reward) ELSE 0 END) as total_mined_coins")
+            .append(" FROM user_stats")
+            .append(" GROUP BY country_code")
+            .append(" HAVING SUM(CASE WHEN (mining_amount + referral_reward) > 0 THEN (mining_amount + referral_reward) ELSE 0 END) > 0")
+            .append(" )")
+            .append(" SELECT country_code, total_members, total_mined_coins, (total_mined_coins + (total_members * 20)) as aggregation")
+            .append(" FROM country_stats")
+            .append(" ORDER BY aggregation DESC, total_mined_coins DESC")
+            .append(" LIMIT 50");
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String query = QueryBuilder.selectStringQuery(cteSql.toString()).build();
         Map<String, Object> params = new HashMap<>();
-        params.put("start_date", startDate);
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         
         return query(client, query, params)
             .map(rows -> {
@@ -73,38 +96,46 @@ public class RankingRepository extends BaseRepository {
     }
     
     /**
-     * 특정 국가의 랭킹 정보 조회
+     * 특정 국가의 랭킹 정보 조회. 집계 기준은 getCountryRankings와 동일 (채굴+레퍼럴, 수익 0 사용자 제외).
      */
     public Future<CountryRanking> getCountryRankingByCode(SqlClient client, String countryCode, String period) {
         LocalDate startDate = getStartDateForPeriod(period);
         
-        String sql = """
-            WITH country_stats AS (
-                SELECT 
-                    COALESCE(u.country_code, 'UNKNOWN') as country_code,
-                    COUNT(DISTINCT u.id) as total_members,
-                    COALESCE(SUM(dm.mining_amount), 0) as total_mined_coins
-                FROM users u
-                LEFT JOIN referral_relations rr ON rr.referred_id = u.id
-                LEFT JOIN daily_mining dm ON dm.user_id = u.id
-                    AND (dm.mining_date >= #{start_date} OR #{start_date} IS NULL)
-                WHERE u.status = 'ACTIVE'
-                    AND (rr.id IS NOT NULL OR u.referral_code IS NOT NULL)
-                    AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}
-                GROUP BY u.country_code
-            )
-            SELECT 
-                country_code,
-                total_members,
-                total_mined_coins,
-                (total_mined_coins + (total_members * 20)) as aggregation
-            FROM country_stats
-            """;
+        StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
+            .append(" SELECT u.id as user_id, COALESCE(u.country_code, 'UNKNOWN') as country_code,")
+            .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
+        if (startDate != null) {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' AND it.created_at >= #{start_date} THEN it.amount ELSE 0 END), 0) as referral_reward");
+        } else {
+            cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' THEN it.amount ELSE 0 END), 0) as referral_reward");
+        }
+        cteSql.append(" FROM users u")
+            .append(" LEFT JOIN referral_relations rr ON rr.referred_id = u.id")
+            .append(" LEFT JOIN daily_mining dm ON dm.user_id = u.id");
+        if (startDate != null) {
+            cteSql.append(" AND dm.mining_date >= #{start_date}");
+        }
+        cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
+        if (startDate != null) {
+            cteSql.append(" AND it.created_at >= #{start_date}");
+        }
+        cteSql.append(" WHERE u.status = 'ACTIVE' AND (rr.id IS NOT NULL OR u.referral_code IS NOT NULL)")
+            .append(" AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}")
+            .append(" GROUP BY u.id, u.country_code")
+            .append(" ), country_stats AS (")
+            .append(" SELECT country_code, COUNT(DISTINCT user_id) as total_members,")
+            .append(" SUM(CASE WHEN (mining_amount + referral_reward) > 0 THEN (mining_amount + referral_reward) ELSE 0 END) as total_mined_coins")
+            .append(" FROM user_stats")
+            .append(" GROUP BY country_code")
+            .append(" )")
+            .append(" SELECT country_code, total_members, total_mined_coins, (total_mined_coins + (total_members * 20)) as aggregation FROM country_stats");
         
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String query = QueryBuilder.selectStringQuery(cteSql.toString()).build();
         Map<String, Object> params = new HashMap<>();
         params.put("country_code", countryCode);
-        params.put("start_date", startDate);
+        if (startDate != null) {
+            params.put("start_date", startDate.atStartOfDay());
+        }
         
         return query(client, query, params)
             .map(rows -> {
@@ -170,7 +201,7 @@ public class RankingRepository extends BaseRepository {
         StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
             .append(" SELECT ")
             .append(" u.id as user_id,")
-            .append(" u.login_id as nickname,")
+            .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
             .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
@@ -195,7 +226,7 @@ public class RankingRepository extends BaseRepository {
         }
         
         cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         
         // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -210,13 +241,13 @@ public class RankingRepository extends BaseRepository {
             cteSql.append(" AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}");
         }
         
-        cteSql.append(" GROUP BY u.id, u.login_id, u.level, u.country_code")
+        cteSql.append(" GROUP BY u.id, u.nickname, u.login_id, u.level, u.country_code")
             .append(" )");
-        
-        // 외부 SELECT는 QueryBuilder 사용 (CTE를 FROM 절에서 사용)
+
+        // 외부 SELECT: 표출 조건 = 수익(채굴+레퍼럴)이 0보다 큰 경우만 랭킹 집계 (수익 0인 유저는 제외)
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
-            .selectStringQuery("SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats")
-            .where("(mining_amount + referral_reward) > 0 OR team_count > 0")
+            .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS)
+            .where("(mining_amount + referral_reward) > 0")
             .appendQueryString("ORDER BY aggregation DESC, total_amount DESC, team_count DESC")
             .limit(50);
         
@@ -262,11 +293,11 @@ public class RankingRepository extends BaseRepository {
         StringBuilder cteSql = new StringBuilder("WITH user_stats AS (")
             .append(" SELECT ")
             .append(" u.id as user_id,")
-            .append(" u.login_id as nickname,")
+            .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
             .append(" COALESCE(SUM(dm.mining_amount), 0) as mining_amount,");
-        
+
         // referral_reward 계산 (start_date가 null이 아닐 때만 날짜 조건 추가)
         if (startDate != null) {
             cteSql.append(" COALESCE(SUM(CASE WHEN it.transfer_type = 'REFERRAL_REWARD' AND it.status = 'COMPLETED' ")
@@ -287,7 +318,7 @@ public class RankingRepository extends BaseRepository {
         }
         
         cteSql.append(" LEFT JOIN internal_transfers it ON it.receiver_id = u.id")
-            .append(" AND it.transfer_type = 'REFERRAL_REWARD'");
+            .append(" AND it.transfer_type = 'REFERRAL_REWARD' AND (it.deleted_at IS NULL)");
         
         // internal_transfers 날짜 조건 (start_date가 null이 아닐 때만 추가)
         if (startDate != null) {
@@ -302,13 +333,13 @@ public class RankingRepository extends BaseRepository {
             cteSql.append(" AND COALESCE(u.country_code, 'UNKNOWN') = #{country_code}");
         }
         
-        cteSql.append(" GROUP BY u.id, u.login_id, u.level, u.country_code")
+        cteSql.append(" GROUP BY u.id, u.nickname, u.login_id, u.level, u.country_code")
             .append(" )");
         
         // 외부 SELECT는 QueryBuilder 사용
         QueryBuilder.SelectQueryBuilder queryBuilder = QueryBuilder
-            .selectStringQuery("SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats");
-        
+            .selectStringQuery(SQL_PERSONAL_RANKING_FROM_USER_STATS);
+
         // WITH 절을 앞에 추가
         String query = cteSql.toString() + " " + queryBuilder.build();
         Map<String, Object> params = new HashMap<>();

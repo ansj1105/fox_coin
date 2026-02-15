@@ -20,15 +20,15 @@ public class NoticeService extends BaseService {
         this.noticeRepository = noticeRepository;
     }
     
-    public Future<NoticeListResponseDto> getNotices(Integer limit, Integer offset) {
+    public Future<NoticeListResponseDto> getNotices(Integer limit, Integer offset, Boolean isEvent) {
         return Future.all(
-            noticeRepository.getNotices(pool, limit, offset),
-            noticeRepository.getNoticeCount(pool)
+            noticeRepository.getNotices(pool, limit, offset, isEvent),
+            noticeRepository.getNoticeCount(pool, isEvent)
         ).map(results -> {
             @SuppressWarnings("unchecked")
             List<Notice> notices = (List<Notice>) results.list().get(0);
             Long total = (Long) results.list().get(1);
-            
+
             List<NoticeListResponseDto.NoticeInfo> noticeInfos = new ArrayList<>();
             for (Notice notice : notices) {
                 noticeInfos.add(NoticeListResponseDto.NoticeInfo.builder()
@@ -37,9 +37,10 @@ public class NoticeService extends BaseService {
                     .content(notice.getContent())
                     .createdAt(notice.getCreatedAt())
                     .isImportant(notice.getIsImportant())
+                    .isEvent(notice.getIsEvent())
                     .build());
             }
-            
+
             return NoticeListResponseDto.builder()
                 .notices(noticeInfos)
                 .total(total)

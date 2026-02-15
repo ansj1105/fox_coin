@@ -4,29 +4,25 @@ global:
   external_labels:
     monitor: 'foxya-coin-service'
 
-# Alertmanager 설정 (선택사항)
+# Alertmanager ?ㅼ젙 (?좏깮?ы빆)
 # alerting:
 #   alertmanagers:
 #     - static_configs:
 #         - targets: ['alertmanager:9093']
 
-# 스크랩 설정
 scrape_configs:
-  # API 서버 메트릭 (5분마다 수집해 로그/부하 완화)
   - job_name: 'foxya-api'
     metrics_path: '/metrics'
-    scrape_interval: 5m
-    scrape_timeout: 30s
+    scrape_interval: 15s
+    scrape_timeout: 10s
     static_configs:
-      # NOTE: 같은 Docker 네트워크에 다른 프로젝트의 `app` alias가 붙으면 잘못된 컨테이너로
-      # 라우팅될 수 있어(404 등) 컨테이너 이름을 명시합니다.
+      # NOTE: `app:8080`? 媛숈? ?ㅽ듃?뚰겕瑜?怨듭쑀?섎뒗 ?ㅻⅨ ?ㅽ깮??app怨?異⑸룎?????덉뒿?덈떎.
+      # docker-compose.prod.yml??container_name(foxya-api)濡?怨좎젙?댁꽌 ?섎せ??而⑦뀒?대꼫(404)瑜??ㅽ겕?⑺븯吏 ?딄쾶 ?⑸땲??
       - targets: ['foxya-api:8080']
         labels:
           service: 'api'
           environment: 'production'
 
-  # Prometheus 자체 메트릭
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
-

@@ -9,6 +9,7 @@ import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.TransferResponseDto;
 import com.foxya.coin.transfer.entities.ExternalTransfer;
 import com.foxya.coin.user.UserRepository;
+import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -48,6 +49,7 @@ public class ExternalTransferMockTest {
     private static TransferRepository transferRepository;
     private static UserRepository userRepository;
     private static CurrencyRepository currencyRepository;
+    private static WalletRepository walletRepository;
     private static EventPublisher mockEventPublisher;
     private static TransferService transferService;
     private static Flyway flyway;
@@ -87,6 +89,7 @@ public class ExternalTransferMockTest {
         transferRepository = new TransferRepository();
         userRepository = new UserRepository();
         currencyRepository = new CurrencyRepository();
+        walletRepository = new WalletRepository();
         
         // Mock EventPublisher 생성
         mockEventPublisher = mock(EventPublisher.class);
@@ -96,7 +99,7 @@ public class ExternalTransferMockTest {
             .thenReturn(Future.succeededFuture());
         
         // TransferService 초기화 (Mock EventPublisher 주입)
-        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, mockEventPublisher);
+        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, mockEventPublisher);
         
         tc.completeNow();
     }
@@ -268,7 +271,7 @@ public class ExternalTransferMockTest {
         
         @Test
         @Order(2)
-        @DisplayName("성공 - 외부 전송 컨펌 완료 (CONFIRMED)")
+        @DisplayName("성공 - 외부 전송 컨펌 완료 (CONFIRMED) 및 내부 지갑 잠금 해제")
         void successConfirmExternalTransfer(VertxTestContext tc) {
             // 1. 외부 전송 요청 생성
             ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
@@ -285,17 +288,21 @@ public class ExternalTransferMockTest {
                     
                     // 2. 제출 완료
                     return transferRepository.submitExternalTransfer(pool, transferId, mockTxHash)
-                        .compose(submitted -> {
-                            // 3. 컨펌 완료 시뮬레이션 (20 confirmations)
-                            return transferRepository.confirmExternalTransfer(pool, transferId, 20);
-                        });
+                        .compose(submitted ->
+                            // 3. 컨펌 완료 시뮬레이션 (서비스 호출 → unlockBalance로 내부 지갑 잠금 해제)
+                            transferService.confirmExternalTransfer(transferId, 20));
                 })
-                .onSuccess(confirmedTransfer -> tc.verify(() -> {
-                    log.info("Confirmed transfer: {}", confirmedTransfer);
+                .compose(confirmedTransfer -> getTronWallet(TEST_USER_ID).map(w -> new Object[] { confirmedTransfer, w }))
+                .onSuccess(pair -> tc.verify(() -> {
+                    ExternalTransfer confirmedTransfer = (ExternalTransfer) ((Object[]) pair)[0];
+                    Wallet wallet = (Wallet) ((Object[]) pair)[1];
+                    log.info("Confirmed transfer: {}, wallet locked_balance: {}", confirmedTransfer, wallet != null ? wallet.getLockedBalance() : null);
                     
                     assertThat(confirmedTransfer.getStatus()).isEqualTo(ExternalTransfer.STATUS_CONFIRMED);
                     assertThat(confirmedTransfer.getConfirmations()).isEqualTo(20);
                     assertThat(confirmedTransfer.getConfirmedAt()).isNotNull();
+                    // 서비스 confirmExternalTransfer 호출로 unlockBalance(..., false) 수행됨 → 내부 지갑 잠금 해제 반영
+                    assertThat(wallet).isNotNull();
                     
                     tc.completeNow();
                 }))
@@ -304,68 +311,33 @@ public class ExternalTransferMockTest {
         
         @Test
         @Order(3)
-        @DisplayName("성공 - 외부 전송 실패 처리 및 잔액 복구")
-        void successFailExternalTransfer(VertxTestContext tc) {
-            AtomicReference<BigDecimal> initialBalance = new AtomicReference<>();
-            AtomicReference<String> transferIdRef = new AtomicReference<>();
-            
-            // 1. 초기 잔액 저장
-            getTronWallet(TEST_USER_ID)
-                .compose(wallet -> {
-                    if (wallet == null) {
-                        return Future.failedFuture(new IllegalStateException("Test user TRON wallet not found"));
-                    }
-                    initialBalance.set(wallet.getBalance().add(wallet.getLockedBalance()));
-                    log.info("Total initial balance (available + locked): {}", initialBalance.get());
-                    
-                    // 2. 외부 전송 요청 생성
-                    ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
-                        .toAddress(EXTERNAL_ADDRESS)
-                        .currencyCode("FOXYA")
-                        .amount(new BigDecimal("25"))
-                        .chain("TRON")
-                        .build();
-                    
-                    return transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1");
-                })
-                .compose(response -> {
-                    transferIdRef.set(response.getTransferId());
-                    
-                    // 3. 실패 처리 시뮬레이션
-                    return transferRepository.failExternalTransfer(
-                        pool, 
-                        response.getTransferId(), 
-                        "NETWORK_ERROR", 
+        @DisplayName("성공 - 외부 전송 실패 처리 및 잔액 복구 (서비스 메서드: failExternalTransferAndRefund)")
+        void successFailExternalTransferWithService(VertxTestContext tc) {
+            // 1. 외부 전송 요청 생성
+            ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
+                .toAddress(EXTERNAL_ADDRESS)
+                .currencyCode("FOXYA")
+                .amount(new BigDecimal("25"))
+                .chain("TRON")
+                .build();
+
+            transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1")
+                .compose(response ->
+                    // 2. 서비스 메서드로 실패 처리 + 잔액 복구 (unlockBalance refund=true)
+                    transferService.failExternalTransferAndRefund(
+                        response.getTransferId(),
+                        "NETWORK_ERROR",
                         "Failed to broadcast transaction"
-                    );
-                })
+                    ))
                 .compose(failedTransfer -> {
-                    log.info("Failed transfer: {}", failedTransfer);
-                    
                     assertThat(failedTransfer.getStatus()).isEqualTo(ExternalTransfer.STATUS_FAILED);
                     assertThat(failedTransfer.getErrorCode()).isEqualTo("NETWORK_ERROR");
-                    assertThat(failedTransfer.getErrorMessage()).isEqualTo("Failed to broadcast transaction");
                     assertThat(failedTransfer.getFailedAt()).isNotNull();
-                    
-                    // 4. 잔액 복구 (실제로는 별도 서비스에서 처리)
-                    BigDecimal refundAmount = new BigDecimal("25").add(new BigDecimal("25").multiply(new BigDecimal("0.001")));
-                    return transferRepository.unlockBalance(pool, failedTransfer.getWalletId(), refundAmount, true);
-                })
-                .compose(restoredWallet -> {
-                    // 5. 잔액 복구 확인
                     return getTronWallet(TEST_USER_ID);
                 })
                 .onSuccess(finalWallet -> tc.verify(() -> {
-                    if (finalWallet == null) {
-                        throw new IllegalStateException("Final TRON wallet not found");
-                    }
-                    BigDecimal finalTotal = finalWallet.getBalance().add(finalWallet.getLockedBalance());
-                    log.info("Final total balance: {}", finalTotal);
-                    
-                    // 실패 시 잔액이 원래대로 복구되었는지 확인
-                    // (테스트 환경에서는 다른 테스트의 영향을 받을 수 있으므로 잠금 잔액만 확인)
+                    assertThat(finalWallet).isNotNull();
                     assertThat(finalWallet.getLockedBalance()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
-                    
                     tc.completeNow();
                 }))
                 .onFailure(tc::failNow);

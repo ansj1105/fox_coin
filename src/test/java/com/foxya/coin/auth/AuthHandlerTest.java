@@ -218,6 +218,41 @@ public class AuthHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(34)
+        @DisplayName("성공 - device 없이 회원가입 (deviceId/deviceType/deviceOs 선택)")
+        void successRegisterWithoutDevice(VertxTestContext tc) {
+            String email = "register-no-device@test.com";
+            reqPost(getUrl("/email/send-code"))
+                .sendJson(new JsonObject().put("email", email), tc.succeeding(sendRes -> tc.verify(() -> {
+                    expectSuccess(sendRes);
+                    sqlClient.preparedQuery("SELECT code FROM signup_email_codes WHERE email = $1 ORDER BY created_at DESC LIMIT 1")
+                        .execute(Tuple.of(email))
+                        .onSuccess(rows -> {
+                            if (!rows.iterator().hasNext()) { tc.failNow(new AssertionError("code not found")); return; }
+                            String code = rows.iterator().next().getString(0);
+                            JsonObject reg = new JsonObject()
+                                .put("email", email)
+                                .put("code", code)
+                                .put("password", "Test1234!@")
+                                .put("seedConfirmed", true)
+                                .put("nickname", "nicknode")
+                                .put("name", "NoDevice")
+                                .put("country", "KR");
+                            reqPost(getUrl("/register"))
+                                .sendJson(reg, tc.succeeding(regRes -> tc.verify(() -> {
+                                    assertThat(regRes.statusCode()).as("device 없이 회원가입 성공").isEqualTo(200);
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(regRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getLoginId()).isEqualTo(email);
+                                    tc.completeNow();
+                                })));
+                        })
+                        .onFailure(tc::failNow);
+                })));
+        }
     }
     
     @Nested
@@ -258,6 +293,78 @@ public class AuthHandlerTest extends HandlerTestBase {
             reqPost(getUrl("/login"))
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(5)
+        @DisplayName("성공 - device 없이 로그인 (deviceId/deviceType/deviceOs 선택)")
+        void successWithoutDevice(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getRefreshToken()).isNotNull();
+                    assertThat(dto.getLoginId()).isEqualTo("testuser");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(6)
+        @DisplayName("성공 - 로그인 응답에 minAppVersion 포함 (Android/WEB 기준 config_value)")
+        void loginResponseContainsMinAppVersion(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("test-device-minver", "WEB", "WEB"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getMinAppVersion()).isEqualTo("1.1.8");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(7)
+        @DisplayName("성공 - deviceOs=IOS 로그인 시 minAppVersion 포함 (iOS는 config_value_apple, 비어있으면 config_value)")
+        void loginResponseWithIosDeviceContainsMinAppVersion(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("test-device-ios", "MOBILE", "IOS"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    LoginResponseDto dto = expectSuccessAndGetResponse(res, refLoginResponse);
+                    assertThat(dto.getAccessToken()).isNotNull();
+                    assertThat(dto.getMinAppVersion()).isEqualTo("1.1.8");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(8)
+        @DisplayName("실패 - 계정 차단(is_account_blocked) 시 로그인 불가 (V41)")
+        void failLoginWhenAccountBlocked(VertxTestContext tc) {
+            JsonObject data = new JsonObject()
+                .put("loginId", "blocked_user")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("blocked-device-1", "WEB", "WEB"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    String message = res.bodyAsJsonObject().getString("message");
+                    assertThat(message).isNotNull().contains("차단");
                     tc.completeNow();
                 })));
         }
@@ -503,9 +610,12 @@ public class AuthHandlerTest extends HandlerTestBase {
                     String refreshToken = loginDto.getRefreshToken();
                     assertThat(refreshToken).isNotNull();
 
-                    // 2) POST /refresh (Authorization 없음)
+                    // 2) POST /refresh (로그인과 동일한 device 헤더 사용 — ensureActiveDevice 검증용)
                     JsonObject body = new JsonObject().put("refreshToken", refreshToken);
-                    reqPost(getUrl("/refresh"))
+                    webClient.post(port, "localhost", getUrl("/refresh"))
+                        .putHeader("X-Device-Id", "refresh-device-web-1")
+                        .putHeader("X-Device-Type", "WEB")
+                        .putHeader("X-Device-Os", "WEB")
                         .sendJson(body, tc.succeeding(refreshRes -> tc.verify(() -> {
                             assertThat(refreshRes.statusCode()).isEqualTo(200);
                             JsonObject json = refreshRes.bodyAsJsonObject();

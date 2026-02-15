@@ -113,7 +113,7 @@ docker-compose -f docker-compose.prod.yml logs --tail=100 app
 
 - **프로젝트 디렉터리**: `docker-compose -f docker-compose.prod.yml` 실행 위치(예: `/var/www/foxya_coin_service`).
 - **컨테이너ID**: `docker ps --no-trunc` 또는 `docker inspect foxya-api` 에서 확인 가능.
-- **참고**: `/health`, `/metrics` 요청은 요청 로그에서 제외되어 다른 로그 확인이 쉽습니다. Health/Metrics 호출 주기는 Prometheus·EKS·Docker healthcheck에서 5분으로 설정됩니다.
+- **참고**: `/health`, `/metrics` 요청은 요청 로그에서 제외되어 다른 로그 확인이 쉽습니다. Prometheus 스크랩 주기는 15초(`prometheus/prometheus.yml`)입니다.
 
 자세한 설정은 `src/main/resources/log4j2.xml`, `docker-compose.prod.yml`의 `logging` 항목을 참고하세요.
 

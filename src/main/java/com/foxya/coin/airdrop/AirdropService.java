@@ -108,16 +108,24 @@ public class AirdropService extends BaseService {
                             .claimed(claimed)
                             .unlockDate(phase.getUnlockDate())
                             .daysRemaining(daysRemaining)
+                            .createdAt(phase.getCreatedAt())
                             .build();
                     })
                     .sorted(Comparator.comparing(AirdropPhaseDto::getPhase))
                     .collect(Collectors.toList());
                 
-                // totalReceived: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
-                BigDecimal totalReceived = phaseDtos.stream()
-                    .filter(p -> AirdropPhase.STATUS_RELEASED.equals(p.getStatus())
-                        && !Boolean.FALSE.equals(p.getClaimed()))
-                    .map(AirdropPhaseDto::getAmount)
+                // totalReceived: RELEASED && claimed 인 phase의 (amount - transferredAmount) 합 = 전송가능 금액
+                BigDecimal totalReceived = phases.stream()
+                    .filter(p -> {
+                        boolean pastUnlock = p.getUnlockDate() != null && (p.getUnlockDate().isBefore(now) || p.getUnlockDate().isEqual(now));
+                        boolean isReleased = pastUnlock || AirdropPhase.STATUS_RELEASED.equals(p.getStatus());
+                        return isReleased && Boolean.TRUE.equals(p.getClaimed());
+                    })
+                    .map(p -> {
+                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+                        BigDecimal ta = p.getTransferredAmount() != null ? p.getTransferredAmount() : BigDecimal.ZERO;
+                        return amt.subtract(ta);
+                    })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 
                 // totalReward 계산 (모든 Phase의 합)
@@ -186,8 +194,8 @@ public class AirdropService extends BaseService {
             return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
         }
         
-        // 2. KORI 통화 조회
-        return currencyRepository.getCurrencyByCodeAndChain(pool, KORI_CURRENCY_CODE, INTERNAL_CHAIN)
+        // 2. KORI 통화 조회 (채굴·에어드랍용 — is_active 무관)
+        return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, KORI_CURRENCY_CODE, INTERNAL_CHAIN)
             .recover(throwable -> {
                 log.error("KORI 통화 조회 실패", throwable);
                 return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
@@ -210,15 +218,20 @@ public class AirdropService extends BaseService {
                         
                         LocalDateTime now = LocalDateTime.now();
                         
-                        // 락업 해제 금액: RELEASED && (claimed === true || claimed === undefined) 인 phase의 amount 합
+                        // 전송 가능 금액: (unlockDate <= now 또는 RELEASED) && claimed 인 phase의 (amount - transferredAmount) 합
                         BigDecimal availableAmount = phases.stream()
                             .filter(phase -> {
-                                boolean isReleased = phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now);
+                                boolean pastUnlock = phase.getUnlockDate() != null
+                                    && (phase.getUnlockDate().isBefore(now) || phase.getUnlockDate().isEqual(now));
+                                boolean isReleased = pastUnlock || AirdropPhase.STATUS_RELEASED.equals(phase.getStatus());
                                 boolean claimed = Boolean.TRUE.equals(phase.getClaimed());
-                                return isReleased && AirdropPhase.STATUS_RELEASED.equals(phase.getStatus())
-                                    && claimed;
+                                return isReleased && claimed;
                             })
-                            .map(AirdropPhase::getAmount)
+                            .map(phase -> {
+                                BigDecimal amt = phase.getAmount() != null ? phase.getAmount() : BigDecimal.ZERO;
+                                BigDecimal ta = phase.getTransferredAmount() != null ? phase.getTransferredAmount() : BigDecimal.ZERO;
+                                return amt.subtract(ta);
+                            })
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                         
                         if (availableAmount.compareTo(request.getAmount()) < 0) {
@@ -299,7 +312,7 @@ public class AirdropService extends BaseService {
                         .status(InternalTransfer.STATUS_COMPLETED)
                         .transferType(InternalTransfer.TYPE_ADMIN_GRANT)
                         .orderNumber(orderNumber)
-                        .transactionType(com.foxya.coin.common.enums.TransactionType.TOKEN_DEPOSIT.getValue())
+                        .transactionType(com.foxya.coin.common.enums.TransactionType.AIRDROP_TRANSFER.getValue())
                         .memo("에어드랍 락업 해제")
                         .requestIp("system")
                         .build();
@@ -312,6 +325,11 @@ public class AirdropService extends BaseService {
                         .compose(updatedWallet -> {
                             // 4. 에어드랍 전송 상태를 COMPLETED로 업데이트
                             return airdropRepository.updateTransferStatus(client, transferId, AirdropTransfer.STATUS_COMPLETED);
+                        })
+                        .compose(completedTransfer -> {
+                            // 5. 전송한 금액만큼 claimed Phase에 transferred_amount 할당 (잔량 유지)
+                            return airdropRepository.allocateTransferredAmount(client, userId, amount)
+                                .map(v -> completedTransfer);
                         });
                 });
         }).map(completedTransfer -> {

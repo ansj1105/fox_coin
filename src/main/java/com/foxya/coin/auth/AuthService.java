@@ -1,6 +1,8 @@
 package com.foxya.coin.auth;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.authentication.TokenCredentials;
 import io.vertx.ext.auth.jwt.JWTAuth;
@@ -9,6 +11,7 @@ import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.enums.CountryCode;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.ConflictException;
@@ -19,6 +22,9 @@ import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.GoogleOAuthUtil;
+import com.foxya.coin.common.utils.KakaoOAuthUtil;
+import com.foxya.coin.common.utils.AppleOAuthUtil;
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.device.entities.Device;
@@ -40,6 +46,10 @@ import com.foxya.coin.auth.dto.RegisterRequestDto;
 import com.foxya.coin.auth.dto.RecoveryChallengeResponseDto;
 import com.foxya.coin.auth.dto.RecoveryResetResponseDto;
 import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
+import com.foxya.coin.auth.dto.KakaoLoginRequestDto;
+import com.foxya.coin.auth.dto.KakaoLoginResponseDto;
+import com.foxya.coin.auth.dto.AppleLoginRequestDto;
+import com.foxya.coin.auth.dto.AppleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.transfer.TransferRepository;
@@ -98,12 +108,20 @@ public class AuthService extends BaseService {
     private final EmailService emailService;
     private final WebClient webClient;
     private final JsonObject googleConfig;
-    
+    private final JsonObject kakaoConfig;
+    private final JsonObject appleConfig;
+    private final String minAppVersion;
+    private final AppConfigRepository appConfigRepository;
+
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
     private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
     private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
+    private static final String KAKAO_OAUTH_CACHE_PREFIX = "oauth:kakao:code:";
+    private static final String KAKAO_OAUTH_LOCK_PREFIX = "oauth:kakao:lock:";
+    private static final int KAKAO_OAUTH_CACHE_TTL_SECONDS = 60;
+    private static final int KAKAO_OAUTH_LOCK_TTL_SECONDS = 10;
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
@@ -115,8 +133,12 @@ public class AuthService extends BaseService {
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
                       InquiryRepository inquiryRepository, EmailVerificationRepository emailVerificationRepository,
                       SignupEmailCodeRepository signupEmailCodeRepository, DeviceRepository deviceRepository,
-                      ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig) {
+                      ReferralRepository referralRepository, EmailService emailService, WebClient webClient, JsonObject googleConfig,
+                      JsonObject kakaoConfig, JsonObject appleConfig,
+                      String minAppVersion, AppConfigRepository appConfigRepository) {
         super(pool);
+        this.minAppVersion = minAppVersion;
+        this.appConfigRepository = appConfigRepository;
         this.userRepository = userRepository;
         this.userService = userService;
         this.jwtAuth = jwtAuth;
@@ -146,6 +168,12 @@ public class AuthService extends BaseService {
         this.emailService = emailService;
         this.webClient = webClient;
         this.googleConfig = googleConfig;
+        this.kakaoConfig = kakaoConfig;
+        this.appleConfig = appleConfig;
+    }
+
+    private static Boolean toRestrictionFlag(Integer value) {
+        return value != null && value == 1;
     }
     
     /**
@@ -163,6 +191,9 @@ public class AuthService extends BaseService {
                             return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                         });
                 }
+                if (isAccountBlocked(user)) {
+                    return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                }
                 
                 // 비밀번호 검증: 소셜 전용(비밀번호 미설정)은 빈 문자열로 로그인 허용
                 String pw = dto.getPassword();
@@ -178,21 +209,37 @@ public class AuthService extends BaseService {
                     }
                 }
                 
-                return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                    .compose(ignored -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                        return Future.succeededFuture(
-                            LoginResponseDto.builder()
-                                .accessToken(accessToken)
-                                .refreshToken(refreshToken)
-                                .userId(user.getId())
-                                .loginId(user.getLoginId())
-                                .isTest(user.getIsTest())
-                                .build()
-                        );
-                    });
+                return maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                        .compose(dbMin -> {
+                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                            return Future.succeededFuture(
+                                LoginResponseDto.builder()
+                                    .accessToken(accessToken)
+                                    .refreshToken(refreshToken)
+                                    .userId(user.getId())
+                                    .loginId(user.getLoginId())
+                                    .isTest(user.getIsTest())
+                                    .minAppVersion(min)
+                                    .warning(toRestrictionFlag(user.getIsWarning()))
+                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                                    .build()
+                            );
+                        }));
             });
+    }
+
+    /**
+     * 디바이스 정보가 모두 있으면 등록/갱신, 없으면 스킵 (회원가입 시 선택 전송용).
+     */
+    private Future<Void> maybeRegisterDevice(Long userId, String deviceId, String deviceType, String deviceOs, String appVersion, String clientIp, String userAgent) {
+        if (deviceId == null || deviceId.isBlank() || deviceType == null || deviceType.isBlank() || deviceOs == null || deviceOs.isBlank()) {
+            return Future.succeededFuture();
+        }
+        return registerOrUpdateDevice(userId, deviceId, deviceType, deviceOs, appVersion, clientIp, userAgent);
     }
 
     private Future<Void> registerOrUpdateDevice(Long userId, String deviceId, String deviceType, String deviceOs, String appVersion, String clientIp, String userAgent) {
@@ -285,20 +332,29 @@ public class AuthService extends BaseService {
                                 if (user == null) {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
                                 }
+                                if (isAccountBlocked(user)) {
+                                    return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                                }
                                 return registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                    .compose(ignored -> {
-                                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                                        return redisApi.del(java.util.List.of(key))
-                                            .recover(e -> Future.succeededFuture())
-                                            .map(v -> LoginResponseDto.builder()
-                                                .accessToken(accessToken)
-                                                .refreshToken(refreshToken)
-                                                .userId(user.getId())
-                                                .loginId(user.getLoginId())
-                                                .isTest(user.getIsTest())
-                                                .build());
-                                    });
+                                    .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                        .compose(dbMin -> {
+                                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                            return redisApi.del(java.util.List.of(key))
+                                                .recover(e -> Future.succeededFuture())
+                                                .map(v -> LoginResponseDto.builder()
+                                                    .accessToken(accessToken)
+                                                    .refreshToken(refreshToken)
+                                                    .userId(user.getId())
+                                                    .loginId(user.getLoginId())
+                                                    .isTest(user.getIsTest())
+                                                    .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(user.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                                                    .build());
+                                        }));
                             });
                     });
             });
@@ -317,6 +373,16 @@ public class AuthService extends BaseService {
                 String masked = maskLoginId(user.getLoginId());
                 return Future.succeededFuture(FindLoginIdDataDto.builder().maskedLoginId(masked).build());
             });
+    }
+
+    /** 계정 차단 여부 (is_account_blocked = 1). V41/coin_system V46 */
+    private static boolean isAccountBlocked(User user) {
+        return user != null && user.getIsAccountBlocked() != null && user.getIsAccountBlocked() != 0;
+    }
+
+    /** deviceOs가 iOS인지 여부. 로그인 시 min_app_version 조회에 사용 (iOS면 config_value_apple, 아니면 config_value). */
+    private static boolean isIos(String deviceOs) {
+        return deviceOs != null && "IOS".equalsIgnoreCase(deviceOs.trim());
     }
 
     /**
@@ -484,8 +550,6 @@ public class AuthService extends BaseService {
         java.util.regex.Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
     private static final java.util.regex.Pattern NICKNAME_PATTERN =
         java.util.regex.Pattern.compile("^[가-힣a-zA-Z0-9]{1,8}$");
-    private static final String[] COUNTRY_CODES = {"KR", "US", "JP", "CN", "VN", "TH", "ETC"};
-
     /**
      * 이메일(아이디) 중복 검사 (비인증). available=true면 가입 가능.
      */
@@ -565,7 +629,10 @@ public class AuthService extends BaseService {
             return Future.failedFuture(new BadRequestException("시드 구문 확인 후 계속 진행해주세요."));
         }
         String country = (dto.getCountry() != null && !dto.getCountry().isBlank()) ? dto.getCountry() : dto.getCountryCode();
-        if (country == null || country.isBlank() || java.util.Arrays.stream(COUNTRY_CODES).noneMatch(c -> c.equals(country))) {
+        if (country == null || country.isBlank()) {
+            return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
+        }
+        if (CountryCode.fromCode(country.trim().toUpperCase()) == CountryCode.UNKNOWN) {
             return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
         }
         String g = dto.getGender();
@@ -681,19 +748,28 @@ public class AuthService extends BaseService {
                         }
                         return Future.succeededFuture(user);
                     })
-                    .compose(user -> registerOrUpdateDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                    .compose(user -> maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
                         .map(ignored -> user))
-                    .compose(user -> {
-                        String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER);
-                        String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER);
-                        LoginResponseDto loginDto = LoginResponseDto.builder()
-                            .accessToken(accessToken)
-                            .refreshToken(refreshToken)
-                            .userId(user.getId())
-                            .loginId(user.getLoginId())
-                            .isTest(user.getIsTest())
-                            .build();
-                        String refCode = dto.getReferralCode();
+                    // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
+                    .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
+                        .map(ignored -> user))
+                    .compose(user -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                        .compose(dbMin -> {
+                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                            LoginResponseDto loginDto = LoginResponseDto.builder()
+                                .accessToken(accessToken)
+                                .refreshToken(refreshToken)
+                                .userId(user.getId())
+                                .loginId(user.getLoginId())
+                                .isTest(user.getIsTest())
+                                .minAppVersion(min)
+                                .warning(toRestrictionFlag(user.getIsWarning()))
+                                .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                                .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                                .build();
+                            String refCode = dto.getReferralCode();
                         if (refCode != null && !refCode.isBlank()) {
                             return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
                                 .compose(referrer -> {
@@ -701,9 +777,15 @@ public class AuthService extends BaseService {
                                         return referralRepository.existsReferralRelation(pool, user.getId())
                                             .compose(exists -> {
                                                 if (!Boolean.TRUE.equals(exists)) {
-                                                    return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                        .map(r -> loginDto)
-                                                        .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                                    return referralRepository.hasReferrerAnyReferredWithSameIpOrDevice(pool, referrer.getId(), dto.getClientIp(), dto.getDeviceId())
+                                                        .compose(dup -> {
+                                                            if (Boolean.TRUE.equals(dup)) {
+                                                                return Future.succeededFuture(loginDto); // 동일 IP/기기 중복 초대 무효: 관계 생성 안 함
+                                                            }
+                                                            return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
+                                                                .map(r -> loginDto)
+                                                                .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
+                                                        });
                                                 }
                                                 return Future.succeededFuture(loginDto);
                                             });
@@ -712,8 +794,8 @@ public class AuthService extends BaseService {
                                 })
                                 .otherwise(loginDto);
                         }
-                        return Future.succeededFuture(loginDto);
-                    });
+                            return Future.succeededFuture(loginDto);
+                        }));
             });
     }
     
@@ -739,11 +821,12 @@ public class AuthService extends BaseService {
      */
     public Future<TokenResponseDto> refreshAccessToken(Long userId, String role) {
         String accessToken = AuthUtils.generateAccessToken(
-            jwtAuth, 
-            userId, 
-            UserRole.valueOf(role)
+            jwtAuth,
+            userId,
+            UserRole.valueOf(role),
+            getAccessTokenExpireSeconds()
         );
-        
+
         return Future.succeededFuture(
             TokenResponseDto.builder()
                 .accessToken(accessToken)
@@ -757,11 +840,12 @@ public class AuthService extends BaseService {
      */
     public Future<TokenResponseDto> refreshRefreshToken(Long userId, String role) {
         String refreshToken = AuthUtils.generateRefreshToken(
-            jwtAuth, 
-            userId, 
-            UserRole.valueOf(role)
+            jwtAuth,
+            userId,
+            UserRole.valueOf(role),
+            (int) getRefreshTokenExpireSeconds()
         );
-        
+
         return Future.succeededFuture(
             TokenResponseDto.builder()
                 .refreshToken(refreshToken)
@@ -770,9 +854,18 @@ public class AuthService extends BaseService {
         );
     }
 
-    private static final long REFRESH_TOKEN_EXPIRE_SECONDS = 864000L; // 10일
     private static final long SOCIAL_SIGNUP_TTL_SECONDS = 600L; // 10분
     private static final String SOCIAL_SIGNUP_PREFIX = "social_signup:";
+
+    /** config 기반 Access Token 만료(초). access_token_expire_minutes * 60 */
+    private int getAccessTokenExpireSeconds() {
+        return jwtConfig.getInteger("access_token_expire_minutes", 60) * 60;
+    }
+
+    /** config 기반 Refresh Token 만료(초). refresh_token_expire_minutes * 60 */
+    private long getRefreshTokenExpireSeconds() {
+        return jwtConfig.getInteger("refresh_token_expire_minutes", 14400) * 60L;
+    }
 
     /**
      * refreshToken으로 accessToken(및 refreshToken 로테이션) 재발급.
@@ -795,14 +888,14 @@ public class AuthService extends BaseService {
                         }
                         return ensureActiveDevice(userId, deviceId, deviceType, deviceOs)
                             .compose(ignored -> {
-                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role));
-                                String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role));
+                                String accessToken = AuthUtils.generateAccessToken(jwtAuth, userId, UserRole.valueOf(role), getAccessTokenExpireSeconds());
+                                String newRefresh = AuthUtils.generateRefreshToken(jwtAuth, userId, UserRole.valueOf(role), (int) getRefreshTokenExpireSeconds());
                                 RefreshResponseDto dto = RefreshResponseDto.builder()
                                     .accessToken(accessToken)
                                     .refreshToken(newRefresh)
                                     .build();
                                 // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
-                                return addToBlacklist(refreshToken, REFRESH_TOKEN_EXPIRE_SECONDS)
+                                return addToBlacklist(refreshToken, getRefreshTokenExpireSeconds())
                                     .map(v -> dto);
                             });
                     });
@@ -1096,27 +1189,46 @@ public class AuthService extends BaseService {
         
         String platform = dto.getPlatform();
         boolean hasCodeVerifier = dto.getCodeVerifier() != null && !dto.getCodeVerifier().isEmpty();
-        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform) || hasCodeVerifier;
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+        boolean isIos = "IOS".equalsIgnoreCase(platform);
+
+        // 플랫폼 미지정 + PKCE면 기존 Android 처리 유지 (레거시 호환)
+        if (!isAndroid && !isIos && hasCodeVerifier) {
+            isAndroid = true;
+        }
 
         String clientId = isAndroid
             ? googleConfig.getString("androidClientId", googleConfig.getString("clientId"))
-            : googleConfig.getString("clientId");
-        String clientSecret = isAndroid ? null : googleConfig.getString("clientSecret");
+            : isIos
+                ? googleConfig.getString("iosClientId", googleConfig.getString("clientId"))
+                : googleConfig.getString("clientId");
+        String clientSecret = (isAndroid || isIos) ? null : googleConfig.getString("clientSecret");
         String redirectUri = isAndroid
             ? googleConfig.getString("androidRedirectUri", googleConfig.getString("redirectUri"))
-            : googleConfig.getString("redirectUri");
+            : isIos
+                ? googleConfig.getString("iosRedirectUri", googleConfig.getString("redirectUri"))
+                : googleConfig.getString("redirectUri");
         
         if (clientId == null) {
             log.error("Google OAuth configuration is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
-        if (clientSecret == null && (dto.getCodeVerifier() == null || dto.getCodeVerifier().isEmpty())) {
+        boolean usingCode = dto.getCode() != null && !dto.getCode().isBlank();
+        if (usingCode && clientSecret == null && (dto.getCodeVerifier() == null || dto.getCodeVerifier().isEmpty())) {
             log.error("Google OAuth client secret is missing");
             return Future.failedFuture(new BadRequestException("Google OAuth configuration is missing"));
         }
         
         // 1. Google OAuth 인증 (토큰 교환 + 사용자 정보 조회)
-        return GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier())
+        Future<JsonObject> userInfoFuture;
+        if (usingCode) {
+            userInfoFuture = GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier());
+        } else {
+            String expectedAud = googleConfig.getString("clientId", clientId);
+            userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), expectedAud);
+        }
+
+        return userInfoFuture
             .compose(userInfo -> {
                 String googleId = userInfo.getString("id");
                 String email = userInfo.getString("email");
@@ -1130,6 +1242,9 @@ public class AuthService extends BaseService {
                             return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
                         }
                         if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
                             // 기존 사용자: 소셜 링크 연동 및 로그인
                             log.info("Existing user found: {}", email);
                             return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "GOOGLE", googleId, email)
@@ -1139,30 +1254,39 @@ public class AuthService extends BaseService {
                                     }
                                     
                                     return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                                        .compose(ignored -> {
-                                            String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                            String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER);
-                                            return Future.succeededFuture(
-                                                GoogleLoginResponseDto.builder()
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                            .map(dbMin -> {
+                                                String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                                String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                                String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                                return GoogleLoginResponseDto.builder()
                                                     .accessToken(jwtAccessToken)
                                                     .refreshToken(jwtRefreshToken)
                                                     .userId(existingUser.getId())
                                                     .loginId(existingUser.getLoginId())
                                                     .isNewUser(false)
                                                     .isTest(existingUser.getIsTest())
-                                                    .build()
-                                            );
-                                        });
+                                                    .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
+                                                    .build();
+                                            }));
                                 });
                         } else {
                             // 신규 사용자: 계정 생성
                             log.info("New user registration via Google: {}", email);
                             return createSocialSignupToken("GOOGLE", googleId, email)
-                                .map(signupToken -> GoogleLoginResponseDto.builder()
-                                    .loginId(email)
-                                    .isNewUser(true)
-                                    .signupToken(signupToken)
-                                    .build());
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                    .map(dbMin -> {
+                                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                        return GoogleLoginResponseDto.builder()
+                                            .loginId(email)
+                                            .isNewUser(true)
+                                            .signupToken(signupToken)
+                                            .minAppVersion(min)
+                                            .build();
+                                    }));
                         }
                     });
             })
@@ -1176,6 +1300,350 @@ public class AuthService extends BaseService {
                 log.error("Google login failed", throwable);
                 return Future.<GoogleLoginResponseDto>failedFuture(new BadRequestException("Google login failed: " + throwable.getMessage()));
             });
+    }
+
+    /**
+     * Kakao 로그인
+     * @param dto Kakao 로그인 요청 DTO (Authorization Code 포함)
+     * @return Kakao 로그인 응답 DTO
+     */
+    public Future<KakaoLoginResponseDto> kakaoLogin(KakaoLoginRequestDto dto) {
+        log.info("Kakao login attempt");
+
+        String platform = dto.getPlatform();
+        boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
+        boolean isIos = "IOS".equalsIgnoreCase(platform);
+
+        String clientId = kakaoConfig.getString("clientId");
+        String clientSecret = kakaoConfig.getString("clientSecret");
+        String redirectUri = isAndroid
+            ? kakaoConfig.getString("androidRedirectUri", kakaoConfig.getString("redirectUri"))
+            : isIos
+                ? kakaoConfig.getString("iosRedirectUri", kakaoConfig.getString("redirectUri"))
+                : kakaoConfig.getString("redirectUri");
+
+        if (clientId == null || clientId.isBlank()) {
+            log.error("Kakao OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Kakao OAuth configuration is missing"));
+        }
+
+        final String authCode = dto.getCode();
+        final String accessToken = dto.getAccessToken();
+        final boolean hasCode = authCode != null && !authCode.isBlank();
+        final boolean hasAccessToken = accessToken != null && !accessToken.isBlank();
+
+        if (!hasCode && !hasAccessToken) {
+            return Future.failedFuture(new BadRequestException("Missing code or accessToken"));
+        }
+
+        final String cacheKey = hasCode ? KAKAO_OAUTH_CACHE_PREFIX + authCode : null;
+        final String lockKey = hasCode ? KAKAO_OAUTH_LOCK_PREFIX + authCode : null;
+
+        Future<JsonObject> userInfoFuture = hasAccessToken
+            ? KakaoOAuthUtil.getUserInfo(webClient, accessToken)
+            : acquireKakaoLock(lockKey, cacheKey)
+                .compose(ignored -> KakaoOAuthUtil.authenticate(webClient, authCode, clientId, clientSecret, redirectUri));
+
+        Future<KakaoLoginResponseDto> loginFlow = userInfoFuture
+            .compose(userInfo -> {
+                String kakaoId = userInfo.getString("id");
+                String email = userInfo.getString("email");
+
+                // 2. 기존 계정 확인 (이메일로)
+                return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+                    .compose(existingUser -> {
+                        if (existingUser != null && existingUser.getDeletedAt() != null) {
+                            return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
+                        }
+                        if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
+                            // 기존 사용자: 소셜 링크 연동 및 로그인
+                            log.info("Existing user found: {}", email);
+                            return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "KAKAO", kakaoId, email)
+                                .compose(linked -> {
+                                    if (!linked) {
+                                        log.warn("Failed to link Kakao account, but continuing login");
+                                    }
+
+                                    return registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                                        .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                            .map(dbMin -> {
+                                                String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                                String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                                                String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                                                return KakaoLoginResponseDto.builder()
+                                                    .accessToken(jwtAccessToken)
+                                                    .refreshToken(jwtRefreshToken)
+                                                    .userId(existingUser.getId())
+                                                    .loginId(existingUser.getLoginId())
+                                                    .isNewUser(false)
+                                                    .isTest(existingUser.getIsTest())
+                                                    .minAppVersion(min)
+                                                    .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                                                    .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                                                    .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
+                                                    .build();
+                                            }))
+                                        .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp));
+                                });
+                        } else {
+                            // 신규 사용자: 계정 생성
+                            log.info("New user registration via Kakao: {}", email);
+                            return createSocialSignupToken("KAKAO", kakaoId, email)
+                                .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                    .map(dbMin -> {
+                                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                        return KakaoLoginResponseDto.builder()
+                                            .loginId(email)
+                                            .isNewUser(true)
+                                            .signupToken(signupToken)
+                                            .minAppVersion(min)
+                                            .build();
+                                    })
+                                    .compose(resp -> cacheKakaoResponse(cacheKey, resp).map(resp)));
+                        }
+                    });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof CachedKakaoResponseException cachedErr) {
+                    return Future.succeededFuture(cachedErr.response);
+                }
+                // 중복 콜백으로 인한 invalid_grant는 캐시 응답이 없으면 성공/실패 여부를 알 수 없으므로
+                // 클라이언트 재시도에 맡기고 에러 로그만 남긴다.
+                if (throwable instanceof UnauthorizedException
+                    && throwable.getMessage() != null
+                    && throwable.getMessage().contains("Invalid authorization code")) {
+                    log.warn("Kakao OAuth invalid_grant (likely duplicate).");
+                }
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.<KakaoLoginResponseDto>failedFuture((UnauthorizedException) throwable);
+                }
+                if (throwable instanceof BadRequestException) {
+                    return Future.<KakaoLoginResponseDto>failedFuture((BadRequestException) throwable);
+                }
+                log.error("Kakao login failed", throwable);
+                return Future.<KakaoLoginResponseDto>failedFuture(new BadRequestException("Kakao login failed: " + throwable.getMessage()));
+            });
+
+        if (!hasCode) {
+            return loginFlow;
+        }
+        Future<KakaoLoginResponseDto> cachedResponse = getCachedKakaoResponse(cacheKey);
+        return cachedResponse.recover(err -> loginFlow);
+    }
+
+    private Future<Void> acquireKakaoLock(String lockKey, String cacheKey) {
+        if (redisApi == null || lockKey == null) {
+            return Future.succeededFuture();
+        }
+        return redisApi
+            .set(java.util.List.of(lockKey, "1", "NX", "EX", String.valueOf(KAKAO_OAUTH_LOCK_TTL_SECONDS)))
+            .compose(resp -> {
+                if (resp == null) {
+                    return waitForCachedKakaoResponse(cacheKey, 5, 500)
+                        .compose(cached -> Future.<Void>failedFuture(new CachedKakaoResponseException(cached)));
+                }
+                return Future.succeededFuture();
+            })
+            .recover(err -> {
+                if (err instanceof UnauthorizedException) {
+                    log.warn("Kakao OAuth cache miss after wait, proceeding to exchange.");
+                    return Future.succeededFuture();
+                }
+                log.warn("Failed to acquire Kakao OAuth lock, proceeding without lock: {}", err.getMessage());
+                return Future.succeededFuture();
+            });
+    }
+
+    private Future<KakaoLoginResponseDto> getCachedKakaoResponse(String cacheKey) {
+        if (redisApi == null || cacheKey == null) {
+            return Future.failedFuture(new CacheMissException());
+        }
+        return redisApi.get(cacheKey)
+            .compose(res -> {
+                if (res == null) {
+                    return Future.failedFuture(new CacheMissException());
+                }
+                try {
+                    JsonObject payload = new JsonObject(res.toString());
+                    KakaoLoginResponseDto dto = payload.mapTo(KakaoLoginResponseDto.class);
+                    return Future.succeededFuture(dto);
+                } catch (Exception e) {
+                    return Future.failedFuture(e);
+                }
+            });
+    }
+
+    private Future<KakaoLoginResponseDto> waitForCachedKakaoResponse(String cacheKey, int attempts, long delayMs) {
+        if (redisApi == null || cacheKey == null) {
+            return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+        }
+        return redisApi.get(cacheKey)
+            .compose(res -> {
+                if (res != null) {
+                    try {
+                        JsonObject payload = new JsonObject(res.toString());
+                        KakaoLoginResponseDto dto = payload.mapTo(KakaoLoginResponseDto.class);
+                        return Future.succeededFuture(dto);
+                    } catch (Exception e) {
+                        return Future.failedFuture(e);
+                    }
+                }
+                if (attempts <= 0) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+                }
+                Vertx vertx = Vertx.currentContext() != null ? Vertx.currentContext().owner() : null;
+                if (vertx == null) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid authorization code"));
+                }
+                Promise<KakaoLoginResponseDto> promise = Promise.promise();
+                vertx.setTimer(delayMs, id -> {
+                    waitForCachedKakaoResponse(cacheKey, attempts - 1, delayMs).onComplete(promise);
+                });
+                return promise.future();
+            });
+    }
+
+    private Future<Void> cacheKakaoResponse(String cacheKey, KakaoLoginResponseDto response) {
+        if (redisApi == null || cacheKey == null || response == null) {
+            return Future.succeededFuture();
+        }
+        JsonObject payload = JsonObject.mapFrom(response);
+        Future<Void> future = redisApi.setex(cacheKey, String.valueOf(KAKAO_OAUTH_CACHE_TTL_SECONDS), payload.encode())
+            .mapEmpty();
+        future.onFailure(err -> log.warn("Failed to cache Kakao OAuth response: {}", err.getMessage()));
+        return future;
+    }
+
+    private static class CachedKakaoResponseException extends RuntimeException {
+        private final KakaoLoginResponseDto response;
+
+        private CachedKakaoResponseException(KakaoLoginResponseDto response) {
+            this.response = response;
+        }
+    }
+
+    private static class CacheMissException extends RuntimeException {
+        private CacheMissException() {
+        }
+    }
+
+    /**
+     * Apple 로그인
+     * @param dto Apple 로그인 요청 DTO (Authorization Code 포함)
+     * @return Apple 로그인 응답 DTO
+     */
+    public Future<AppleLoginResponseDto> appleLogin(AppleLoginRequestDto dto) {
+        log.info("Apple login attempt with code");
+
+        String clientId = appleConfig.getString("serviceId");
+        String teamId = appleConfig.getString("teamId");
+        String keyId = appleConfig.getString("keyId");
+        String privateKeyPath = appleConfig.getString("privateKeyPath");
+        String redirectUri = appleConfig.getString("redirectUri");
+
+        if (clientId == null || clientId.isBlank() || teamId == null || teamId.isBlank()
+            || keyId == null || keyId.isBlank() || privateKeyPath == null || privateKeyPath.isBlank()) {
+            log.error("Apple OAuth configuration is missing");
+            return Future.failedFuture(new BadRequestException("Apple OAuth configuration is missing"));
+        }
+
+        String clientSecret;
+        try {
+            clientSecret = AppleOAuthUtil.createClientSecret(teamId, keyId, clientId, privateKeyPath);
+        } catch (Exception e) {
+            log.error("Failed to create Apple client_secret", e);
+            return Future.failedFuture(new BadRequestException("Apple OAuth configuration is missing"));
+        }
+
+        return AppleOAuthUtil.exchangeToken(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+            .compose(tokenResponse -> {
+                String idToken = tokenResponse.getString("id_token");
+                return AppleOAuthUtil.verifyIdToken(webClient, idToken, clientId);
+            })
+            .compose(userInfo -> {
+                String appleId = userInfo.getString("sub");
+                String email = userInfo.getString("email");
+
+                // 이메일이 없으면 provider_user_id로 기존 계정 조회
+                if (email == null || email.isBlank()) {
+                    return socialLinkRepository.findUserIdByProviderUserId(pool, "APPLE", appleId)
+                        .compose(userId -> {
+                            if (userId == null) {
+                                return Future.failedFuture(new BadRequestException("Apple email is required for first login."));
+                            }
+                            return userRepository.getUserById(pool, userId)
+                                .compose(existingUser -> buildAppleLoginResponse(existingUser, appleId, null, dto));
+                        });
+                }
+
+                return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+                    .compose(existingUser -> {
+                        if (existingUser != null && existingUser.getDeletedAt() != null) {
+                            return Future.failedFuture(new BadRequestException("탈퇴한 계정입니다."));
+                        }
+                        if (existingUser != null) {
+                            if (isAccountBlocked(existingUser)) {
+                                return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+                            }
+                            return buildAppleLoginResponse(existingUser, appleId, email, dto);
+                        }
+
+                        log.info("New user registration via Apple: {}", email);
+                        return createSocialSignupToken("APPLE", appleId, email)
+                            .compose(signupToken -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                                .map(dbMin -> {
+                                    String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                                    return AppleLoginResponseDto.builder()
+                                        .loginId(email)
+                                        .isNewUser(true)
+                                        .signupToken(signupToken)
+                                        .minAppVersion(min)
+                                        .build();
+                                }));
+                    });
+            })
+            .recover(throwable -> {
+                if (throwable instanceof UnauthorizedException) {
+                    return Future.<AppleLoginResponseDto>failedFuture((UnauthorizedException) throwable);
+                }
+                if (throwable instanceof BadRequestException) {
+                    return Future.<AppleLoginResponseDto>failedFuture((BadRequestException) throwable);
+                }
+                log.error("Apple login failed", throwable);
+                return Future.<AppleLoginResponseDto>failedFuture(new BadRequestException("Apple login failed: " + throwable.getMessage()));
+            });
+    }
+
+    private Future<AppleLoginResponseDto> buildAppleLoginResponse(User existingUser, String appleId, String email, AppleLoginRequestDto dto) {
+        if (existingUser == null) {
+            return Future.failedFuture(new BadRequestException("사용자를 찾을 수 없습니다."));
+        }
+        if (isAccountBlocked(existingUser)) {
+            return Future.failedFuture(new UnauthorizedException("차단된 계정입니다."));
+        }
+        return socialLinkRepository.createSocialLink(pool, existingUser.getId(), "APPLE", appleId, email != null ? email : existingUser.getLoginId())
+            .compose(linked -> registerOrUpdateDevice(existingUser.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
+                .compose(ignored -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                    .map(dbMin -> {
+                        String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                        String jwtAccessToken = AuthUtils.generateAccessToken(jwtAuth, existingUser.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                        String jwtRefreshToken = AuthUtils.generateRefreshToken(jwtAuth, existingUser.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                        return AppleLoginResponseDto.builder()
+                            .accessToken(jwtAccessToken)
+                            .refreshToken(jwtRefreshToken)
+                            .userId(existingUser.getId())
+                            .loginId(existingUser.getLoginId())
+                            .isNewUser(false)
+                            .isTest(existingUser.getIsTest())
+                            .minAppVersion(min)
+                            .warning(toRestrictionFlag(existingUser.getIsWarning()))
+                            .miningSuspended(toRestrictionFlag(existingUser.getIsMiningSuspended()))
+                            .accountBlocked(toRestrictionFlag(existingUser.getIsAccountBlocked()))
+                            .build();
+                    })));
     }
     
     /**

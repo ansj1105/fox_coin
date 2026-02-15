@@ -42,15 +42,18 @@ public class NoticeHandler extends BaseHandler {
     }
     
     private void getNotices(RoutingContext ctx) {
-        Integer limit = ctx.queryParams().contains("limit") 
-            ? Integer.parseInt(ctx.queryParams().get("limit")) 
+        Integer limit = ctx.queryParams().contains("limit")
+            ? Integer.parseInt(ctx.queryParams().get("limit"))
             : 10;
-        Integer offset = ctx.queryParams().contains("offset") 
-            ? Integer.parseInt(ctx.queryParams().get("offset")) 
+        Integer offset = ctx.queryParams().contains("offset")
+            ? Integer.parseInt(ctx.queryParams().get("offset"))
             : 0;
-        
-        log.info("Getting notices with limit: {}, offset: {}", limit, offset);
-        response(ctx, noticeService.getNotices(limit, offset));
+        Boolean isEvent = ctx.queryParams().contains("isEvent")
+            ? Boolean.parseBoolean(ctx.queryParams().get("isEvent"))
+            : null;
+
+        log.info("Getting notices with limit: {}, offset: {}, isEvent: {}", limit, offset, isEvent);
+        response(ctx, noticeService.getNotices(limit, offset, isEvent));
     }
     
     private void getNotice(RoutingContext ctx) {

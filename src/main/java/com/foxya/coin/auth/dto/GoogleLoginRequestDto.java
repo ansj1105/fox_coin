@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @Builder
 public class GoogleLoginRequestDto {
     private String code;
+    private String idToken;
     @JsonProperty("code_verifier")
     private String codeVerifier;
     private String platform;

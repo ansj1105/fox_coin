@@ -19,8 +19,8 @@ public class MiningHistory {
     private Long userId;
     private Integer level;
     private BigDecimal amount;
+    private Integer efficiency;
     private String type;  // BROADCAST_PROGRESS, BROADCAST_WATCH
     private String status;  // COMPLETED, FAILED, CANCELLED
     private LocalDateTime createdAt;
 }
-

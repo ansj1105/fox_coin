@@ -12,4 +12,10 @@ public class LoginResponseDto {
     private Long userId;
     private String loginId;
     private Integer isTest;
+    /** 경고 여부 */
+    private Boolean warning;
+    /** 채굴정지 여부 */
+    private Boolean miningSuspended;
+    /** 계정차단 여부 */
+    private Boolean accountBlocked;
 }

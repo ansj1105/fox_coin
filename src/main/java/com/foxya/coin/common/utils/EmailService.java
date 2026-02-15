@@ -1,5 +1,8 @@
 package com.foxya.coin.common.utils;
 
+import com.foxya.coin.retry.EmailRetryJob;
+import com.foxya.coin.retry.EmailRetryType;
+import com.foxya.coin.retry.RetryQueuePublisher;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -19,6 +22,7 @@ import java.security.SecureRandom;
 
 /**
  * 이메일 전송 유틸 (SMTP 연동)
+ * 실패 시 Redis 재시도 큐 적재 → 재시도 → 최종 실패 시 DLQ/에러 처리
  */
 @Slf4j
 public class EmailService {
@@ -29,11 +33,17 @@ public class EmailService {
     private final String ctaBaseUrl;
     private final Buffer logoBuffer;
     private final String logoContentId;
+    private final RetryQueuePublisher retryQueue;
 
     private static final String DEFAULT_LOGO_PATH = "public/images/korion_b.png";
     private static final String DEFAULT_LOGO_CONTENT_ID = "korion-logo";
 
     public EmailService(Vertx vertx, JsonObject smtpConfig, JsonObject frontendConfig) {
+        this(vertx, smtpConfig, frontendConfig, null);
+    }
+
+    public EmailService(Vertx vertx, JsonObject smtpConfig, JsonObject frontendConfig, RetryQueuePublisher retryQueue) {
+        this.retryQueue = retryQueue;
         if (smtpConfig != null && smtpConfig.containsKey("host") && !smtpConfig.getString("host").isEmpty()) {
             // SMTP 설정이 있으면 MailClient 생성
             this.smtpEnabled = true;
@@ -115,9 +125,41 @@ public class EmailService {
         return sendFuture.recover(throwable -> {
             log.error("[EmailService] Failed to send verification code. to: {}, error: {}, cause: {}", 
                 email, throwable.getMessage(), throwable.getClass().getName(), throwable);
-            // 실패해도 Future는 성공으로 반환 (사용자 경험을 위해)
+            if (retryQueue != null) {
+                retryQueue.enqueueEmailRetry(EmailRetryType.VERIFICATION_CODE, email, code);
+            }
             return Future.succeededFuture((Void) null);
         });
+    }
+
+    /**
+     * 재시도 큐에서 꺼낸 작업 실행 (실패 시 호출자가 재적재/DLQ 처리)
+     */
+    public Future<Void> processRetryJob(EmailRetryJob job) {
+        if (job.getType() == EmailRetryType.VERIFICATION_CODE) {
+            return doSendVerificationCode(job.getEmail(), job.getCodeOrPassword());
+        }
+        if (job.getType() == EmailRetryType.TEMP_PASSWORD) {
+            return doSendTemporaryPassword(job.getEmail(), job.getCodeOrPassword());
+        }
+        return Future.failedFuture("Unknown email retry type: " + job.getType());
+    }
+
+    /**
+     * 인증 코드 메일 실제 발송 (재시도/큐 로직 없음)
+     */
+    private Future<Void> doSendVerificationCode(String email, String code) {
+        if (!smtpEnabled || mailClient == null) {
+            return Future.failedFuture("SMTP not configured");
+        }
+        MailMessage message = new MailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(email);
+        message.setSubject("[KORION] 이메일 인증 코드");
+        message.setText(getVerificationEmailText(code));
+        message.setHtml(getEmailTemplate(code));
+        addLogoInlineAttachmentIfAvailable(message);
+        return mailClient.sendMail(message).map(ok -> (Void) null);
     }
 
     /**
@@ -137,7 +179,7 @@ public class EmailService {
               <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
                 KORION WALLET 이메일 인증 코드입니다.
               </div>
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#0d0a1b; padding:24px 0;">
                 <tr>
                   <td align="center">
                     <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">
@@ -212,6 +254,23 @@ public class EmailService {
             log.warn("[EmailService] SMTP disabled or mailClient is null. Cannot send temporary password to: {}", email);
             return Future.failedFuture(new IllegalStateException("임시 비밀번호 발송에 실패했습니다."));
         }
+        return doSendTemporaryPassword(email, tempPassword)
+            .recover(throwable -> {
+                log.error("[EmailService] Failed to send temporary password. to: {}, error: {}", email, throwable.getMessage(), throwable);
+                if (retryQueue != null) {
+                    retryQueue.enqueueEmailRetry(EmailRetryType.TEMP_PASSWORD, email, tempPassword);
+                }
+                return Future.failedFuture(new IllegalStateException("임시 비밀번호 발송에 실패했습니다."));
+            });
+    }
+
+    /**
+     * 임시 비밀번호 메일 실제 발송 (재시도/큐 로직 없음)
+     */
+    private Future<Void> doSendTemporaryPassword(String email, String tempPassword) {
+        if (!smtpEnabled || mailClient == null) {
+            return Future.failedFuture("SMTP not configured");
+        }
         MailMessage message = new MailMessage();
         message.setFrom(fromAddress);
         message.setTo(email);
@@ -219,12 +278,7 @@ public class EmailService {
         message.setText(getTemporaryPasswordText(tempPassword));
         message.setHtml(getTemporaryPasswordTemplate(tempPassword));
         addLogoInlineAttachmentIfAvailable(message);
-        return mailClient.sendMail(message)
-            .map(ok -> (Void) null)
-            .recover(throwable -> {
-                log.error("[EmailService] Failed to send temporary password. to: {}, error: {}", email, throwable.getMessage(), throwable);
-                return Future.failedFuture(new IllegalStateException("임시 비밀번호 발송에 실패했습니다."));
-            });
+        return mailClient.sendMail(message).map(ok -> (Void) null);
     }
 
     private String getTemporaryPasswordTemplate(String tempPassword) {
@@ -241,7 +295,7 @@ public class EmailService {
               <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#0d0a1b;">
                 KORION WALLET 임시 비밀번호 안내입니다.
               </div>
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0d0a1b; padding:24px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#0d0a1b; padding:24px 0;">
                 <tr>
                   <td align="center">
                     <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px; max-width:600px; background-color:#111827; border:1px solid #1f2937; border-radius:18px; overflow:hidden;">

@@ -2,64 +2,227 @@ package com.foxya.coin.referral;
 
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
+import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
+import com.foxya.coin.referral.dto.InviteTierItemDto;
+import com.foxya.coin.referral.dto.InviteTiersResponseDto;
+import com.foxya.coin.referral.dto.ReferralRevenueTierDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
+import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 public class ReferralService extends BaseService {
     
+    /** 초대 인원별 채굴 보너스 배율 (영상 1회당): 1명 +3%, 5명 +6%, 10명 +10%, 20명 +14%, 50명 +18%, 100명 +22% */
+    private static final double[] INVITE_BONUS_MULTIPLIERS = { 1.03, 1.06, 1.10, 1.14, 1.18, 1.22 };
+    private static final int[] INVITE_TIER_THRESHOLDS = { 1, 5, 10, 20, 50, 100 };
+    
+    /** 하부 유저 수 구간별 래퍼럴 수익률 기본값 (DB 미설정 시 fallback) */
+    private static final int[] DEFAULT_REVENUE_TIER_MIN = { 1, 5, 10, 20, 50, 100 };
+    private static final int[] DEFAULT_REVENUE_TIER_MAX = { 4, 9, 19, 49, 99, -1 };
+    private static final double[] DEFAULT_REFERRAL_REVENUE_PERCENTS = { 3, 5, 7, 9, 11, 13 };
+    
     private final ReferralRepository referralRepository;
     private final UserRepository userRepository;
+    private final EmailVerificationRepository emailVerificationRepository;
+    private final TransferService transferService;
+    private final ReferralRevenueTierRepository referralRevenueTierRepository;
     
-    public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository) {
+    public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository,
+                           EmailVerificationRepository emailVerificationRepository, TransferService transferService,
+                           ReferralRevenueTierRepository referralRevenueTierRepository) {
         super(pool);
         this.referralRepository = referralRepository;
         this.userRepository = userRepository;
+        this.emailVerificationRepository = emailVerificationRepository;
+        this.transferService = transferService;
+        this.referralRevenueTierRepository = referralRevenueTierRepository;
     }
     
     /**
-     * 레퍼럴 코드 등록
+     * 레퍼럴 코드 등록 (안전장치: 이메일 인증 필수, 동일 IP/기기 중복 초대 무효, 성공 시 추천인 EXP +0.5)
      */
-    public Future<Void> registerReferralCode(Long userId, String referralCode) {
+    public Future<Void> registerReferralCode(Long userId, String referralCode, String clientIp, String deviceId) {
         // 1. 이미 레퍼럴 관계가 있는지 확인
         return referralRepository.existsReferralRelation(pool, userId)
             .compose(exists -> {
                 if (exists) {
                     return Future.failedFuture(new BadRequestException("이미 레퍼럴 코드가 등록되어 있습니다."));
                 }
-                
-                // 2. 레퍼럴 코드로 추천인 찾기
-                return userRepository.getUserByReferralCode(pool, referralCode);
+                // 삭제 후 30일 미만이면 재등록 거부
+                return referralRepository.getLastDeletedAtByReferredId(pool, userId)
+                    .compose(lastDeletedAt -> {
+                        if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
+                            return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                        }
+                        return userRepository.getUserByReferralCode(pool, referralCode);
+                    });
             })
             .compose(referrer -> {
                 if (referrer == null) {
                     return Future.failedFuture(new BadRequestException("유효하지 않은 레퍼럴 코드입니다."));
                 }
-                
                 if (referrer.getId().equals(userId)) {
                     return Future.failedFuture(new BadRequestException("자신의 레퍼럴 코드는 등록할 수 없습니다."));
                 }
-                
-                // 3. 레퍼럴 관계 생성 (level 1 = 직접 추천)
-                return referralRepository.createReferralRelation(pool, referrer.getId(), userId, 1);
+                // 2. 하루 유저: 이메일 인증 필수
+                return emailVerificationRepository.getLatestByUserId(pool, userId)
+                    .compose(ev -> {
+                        if (ev == null || !Boolean.TRUE.equals(ev.isVerified)) {
+                            return Future.failedFuture(new BadRequestException("이메일 인증을 완료한 후 레퍼럴 코드를 등록할 수 있습니다."));
+                        }
+                        return referralRepository.hasReferrerAnyReferredWithSameIpOrDevice(pool, referrer.getId(), clientIp, deviceId);
+                    })
+                    .compose(duplicate -> {
+                        if (Boolean.TRUE.equals(duplicate)) {
+                            return Future.failedFuture(new BadRequestException("동일 IP 또는 기기로 이미 초대된 계정이 있어 이 초대는 무효 처리됩니다."));
+                        }
+                        return referralRepository.createReferralRelation(pool, referrer.getId(), userId, 1);
+                    });
             })
             .compose(relation -> {
-                // 4. 추천인의 통계 업데이트
-                return updateReferrerStats(relation.getReferrerId());
+                // 3. 추천인 EXP +0.5 (초대 1명당 0.5 EXP)
+                return userRepository.addExp(pool, relation.getReferrerId(), new BigDecimal("0.5"))
+                    .compose(u -> updateReferrerStats(relation.getReferrerId()));
             })
             .mapEmpty();
+    }
+    
+    /**
+     * 유효 직접 초대 수 (이메일 인증+채굴 기록 있는 referred 수). 채굴 보너스 %·수익률 구간용.
+     */
+    public Future<Integer> getValidDirectReferralCount(Long referrerUserId) {
+        return referralRepository.getValidDirectReferralCount(pool, referrerUserId);
+    }
+
+    /**
+     * 친구 초대 → 채굴 속도 보너스 티어 목록 + 현재 유저의 유효 직접 초대 수.
+     * GET /api/v1/referrals/invite-tiers 응답용.
+     */
+    public Future<InviteTiersResponseDto> getInviteTiers(Long referrerUserId) {
+        List<InviteTierItemDto> tiers = new ArrayList<>();
+        for (int i = 0; i < INVITE_TIER_THRESHOLDS.length; i++) {
+            int bonusPercent = (int) Math.round((INVITE_BONUS_MULTIPLIERS[i] - 1.0) * 100);
+            tiers.add(InviteTierItemDto.builder()
+                .inviteCount(INVITE_TIER_THRESHOLDS[i])
+                .bonusPercent(bonusPercent)
+                .build());
+        }
+        return getValidDirectReferralCount(referrerUserId)
+            .map(count -> InviteTiersResponseDto.builder()
+                .tiers(tiers)
+                .validDirectReferralCount(count != null ? count : 0)
+                .build());
+    }
+    
+    /**
+     * 초대 인원 수에 따른 채굴 보너스 배율 (1.03 ~ 1.22). 영상 1회당 채굴량에 곱할 값.
+     */
+    public Future<BigDecimal> getInviteMiningBonusMultiplier(Long referrerUserId) {
+        return referralRepository.getValidDirectReferralCount(pool, referrerUserId)
+            .map(count -> {
+                for (int i = INVITE_TIER_THRESHOLDS.length - 1; i >= 0; i--) {
+                    if (count >= INVITE_TIER_THRESHOLDS[i]) {
+                        return BigDecimal.valueOf(INVITE_BONUS_MULTIPLIERS[i]);
+                    }
+                }
+                return BigDecimal.ONE;
+            });
+    }
+    
+    private List<com.foxya.coin.referral.entities.ReferralRevenueTier> getDefaultRevenueTiers() {
+        List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers = new ArrayList<>();
+        for (int i = 0; i < DEFAULT_REVENUE_TIER_MIN.length; i++) {
+            Integer max = DEFAULT_REVENUE_TIER_MAX[i] > 0 ? DEFAULT_REVENUE_TIER_MAX[i] : null;
+            tiers.add(com.foxya.coin.referral.entities.ReferralRevenueTier.builder()
+                .minTeamSize(DEFAULT_REVENUE_TIER_MIN[i])
+                .maxTeamSize(max)
+                .revenuePercent(BigDecimal.valueOf(DEFAULT_REFERRAL_REVENUE_PERCENTS[i]))
+                .isActive(true)
+                .sortOrder(i + 1)
+                .build());
+        }
+        return tiers;
+    }
+
+    public Future<List<ReferralRevenueTierDto>> getReferralRevenueTiers() {
+        return referralRevenueTierRepository.getActiveRevenueTiers(pool)
+            .map(tiers -> {
+                if (tiers == null || tiers.isEmpty()) {
+                    tiers = getDefaultRevenueTiers();
+                }
+                List<ReferralRevenueTierDto> dtoList = new ArrayList<>();
+                for (var tier : tiers) {
+                    if (tier == null) continue;
+                    dtoList.add(ReferralRevenueTierDto.builder()
+                        .minTeamSize(tier.getMinTeamSize())
+                        .maxTeamSize(tier.getMaxTeamSize())
+                        .revenuePercent(tier.getRevenuePercent())
+                        .build());
+                }
+                return dtoList;
+            });
+    }
+
+    private BigDecimal resolveReferralRevenueRate(int validTeamCount, List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers) {
+        if (tiers == null || tiers.isEmpty()) {
+            tiers = getDefaultRevenueTiers();
+        }
+        for (var tier : tiers) {
+            if (tier == null || tier.getMinTeamSize() == null || tier.getRevenuePercent() == null) continue;
+            int min = tier.getMinTeamSize();
+            Integer max = tier.getMaxTeamSize();
+            if (validTeamCount < min) continue;
+            if (max != null && validTeamCount > max) continue;
+            return tier.getRevenuePercent().divide(BigDecimal.valueOf(100), 6, RoundingMode.DOWN);
+        }
+        return BigDecimal.ZERO;
+    }
+    
+    /**
+     * 하부 유저가 채굴 완료 시 추천인에게 래퍼럴 수익 지급 (하부 채굴 KORI × 수익률)
+     */
+    public Future<Void> grantReferralRewardForMining(Long referredUserId, BigDecimal minedAmountKori) {
+        if (minedAmountKori == null || minedAmountKori.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.succeededFuture();
+        }
+        return referralRepository.getReferralRelationByReferredId(pool, referredUserId)
+            .compose(relation -> {
+                if (relation == null) {
+                    return Future.succeededFuture();
+                }
+                Long referrerId = relation.getReferrerId();
+                return referralRepository.getValidDirectReferralCount(pool, referrerId)
+                    .compose(count -> referralRevenueTierRepository.getActiveRevenueTiers(pool)
+                        .map(tiers -> resolveReferralRevenueRate(count, tiers)))
+                    .compose(rate -> {
+                        if (rate.compareTo(BigDecimal.ZERO) <= 0) {
+                            return Future.succeededFuture();
+                        }
+                        BigDecimal rewardAmount = minedAmountKori.multiply(rate).setScale(18, RoundingMode.DOWN);
+                        if (rewardAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                            return Future.succeededFuture();
+                        }
+                        return transferService.createReferralRewardTransfer(referrerId, rewardAmount, "REFERRAL_REWARD")
+                            .compose(created -> referralRepository.getOrCreateStats(pool, referrerId)
+                                .compose(stats -> referralRepository.incrementReward(pool, referrerId, rewardAmount)))
+                            .mapEmpty();
+                    });
+            });
     }
     
     /**
@@ -236,4 +399,3 @@ public class ReferralService extends BaseService {
         }
     }
 }
-

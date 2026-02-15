@@ -13,6 +13,7 @@ import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
+import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.MeResponseDto;
@@ -26,14 +27,23 @@ import static com.foxya.coin.common.jsonschema.Schemas.*;
 
 @Slf4j
 public class UserHandler extends BaseHandler {
-    
+
     private final UserService userService;
     private final JWTAuth jwtAuth;
-    
+    private final DeviceRepository deviceRepository;
+    private final io.vertx.pgclient.PgPool pool;
+
     public UserHandler(Vertx vertx, UserService userService, JWTAuth jwtAuth) {
+        this(vertx, userService, jwtAuth, null, null);
+    }
+
+    public UserHandler(Vertx vertx, UserService userService, JWTAuth jwtAuth,
+                       DeviceRepository deviceRepository, io.vertx.pgclient.PgPool pool) {
         super(vertx);
         this.userService = userService;
         this.jwtAuth = jwtAuth;
+        this.deviceRepository = deviceRepository;
+        this.pool = pool;
     }
     
     @Override
@@ -66,6 +76,12 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getEmailInfo);
 
+        router.post("/email/confirm-password")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(confirmPasswordForEmailValidation(parser))
+            .handler(this::confirmPasswordForEmail);
+
         router.post("/email/send-code")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -95,6 +111,13 @@ public class UserHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getReferralCode);
+
+        // FCM 푸시 토큰 등록/갱신 (앱에서 로그인 후 호출)
+        router.patch("/fcm-token")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(fcmTokenValidation(parser))
+            .handler(this::updateFcmToken);
         
         router.post("/generate/referral-code")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -143,6 +166,30 @@ public class UserHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> fcmTokenValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("deviceId", stringSchema().with(minLength(1), maxLength(128)))
+                    .requiredProperty("fcmToken", stringSchema().with(minLength(1), maxLength(512)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private void updateFcmToken(RoutingContext ctx) {
+        if (deviceRepository == null || pool == null) {
+            ctx.fail(503, new IllegalStateException("FCM token API not configured"));
+            return;
+        }
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        io.vertx.core.json.JsonObject body = ctx.body().asJsonObject();
+        String deviceId = body.getString("deviceId");
+        String fcmToken = body.getString("fcmToken");
+        response(ctx, deviceRepository.updateFcmToken(pool, userId, deviceId, fcmToken)
+            .map(updated -> io.vertx.core.json.JsonObject.of("success", updated)));
+    }
+
     private void getMe(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         response(ctx, userService.getMe(userId));
@@ -176,6 +223,10 @@ public class UserHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", stringSchema().with(minLength(8), maxLength(20)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -261,6 +312,29 @@ public class UserHandler extends BaseHandler {
     }
 
     /**
+     * 이메일 설정 시 비밀번호 확인 Validation
+     */
+    private Handler<RoutingContext> confirmPasswordForEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("password", passwordSchema())
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * 이메일 설정 시 비밀번호 확인 (성공 시 프론트에서 인증 코드 발송 버튼 활성화 등에 사용)
+     */
+    private void confirmPasswordForEmail(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String password = ctx.getBodyAsJson().getString("password");
+        log.info("Confirm password for email - userId: {}", userId);
+        response(ctx, userService.confirmPasswordForEmail(userId, password));
+    }
+
+    /**
      * 이메일 인증 코드 발송 Validation
      */
     private Handler<RoutingContext> sendEmailCodeValidation(SchemaParser parser) {
@@ -298,7 +372,7 @@ public class UserHandler extends BaseHandler {
     }
 
     /**
-     * 이메일 인증 및 등록
+     * 이메일 인증 및 등록 (성공 시 login_id를 새 이메일로 변경)
      */
     private void verifyEmail(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());

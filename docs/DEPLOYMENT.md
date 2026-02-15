@@ -8,6 +8,11 @@
 - [SSL 인증서 설정](#ssl-인증서-설정)
 - [트러블슈팅](#트러블슈팅)
 
+**코인 API 컨테이너 2개 구성(foxya-api, foxya-api-2)과 지금 바로 쓸 수 있는 배포법**은 **[COIN_TWO_CONTAINERS_AND_DEPLOY.md](./COIN_TWO_CONTAINERS_AND_DEPLOY.md)**를 참고하세요.
+
+**운영·모니터링·장애 대응·성능 검증**은 **[OPERATIONS.md](./OPERATIONS.md)**에서 상세히 다룹니다.  
+(일상 점검, Prometheus/Grafana 연동, 장애 대응 절차, 성능 검증, Grafana/Prometheus 안 열릴 때 체크리스트)
+
 ---
 
 ## 사전 준비
@@ -448,6 +453,8 @@ git reset --hard origin/develop
 - **Swagger UI**: `http://your-domain.com/api-docs`
 - **Health Check**: `http://your-domain.com/health`
 - **OpenAPI Spec**: `http://your-domain.com/openapi.yaml`
+- **운영·모니터링·장애 대응·성능 검증**: [OPERATIONS.md](./OPERATIONS.md)
+- **Prometheus/Grafana 안 열릴 때**: [OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때](./OPERATIONS.md#5-prometheus--grafana-연동-및-안-열릴-때)
 
 ---
 

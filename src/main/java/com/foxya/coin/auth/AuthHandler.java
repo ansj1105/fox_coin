@@ -12,6 +12,7 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
+import io.vertx.core.MultiMap;
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
@@ -32,6 +33,8 @@ import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
 import static io.vertx.json.schema.common.dsl.Schemas.*;
 import static com.foxya.coin.common.jsonschema.Schemas.*;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @Slf4j
 public class AuthHandler extends BaseHandler {
@@ -66,6 +69,9 @@ public class AuthHandler extends BaseHandler {
         router.post("/recovery/reset-password").handler(this.recoveryResetValidation(parser)).handler(this::resetPasswordWithRecovery);
         router.post("/api-key").handler(this.apiKeyValidation(parser)).handler(this::apiKey);
         router.post("/google").handler(this.googleLoginValidation(parser)).handler(this::googleLogin);
+        router.post("/kakao").handler(this.kakaoLoginValidation(parser)).handler(this::kakaoLogin);
+        router.post("/apple").handler(this.appleLoginValidation(parser)).handler(this::appleLogin);
+        router.post("/apple/callback").handler(this::appleFormPostCallback);
         router.post("/refresh").handler(this.refreshValidation(parser)).handler(this::refresh);
 
         // 인증 필요 API
@@ -111,10 +117,10 @@ public class AuthHandler extends BaseHandler {
                 objectSchema()
                     .requiredProperty("loginId", stringSchema().with(minLength(3), maxLength(50)))
                     .requiredProperty("password", stringSchema().with(minLength(0), maxLength(256)))
-                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
-                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
-                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -217,16 +223,22 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("password", passwordSchema())
                     .requiredProperty("seedConfirmed", booleanSchema())
                     .optionalProperty("signupToken", stringSchema().with(minLength(8), maxLength(200)))
-                    .optionalProperty("referralCode", stringSchema().with(minLength(6), maxLength(20)))
+                    .optionalProperty(
+                        "referralCode",
+                        anyOf(
+                            stringSchema().with(minLength(6), maxLength(20)),
+                            schema().withKeyword("type", "null")
+                        )
+                    )
                     .requiredProperty("nickname", nicknameSchema())
                     .requiredProperty("name", stringSchema().with(minLength(1), maxLength(50)))
                     .requiredProperty("country", stringSchema().with(minLength(2), maxLength(3)))
                     .optionalProperty("country_code", stringSchema().with(minLength(2), maxLength(3)))
                     .optionalProperty("gender", stringSchema().with(maxLength(1)))
-                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
-                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
-                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -253,7 +265,7 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("provider", com.foxya.coin.common.jsonschema.Schemas.enumStringSchema(new String[]{"KAKAO", "GOOGLE", "EMAIL"}))
+                    .requiredProperty("provider", com.foxya.coin.common.jsonschema.Schemas.enumStringSchema(new String[]{"KAKAO", "GOOGLE", "APPLE", "EMAIL"}))
                     .requiredProperty("token", stringSchema().with(minLength(1)))
                     .allowAdditionalProperties(false)
             ))
@@ -307,13 +319,52 @@ public class AuthHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("idToken", stringSchema().with(minLength(1)))
                     .property("platform", stringSchema().with(minLength(1)))
                     .property("code_verifier", stringSchema().with(minLength(1)))
                     .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
                     .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
                     .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * Kakao 로그인 Validation
+     */
+    private Handler<RoutingContext> kakaoLoginValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .optionalProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("accessToken", stringSchema().with(minLength(1)))
+                    .property("platform", stringSchema().with(minLength(1)))
+                    .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    /**
+     * Apple 로그인 Validation
+     */
+    private Handler<RoutingContext> appleLoginValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("code", stringSchema().with(minLength(1)))
+                    .optionalProperty("idToken", stringSchema().with(minLength(1)))
+                    .property("platform", stringSchema().with(minLength(1)))
+                    .optionalProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
+                    .optionalProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
+                    .optionalProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -329,10 +380,10 @@ public class AuthHandler extends BaseHandler {
                     .requiredProperty("address", stringSchema().with(minLength(1)))
                     .requiredProperty("chain", enumStringSchema(new String[]{"ETH", "TRON", "BTC"}))
                     .requiredProperty("signature", stringSchema().with(minLength(32), maxLength(256)))
-                    .requiredProperty("deviceId", stringSchema().with(minLength(8), maxLength(128)))
-                    .requiredProperty("deviceType", enumStringSchema(new String[]{"WEB", "MOBILE"}))
-                    .requiredProperty("deviceOs", enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}))
-                    .optionalProperty("appVersion", stringSchema().with(minLength(1), maxLength(32)))
+                    .optionalProperty("deviceId", anyOf(stringSchema().with(minLength(8), maxLength(128)), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceType", anyOf(enumStringSchema(new String[]{"WEB", "MOBILE"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("deviceOs", anyOf(enumStringSchema(new String[]{"WEB", "IOS", "ANDROID"}), schema().withKeyword("type", "null")))
+                    .optionalProperty("appVersion", anyOf(stringSchema().with(minLength(0), maxLength(32)), schema().withKeyword("type", "null")))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -574,14 +625,14 @@ public class AuthHandler extends BaseHandler {
         if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
             dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
         }
-        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()
-            || dto.getDeviceType() == null || dto.getDeviceType().isBlank()
-            || dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
-            ctx.fail(new BadRequestException("deviceType, deviceOs, deviceId are required."));
-            return;
-        }
         dto.setClientIp(extractClientIp(ctx));
         dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        if ((dto.getCode() == null || dto.getCode().isBlank())
+            && (dto.getIdToken() == null || dto.getIdToken().isBlank())) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("Missing code or idToken"));
+            return;
+        }
 
         log.info("Google login attempt");
         authService.googleLogin(dto)
@@ -590,6 +641,125 @@ public class AuthHandler extends BaseHandler {
                 success(ctx, data);
             })
             .onFailure(ctx::fail);
+    }
+
+    /**
+     * Kakao 로그인
+     */
+    private void kakaoLogin(RoutingContext ctx) {
+        com.foxya.coin.auth.dto.KakaoLoginRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.KakaoLoginRequestDto.class
+        );
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()) {
+            dto.setDeviceId(ctx.request().getHeader("X-Device-Id"));
+        }
+        if (dto.getDeviceType() == null || dto.getDeviceType().isBlank()) {
+            dto.setDeviceType(ctx.request().getHeader("X-Device-Type"));
+        }
+        if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
+        }
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        if ((dto.getCode() == null || dto.getCode().isBlank())
+            && (dto.getAccessToken() == null || dto.getAccessToken().isBlank())) {
+            ctx.fail(new com.foxya.coin.common.exceptions.BadRequestException("Missing code or accessToken"));
+            return;
+        }
+
+        log.info("Kakao login attempt");
+        authService.kakaoLogin(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
+    }
+
+    /**
+     * Apple 로그인
+     */
+    private void appleLogin(RoutingContext ctx) {
+        com.foxya.coin.auth.dto.AppleLoginRequestDto dto = getObjectMapper().convertValue(
+            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
+            com.foxya.coin.auth.dto.AppleLoginRequestDto.class
+        );
+        if (dto.getDeviceId() == null || dto.getDeviceId().isBlank()) {
+            dto.setDeviceId(ctx.request().getHeader("X-Device-Id"));
+        }
+        if (dto.getDeviceType() == null || dto.getDeviceType().isBlank()) {
+            dto.setDeviceType(ctx.request().getHeader("X-Device-Type"));
+        }
+        if (dto.getDeviceOs() == null || dto.getDeviceOs().isBlank()) {
+            dto.setDeviceOs(ctx.request().getHeader("X-Device-Os"));
+        }
+        dto.setClientIp(extractClientIp(ctx));
+        dto.setUserAgent(ctx.request().getHeader("User-Agent"));
+
+        log.info("Apple login attempt");
+        authService.appleLogin(dto)
+            .onSuccess(data -> {
+                setRefreshTokenCookie(ctx, data.getRefreshToken());
+                success(ctx, data);
+            })
+            .onFailure(ctx::fail);
+    }
+
+    /**
+     * Apple OAuth form_post 콜백 처리
+     * - Apple은 name/email scope 요청 시 response_mode=form_post만 허용
+     * - form_post로 들어온 값을 프론트 라우트로 GET 리다이렉트하여 기존 흐름 유지
+     */
+    private void appleFormPostCallback(RoutingContext ctx) {
+        MultiMap form = ctx.request().formAttributes();
+        String code = form.get("code");
+        String state = form.get("state");
+        String idToken = form.get("id_token");
+        String error = form.get("error");
+        String errorDescription = form.get("error_description");
+
+        String scheme = ctx.request().getHeader("X-Forwarded-Proto");
+        if (scheme == null || scheme.isBlank()) {
+            scheme = ctx.request().scheme();
+        }
+        String host = ctx.request().getHeader("X-Forwarded-Host");
+        if (host == null || host.isBlank()) {
+            host = ctx.request().getHeader(HttpHeaders.HOST.toString());
+        }
+
+        StringBuilder redirectUrl = new StringBuilder();
+        redirectUrl.append(scheme).append("://").append(host).append("/auth/apple/callback");
+        String sep = "?";
+        if (code != null && !code.isBlank()) {
+            redirectUrl.append(sep).append("code=").append(urlEncode(code));
+            sep = "&";
+        }
+        if (state != null && !state.isBlank()) {
+            redirectUrl.append(sep).append("state=").append(urlEncode(state));
+            sep = "&";
+        }
+        if (idToken != null && !idToken.isBlank()) {
+            redirectUrl.append(sep).append("id_token=").append(urlEncode(idToken));
+            sep = "&";
+        }
+        if (error != null && !error.isBlank()) {
+            redirectUrl.append(sep).append("error=").append(urlEncode(error));
+            sep = "&";
+        }
+        if (errorDescription != null && !errorDescription.isBlank()) {
+            redirectUrl.append(sep).append("error_description=").append(urlEncode(errorDescription));
+        }
+
+        ctx.response()
+            .setStatusCode(302)
+            .putHeader(HttpHeaders.LOCATION, redirectUrl.toString())
+            .end();
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     /**

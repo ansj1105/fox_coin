@@ -6,6 +6,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
+import com.foxya.coin.transfer.dto.TransferHistoryResponseDto;
 import com.foxya.coin.transfer.dto.TransferResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
@@ -22,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class TransferHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<TransferResponseDto>> refTransfer = new TypeReference<>() {};
-    private final TypeReference<ApiResponse<List<TransferResponseDto>>> refTransferList = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<TransferHistoryResponseDto>> refTransferHistory = new TypeReference<>() {};
     
     // 테스트용 사용자 ID (R__01_test_users.sql 참고)
     private static final Long TESTUSER_ID = 1L;      // testuser - 잔액 1000 FOXYA
@@ -448,11 +449,9 @@ public class TransferHandlerTest extends HandlerTestBase {
                         .bearerTokenAuthentication(accessToken)
                         .send(tc.succeeding(res -> tc.verify(() -> {
                             log.info("Transfer history response: {}", res.bodyAsJsonObject());
-                            List<TransferResponseDto> history = expectSuccessAndGetResponse(res, refTransferList);
-                            
-                            assertThat(history).isNotEmpty();
-                            assertThat(history.get(0).getTransferId()).isNotNull();
-                            
+                            TransferHistoryResponseDto data = expectSuccessAndGetResponse(res, refTransferHistory);
+                            assertThat(data.getTransfers()).isNotEmpty();
+                            assertThat(data.getTransfers().get(0).getTransferId()).isNotNull();
                             tc.completeNow();
                         })));
                 })));

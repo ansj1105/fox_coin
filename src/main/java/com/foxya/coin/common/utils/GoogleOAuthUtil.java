@@ -17,6 +17,7 @@ public class GoogleOAuthUtil {
     
     private static final String TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
     private static final String USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo";
+    private static final String TOKENINFO_ENDPOINT = "https://oauth2.googleapis.com/tokeninfo";
     
     /**
      * Google OAuth Authorization Code를 Access Token으로 교환
@@ -155,6 +156,56 @@ public class GoogleOAuthUtil {
             .compose(tokenResponse -> {
                 String accessToken = tokenResponse.getString("access_token");
                 return getUserInfo(webClient, accessToken);
+            });
+    }
+
+    /**
+     * Google ID Token 검증 (모바일 네이티브 로그인)
+     * tokeninfo 엔드포인트를 사용하여 id_token을 검증합니다.
+     *
+     * @param webClient WebClient 인스턴스
+     * @param idToken Google ID Token
+     * @param expectedAud 기대하는 clientId (audience). null이면 검사 생략
+     * @return 사용자 정보 JsonObject (id, email, name, picture 등)
+     */
+    public static Future<JsonObject> verifyIdToken(WebClient webClient, String idToken, String expectedAud) {
+        if (idToken == null || idToken.isBlank()) {
+            return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+        }
+
+        return webClient.getAbs(TOKENINFO_ENDPOINT)
+            .addQueryParam("id_token", idToken)
+            .send()
+            .compose(response -> {
+                if (response.statusCode() != 200) {
+                    log.error("Failed to verify Google id_token. Status: {}, Body: {}",
+                        response.statusCode(), response.bodyAsString());
+                    return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                }
+
+                JsonObject tokenInfo = response.bodyAsJsonObject();
+                String aud = tokenInfo.getString("aud");
+                if (expectedAud != null && !expectedAud.isBlank() && aud != null && !expectedAud.equals(aud)) {
+                    log.error("Google id_token audience mismatch. expected={}, actual={}", expectedAud, aud);
+                    return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                }
+
+                String googleId = tokenInfo.getString("sub");
+                String email = tokenInfo.getString("email");
+                String name = tokenInfo.getString("name");
+                String picture = tokenInfo.getString("picture");
+
+                if (email == null || googleId == null) {
+                    log.error("Email or Google ID not found in tokeninfo");
+                    return Future.failedFuture(new UnauthorizedException("Failed to verify Google token"));
+                }
+
+                JsonObject userInfo = new JsonObject();
+                userInfo.put("id", googleId);
+                userInfo.put("email", email);
+                if (name != null) userInfo.put("name", name);
+                if (picture != null) userInfo.put("picture", picture);
+                return Future.succeededFuture(userInfo);
             });
     }
 }

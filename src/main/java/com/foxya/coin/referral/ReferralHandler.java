@@ -50,6 +50,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getCurrentReferralCode);
         
+        // 친구 초대 → 채굴 속도 보너스 티어 목록 + 유효 직접 초대 수
+        router.get("/invite-tiers")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getInviteTiers);
+        
         // 레퍼럴 통계 조회
         router.get("/:id/stats")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -73,6 +79,12 @@ public class ReferralHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getTeamInfo);
+
+        // 래퍼럴 수익 구간 조회 (문구는 프론트, 숫자만 전달)
+        router.get("/revenue-tiers")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getRevenueTiers);
         
         return router;
     }
@@ -91,7 +103,7 @@ public class ReferralHandler extends BaseHandler {
     }
     
     /**
-     * 레퍼럴 코드 등록
+     * 레퍼럴 코드 등록 (안전장치: IP/기기 중복 체크용으로 clientIp, deviceId 전달)
      */
     private void registerReferralCode(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
@@ -101,8 +113,20 @@ public class ReferralHandler extends BaseHandler {
             RegisterReferralDto.class
         );
         
+        String clientIp = ctx.request().getHeader("X-Forwarded-For");
+        if (clientIp != null && clientIp.contains(",")) {
+            clientIp = clientIp.split(",")[0].trim();
+        }
+        if (clientIp == null || clientIp.isEmpty()) {
+            clientIp = ctx.request().getHeader("X-Real-IP");
+        }
+        if (clientIp == null || clientIp.isEmpty()) {
+            clientIp = ctx.request().remoteAddress() != null ? ctx.request().remoteAddress().host() : null;
+        }
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        
         log.info("User {} registering referral code: {}", userId, dto.getReferralCode());
-        response(ctx, referralService.registerReferralCode(userId, dto.getReferralCode()));
+        response(ctx, referralService.registerReferralCode(userId, dto.getReferralCode(), clientIp, deviceId));
     }
     
     /**
@@ -112,6 +136,15 @@ public class ReferralHandler extends BaseHandler {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("Getting current referral code for user: {}", userId);
         response(ctx, referralService.getCurrentReferralCode(userId));
+    }
+    
+    /**
+     * 친구 초대 → 채굴 속도 보너스 티어 목록 + 유효 직접 초대 수
+     */
+    private void getInviteTiers(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.debug("Getting invite tiers for user: {}", userId);
+        response(ctx, referralService.getInviteTiers(userId));
     }
     
     /**
@@ -163,5 +196,13 @@ public class ReferralHandler extends BaseHandler {
         log.info("Getting team info for user: {}, tab: {}, period: {}, limit: {}, offset: {}", userId, tab, period, limit, offset);
         response(ctx, referralService.getTeamInfo(userId, tab, period, limit, offset));
     }
-}
 
+    /**
+     * 래퍼럴 수익 구간 조회
+     */
+    private void getRevenueTiers(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting referral revenue tiers for user: {}", userId);
+        response(ctx, referralService.getReferralRevenueTiers());
+    }
+}

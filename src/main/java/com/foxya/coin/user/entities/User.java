@@ -29,6 +29,12 @@ public class User {
     private String gender;
     private String phone;
     private Integer isTest;
+    /** 경고 여부 (0=해제, 1=경고). V41/coin_system V46 */
+    private Integer isWarning;
+    /** 채굴정지 여부 (0=해제, 1=정지). V41/coin_system V46 */
+    private Integer isMiningSuspended;
+    /** 계정차단 여부 (0=해제, 1=차단). V41/coin_system V46 */
+    private Integer isAccountBlocked;
     private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

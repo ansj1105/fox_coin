@@ -33,6 +33,9 @@ UPDATE users
 SET transaction_password_hash = '$2y$05$0t.D4AHR2raDheFBwUfFTOPNc3xjZ8QL0tTV89KyIGEakdMdj4vNK'
 WHERE login_id = 'testuser';
 
+-- blocked_user: 계정 차단 플래그 설정 (V41 - 로그인 시 "차단된 계정입니다." 401 테스트용)
+UPDATE users SET is_account_blocked = 1 WHERE login_id = 'blocked_user';
+
 -- 시퀀스 리셋 (ID 순서 보장)
 SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users));
 
@@ -48,3 +51,10 @@ WHERE NOT EXISTS (
     WHERE referrer_id = (SELECT id FROM users WHERE login_id = 'referrer_user')
     AND referred_id = (SELECT id FROM users WHERE login_id = 'no_code_user')
 );
+
+-- referrer_user용 referral_stats_logs (updateReferrerStats에서 UPDATE 사용, 행이 있어야 함)
+INSERT INTO referral_stats_logs (user_id, direct_count, team_count, total_reward, today_reward, today_signup_count, total_signup_count, created_at, updated_at)
+SELECT 
+    (SELECT id FROM users WHERE login_id = 'referrer_user'),
+    1, 1, 0, 0, 0, 1, NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM referral_stats_logs WHERE user_id = (SELECT id FROM users WHERE login_id = 'referrer_user'));

@@ -18,6 +18,7 @@ public class Notice {
     private String title;
     private String content;
     private Boolean isImportant;
+    private Boolean isEvent;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

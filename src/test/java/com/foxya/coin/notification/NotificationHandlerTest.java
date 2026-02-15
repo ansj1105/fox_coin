@@ -207,5 +207,37 @@ public class NotificationHandlerTest extends HandlerTestBase {
                 })));
         }
     }
+
+    @Nested
+    @DisplayName("알림 전체 삭제 테스트")
+    class DeleteAllNotificationsTest {
+
+        @Test
+        @Order(40)
+        @DisplayName("성공 - 알림 전체 삭제")
+        void successDeleteAll(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+
+            reqDelete(getUrl("/"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectSuccess(res);
+                    assertThat(res.bodyAsJsonObject().getString("status")).isEqualTo("OK");
+                    assertThat(res.bodyAsJsonObject().getJsonObject("data").getString("status")).isEqualTo("OK");
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(41)
+        @DisplayName("실패 - 인증 없이 알림 전체 삭제")
+        void failNoAuth(VertxTestContext tc) {
+            reqDelete(getUrl("/"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+    }
 }
 

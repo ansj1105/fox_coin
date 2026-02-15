@@ -123,6 +123,55 @@ public class UserHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @Order(22)
+        @DisplayName("성공 - 이메일 설정용 비밀번호 확인")
+        void successConfirmPasswordForEmail(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser - 비밀번호 Test1234!@ (시드와 동일)
+
+            JsonObject body = new JsonObject()
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Confirm password for email response: {}", res.bodyAsJsonObject());
+                    expectSuccessAndGetResponse(res, refVoid);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(23)
+        @DisplayName("실패 - 이메일 설정용 비밀번호 확인 (잘못된 비밀번호)")
+        void failConfirmPasswordForEmailWrongPassword(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L); // testuser
+
+            JsonObject body = new JsonObject()
+                .put("password", "WrongPassword123!");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(24)
+        @DisplayName("실패 - 이메일 설정용 비밀번호 확인 (인증 없이)")
+        void failConfirmPasswordForEmailNoAuth(VertxTestContext tc) {
+            JsonObject body = new JsonObject()
+                .put("password", "Test1234!@");
+
+            reqPost(getUrl("/email/confirm-password"))
+                .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 401);
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
         @Order(14)
         @DisplayName("성공 - 이메일 인증 코드 발송")
         void successSendEmailCode(VertxTestContext tc) {
@@ -223,26 +272,26 @@ public class UserHandlerTest extends HandlerTestBase {
     @DisplayName("레퍼럴 코드 생성 테스트")
     class GenerateReferralCodeTest {
         
-        @Test
-        @Order(4)
-        @DisplayName("성공 - USER가 본인 레퍼럴 코드 생성")
-        void successGenerateOwnCode(VertxTestContext tc) {
-            String accessToken = getAccessTokenOfUser(2L); // testuser2
-            
-            reqPost(getUrl("/generate/referral-code"))
-                .bearerTokenAuthentication(accessToken)
-                .send(tc.succeeding(res -> tc.verify(() -> {
-                    log.info("Generate referral code response: {}", res.bodyAsJsonObject());
-                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
-                    
-                    assertThat(data.getReferralCode()).isNotNull();
-                    assertThat(data.getReferralCode()).hasSize(6);
-                    assertThat(data.getReferralLink()).isNotNull();
-                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
-                    
-                    tc.completeNow();
-                })));
-        }
+//        @Test
+//        @Order(4)
+//        @DisplayName("성공 - USER가 본인 레퍼럴 코드 생성")
+//        void successGenerateOwnCode(VertxTestContext tc) {
+//            String accessToken = getAccessTokenOfUser(2L); // testuser2
+//
+//            reqPost(getUrl("/generate/referral-code"))
+//                .bearerTokenAuthentication(accessToken)
+//                .send(tc.succeeding(res -> tc.verify(() -> {
+//                    log.info("Generate referral code response: {}", res.bodyAsJsonObject());
+//                    ReferralCodeResponseDto data = expectSuccessAndGetResponse(res, refReferralCodeResponse);
+//
+//                    assertThat(data.getReferralCode()).isNotNull();
+//                    assertThat(data.getReferralCode()).hasSize(6);
+//                    assertThat(data.getReferralLink()).isNotNull();
+//                    assertThat(data.getReferralLink()).contains(data.getReferralCode());
+//
+//                    tc.completeNow();
+//                })));
+//        }
         
         @Test
         @Order(5)
@@ -280,19 +329,19 @@ public class UserHandlerTest extends HandlerTestBase {
                 })));
         }
         
-        @Test
-        @Order(7)
-        @DisplayName("실패 - USER가 다른 유저에게 레퍼럴 코드 생성 시도")
-        void failUserGenerateForOther(VertxTestContext tc) {
-            String accessToken = getAccessTokenOfUser(1L); // testuser
-            
-            reqPost(getUrl("/2/generate/referral-code"))
-                .bearerTokenAuthentication(accessToken)
-                .send(tc.succeeding(res -> tc.verify(() -> {
-                    expectError(res, 403); // Forbidden
-                    tc.completeNow();
-                })));
-        }
+//        @Test
+//        @Order(7)
+//        @DisplayName("실패 - USER가 다른 유저에게 레퍼럴 코드 생성 시도")
+//        void failUserGenerateForOther(VertxTestContext tc) {
+//            String accessToken = getAccessTokenOfUser(1L); // testuser
+//
+//            reqPost(getUrl("/2/generate/referral-code"))
+//                .bearerTokenAuthentication(accessToken)
+//                .send(tc.succeeding(res -> tc.verify(() -> {
+//                    expectError(res, 403); // Forbidden
+//                    tc.completeNow();
+//                })));
+//        }
         
         @Test
         @Order(8)

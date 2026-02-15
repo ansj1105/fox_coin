@@ -14,7 +14,6 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.auth.jwt.JWTAuthOptions;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
-import io.vertx.ext.web.handler.CorsHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
@@ -22,6 +21,7 @@ import com.foxya.coin.common.utils.ErrorHandler;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
 import com.foxya.coin.referral.ReferralRepository;
+import com.foxya.coin.referral.ReferralRevenueTierRepository;
 import com.foxya.coin.referral.ReferralService;
 import com.foxya.coin.transfer.TransferHandler;
 import com.foxya.coin.transfer.TransferRepository;
@@ -34,6 +34,8 @@ import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
+import com.foxya.coin.app.AppConfigRepository;
+import com.foxya.coin.app.AppHandler;
 import com.foxya.coin.agency.AgencyHandler;
 import com.foxya.coin.agency.AgencyRepository;
 import com.foxya.coin.agency.AgencyService;
@@ -49,9 +51,12 @@ import com.foxya.coin.banner.BannerService;
 import com.foxya.coin.bonus.BonusHandler;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
+import com.foxya.coin.deposit.InternalDepositHandler;
 import com.foxya.coin.deposit.TokenDepositHandler;
+import com.foxya.coin.transfer.InternalWithdrawalHandler;
 import com.foxya.coin.deposit.TokenDepositRepository;
 import com.foxya.coin.deposit.TokenDepositService;
+import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.exchange.ExchangeHandler;
 import com.foxya.coin.exchange.ExchangeRepository;
 import com.foxya.coin.exchange.ExchangeService;
@@ -64,6 +69,7 @@ import com.foxya.coin.notice.NoticeHandler;
 import com.foxya.coin.notice.NoticeRepository;
 import com.foxya.coin.notice.NoticeService;
 import com.foxya.coin.notification.NotificationHandler;
+import com.foxya.coin.notification.FcmService;
 import com.foxya.coin.notification.NotificationRepository;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.payment.PaymentDepositHandler;
@@ -83,6 +89,8 @@ import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.retry.EmailRetryJob;
+import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
@@ -147,6 +155,7 @@ public class ApiVerticle extends AbstractVerticle {
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
+        ReferralRevenueTierRepository referralRevenueTierRepository = new ReferralRevenueTierRepository();
         TransferRepository transferRepository = new TransferRepository();
         BonusRepository bonusRepository = new BonusRepository();
         MiningRepository miningRepository = new MiningRepository();
@@ -165,17 +174,22 @@ public class ApiVerticle extends AbstractVerticle {
         AirdropRepository airdropRepository = new AirdropRepository();
         ClientRepository clientRepository = new ClientRepository();
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
+
+        FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
+        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService);
         
-        // 이메일 서비스 (SMTP 설정은 선택 사항)
+        // Redis 초기화 (토큰 블랙리스트·재시도 큐용)
+        JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
+        RedisAPI redisApi = initializeRedis(redisConfig);
+        RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
+
+        // 이메일 서비스 (SMTP 설정은 선택 사항, 실패 시 Redis 재시도 큐 적재)
         EmailService emailService = new EmailService(
             vertx,
             config().getJsonObject("smtp", new JsonObject()),
-            frontendConfig
+            frontendConfig,
+            retryQueuePublisher
         );
-
-        // Redis 초기화 (토큰 블랙리스트용)
-        JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
-        RedisAPI redisApi = initializeRedis(redisConfig);
         
         // UserService를 먼저 생성 (AuthService에서 사용)
         UserService userService = new UserService(
@@ -190,19 +204,18 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi, notificationService, airdropRepository);
+        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository);
         BonusService bonusService = new BonusService(
-            pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository, 
+            pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
-        MiningService miningService = new MiningService(
-            pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository);
         LevelService levelService = new LevelService(
             pool, userRepository, miningRepository);
+        MiningService miningService = new MiningService(
+            pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
+            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
-        NotificationService notificationService = new NotificationService(
-            pool, notificationRepository);
         SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
         ReviewService reviewService = new ReviewService(
@@ -229,20 +242,39 @@ public class ApiVerticle extends AbstractVerticle {
         PaymentDepositService paymentDepositService = new PaymentDepositService(
             pool, paymentDepositRepository, currencyRepository, transferRepository);
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
+        EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
         TokenDepositService tokenDepositService = new TokenDepositService(
-            pool, tokenDepositRepository, currencyRepository, transferRepository);
+            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService);
+        String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
+        if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
+            depositScannerApiKey = config().getString("depositScanner.apiKey");
+        }
+        InternalDepositHandler internalDepositHandler = new InternalDepositHandler(
+            vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
+        InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
+            vertx, transferService, depositScannerApiKey);
         
         // Google OAuth 설정 (환경 변수 우선)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
+        // Kakao OAuth 설정 (환경 변수 우선)
+        JsonObject kakaoConfig = applyKakaoEnvOverrides(config().getJsonObject("kakao", new JsonObject()));
+        // Apple OAuth 설정 (환경 변수 우선)
+        JsonObject appleConfig = applyAppleEnvOverrides(config().getJsonObject("apple", new JsonObject()));
         
         // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
+        String minAppVersion = System.getenv("MIN_APP_VERSION");
+        if (minAppVersion == null || minAppVersion.isBlank()) {
+            minAppVersion = config().getJsonObject("frontend", new JsonObject()).getString("minAppVersion");
+        }
+        AppConfigRepository appConfigRepository = new AppConfigRepository();
         AuthService authService = new AuthService(
             pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
             redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
             notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
-            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig);
+            signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig, kakaoConfig, appleConfig,
+            minAppVersion, appConfigRepository);
         AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
             pool, inquiryRepository, userService);
@@ -253,9 +285,18 @@ public class ApiVerticle extends AbstractVerticle {
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
+        // 이메일 재시도 큐 소비 (Redis 있을 때만, 주기적으로 RPOP → 재시도 → 최종 실패 시 DLQ)
+        if (redisApi != null && retryQueuePublisher != null) {
+            startEmailRetryProcessor(emailService, retryQueuePublisher);
+        }
+
+        // 채굴 정산 배치: 1시간마다 미정산 세션을 mining_history·internal_transfers에 반영 (API 미호출 유저 대응)
+        startMiningSettlementBatch(miningService);
+
         // Handler 초기화
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
-        UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth);
+        AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
+        UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
@@ -298,6 +339,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 공개 API (인증 불필요)
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/app", appHandler.getRouter());
         
         // 레벨 API를 먼저 등록 (구체적인 경로 우선)
         mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());
@@ -359,6 +401,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 토큰 입금 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
+        // 입금 스캐너용 내부 API (API 키 인증)
+        mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
         
         // 에어드랍 API
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
@@ -424,46 +469,37 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private void setupGlobalHandlers(Router router) {
-        // CORS - 웹 사용 시 널널하게 (preflight 캐시, 노출 헤더 확대)
-        router.route().handler(CorsHandler.create()
-            .addRelativeOrigin(".*")
-            .allowCredentials(true)
-            .maxAgeSeconds(86400)
-            .allowedMethod(HttpMethod.GET)
-            .allowedMethod(HttpMethod.POST)
-            .allowedMethod(HttpMethod.PUT)
-            .allowedMethod(HttpMethod.DELETE)
-            .allowedMethod(HttpMethod.PATCH)
-            .allowedMethod(HttpMethod.OPTIONS)
-            .allowedHeader("Content-Type")
-            .allowedHeader("Authorization")
-            .allowedHeader("Accept")
-            .allowedHeader("Origin")
-            .allowedHeader("X-Requested-With")
-            .allowedHeader("X-Device-Id")
-            .allowedHeader("X-Device-Type")
-            .allowedHeader("X-Device-Os")
-            .allowedHeader("X-App-Version")
-            .allowedHeader("X-Platform")
-            .allowedHeader("X-Client-Version")
-            .allowedHeader("X-Client-Type")
-            .allowedHeader("X-App-Build")
-            .allowedHeader("User-Agent")
-            .allowedHeader("Referer")
-            .allowedHeader("X-Forwarded-For")
-            .allowedHeader("X-Real-IP")
-            .allowedHeader("X-Forwarded-Proto")
-            .allowedHeader("Cache-Control")
-            .allowedHeader("Pragma")
-            .allowedHeader("If-Modified-Since")
-            .allowedHeader("If-None-Match")
-            .allowedHeader("Accept-Language")
-            .allowedHeader("Accept-Encoding")
-            .allowedHeader("Access-Control-Request-Method")
-            .allowedHeader("Access-Control-Request-Headers")
-            .exposedHeader("Content-Length")
-            .exposedHeader("Content-Type")
-            .exposedHeader("Authorization"));
+        // CORS - custom handler to allow non-standard origins (capacitor://, ionic://)
+        router.route().handler(ctx -> {
+            String origin = ctx.request().getHeader("Origin");
+            if (origin != null && !origin.isBlank()) {
+                ctx.response().putHeader("Access-Control-Allow-Origin", origin);
+                ctx.response().putHeader("Vary", "Origin");
+                ctx.response().putHeader("Access-Control-Allow-Credentials", "true");
+                ctx.response().putHeader("Access-Control-Max-Age", "86400");
+                ctx.response().putHeader("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization");
+            }
+
+            if (ctx.request().method() == HttpMethod.OPTIONS) {
+                ctx.response().putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+                String reqHeaders = ctx.request().getHeader("Access-Control-Request-Headers");
+                if (reqHeaders != null && !reqHeaders.isBlank()) {
+                    ctx.response().putHeader("Access-Control-Allow-Headers", reqHeaders);
+                } else {
+                    ctx.response().putHeader(
+                        "Access-Control-Allow-Headers",
+                        "Content-Type, Authorization, Accept, Origin, X-Requested-With, X-Device-Id, X-Device-Type, " +
+                        "X-Device-Os, X-App-Version, X-Platform, X-Client-Version, X-Client-Type, X-App-Build, User-Agent, " +
+                        "Referer, X-Forwarded-For, X-Real-IP, X-Forwarded-Proto, Cache-Control, Pragma, If-Modified-Since, " +
+                        "If-None-Match, Accept-Language, Accept-Encoding, Access-Control-Request-Method, Access-Control-Request-Headers"
+                    );
+                }
+                ctx.response().setStatusCode(204).end();
+                return;
+            }
+
+            ctx.next();
+        });
         
         // Body Handler
         router.route().handler(BodyHandler.create());
@@ -600,7 +636,49 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * Redis 초기화 (토큰 블랙리스트용)
+     * 이메일 재시도 큐 주기 소비: RPOP → 재시도 → 최종 실패 시 DLQ
+     */
+    private void startEmailRetryProcessor(EmailService emailService, RetryQueuePublisher retryQueuePublisher) {
+        long intervalMs = 15_000;
+        vertx.setPeriodic(intervalMs, id -> {
+            retryQueuePublisher.popEmailRetry()
+                .onSuccess(job -> {
+                    if (job == null) return;
+                    emailService.processRetryJob(job)
+                        .onSuccess(v -> log.debug("Email retry succeeded. type={}, email={}", job.getType(), job.getEmail()))
+                        .onFailure(throwable -> {
+                            EmailRetryJob next = job.withIncrementedRetry();
+                            if (next.getRetryCount() >= job.getMaxRetries()) {
+                                retryQueuePublisher.enqueueEmailDlq(job, throwable.getMessage());
+                            } else {
+                                retryQueuePublisher.enqueueEmailRetry(next);
+                            }
+                        });
+                });
+        });
+        log.info("Email retry processor started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * 채굴 정산 배치: 1시간마다 정산 대기 세션(last_settled_at < ends_at)을 settle하여
+     * mining_history·internal_transfers에 반영. 앱을 열지 않은 유저도 채굴 완료 후 DB에 반영됨.
+     */
+    private void startMiningSettlementBatch(MiningService miningService) {
+        long intervalMs = 3600_000L; // 1시간
+        vertx.setPeriodic(intervalMs, id -> {
+            miningService.runSettlementBatch()
+                .onSuccess(count -> {
+                    if (count > 0) {
+                        log.info("Mining settlement batch completed: {} users settled", count);
+                    }
+                })
+                .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable));
+        });
+        log.info("Mining settlement batch started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * Redis 초기화 (토큰 블랙리스트·재시도 큐용)
      * Redis가 없어도 서비스는 동작하도록 null을 반환할 수 있음
      */
     private RedisAPI initializeRedis(JsonObject redisConfig) {
@@ -699,6 +777,28 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "redirectUri", "GOOGLE_REDIRECT_URI");
         putIfEnvSet(config, "androidClientId", "GOOGLE_ANDROID_CLIENT_ID");
         putIfEnvSet(config, "androidRedirectUri", "GOOGLE_ANDROID_REDIRECT_URI");
+        putIfEnvSet(config, "iosClientId", "GOOGLE_IOS_CLIENT_ID");
+        putIfEnvSet(config, "iosRedirectUri", "GOOGLE_IOS_REDIRECT_URI");
+        return config;
+    }
+
+    private static JsonObject applyKakaoEnvOverrides(JsonObject baseConfig) {
+        JsonObject config = baseConfig.copy();
+        putIfEnvSet(config, "clientId", "KAKAO_CLIENT_ID");
+        putIfEnvSet(config, "clientSecret", "KAKAO_CLIENT_SECRET");
+        putIfEnvSet(config, "redirectUri", "KAKAO_REDIRECT_URI");
+        putIfEnvSet(config, "androidRedirectUri", "KAKAO_ANDROID_REDIRECT_URI");
+        putIfEnvSet(config, "iosRedirectUri", "KAKAO_IOS_REDIRECT_URI");
+        return config;
+    }
+
+    private static JsonObject applyAppleEnvOverrides(JsonObject baseConfig) {
+        JsonObject config = baseConfig.copy();
+        putIfEnvSet(config, "teamId", "APPLE_TEAM_ID");
+        putIfEnvSet(config, "keyId", "APPLE_KEY_ID");
+        putIfEnvSet(config, "serviceId", "APPLE_SERVICE_ID");
+        putIfEnvSet(config, "privateKeyPath", "APPLE_PRIVATE_KEY_PATH");
+        putIfEnvSet(config, "redirectUri", "APPLE_REDIRECT_URI");
         return config;
     }
 
