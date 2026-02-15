@@ -4,7 +4,7 @@ global:
   external_labels:
     monitor: 'foxya-coin-service'
 
-# Alertmanager ?ㅼ젙 (?좏깮?ы빆)
+# Alertmanager config (optional)
 # alerting:
 #   alertmanagers:
 #     - static_configs:
@@ -16,8 +16,8 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
     static_configs:
-      # NOTE: `app:8080`? 媛숈? ?ㅽ듃?뚰겕瑜?怨듭쑀?섎뒗 ?ㅻⅨ ?ㅽ깮??app怨?異⑸룎?????덉뒿?덈떎.
-      # docker-compose.prod.yml??container_name(foxya-api)濡?怨좎젙?댁꽌 ?섎せ??而⑦뀒?대꼫(404)瑜??ㅽ겕?⑺븯吏 ?딄쾶 ?⑸땲??
+      # NOTE: app:8080 can collide with other stacks sharing a Docker network.
+      # Pin to the container name in docker-compose.prod.yml to avoid scraping the wrong container (404).
       - targets: ['foxya-api:8080']
         labels:
           service: 'api'
