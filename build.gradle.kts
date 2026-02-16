@@ -1,3 +1,5 @@
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.compile.JavaCompile
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
@@ -35,9 +37,13 @@ application {
     mainClass.set(launcherClassName)
 }
 
+
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+}
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
 }
 
 dependencies {
@@ -73,10 +79,10 @@ dependencies {
     implementation("io.vertx:vertx-micrometer-metrics")
     implementation("io.micrometer:micrometer-registry-prometheus:1.12.0")
     
-    // PostgreSQL JDBC (Flyway용)
+    // PostgreSQL JDBC (Flyway??
     implementation("org.postgresql:postgresql:$postgresqlVersion")
     
-    // PostgreSQL SCRAM 인증
+    // PostgreSQL SCRAM ?紐꾩쵄
     implementation("com.ongres.scram:client:2.1")
     
     // Flyway
@@ -99,7 +105,7 @@ dependencies {
     implementation("org.web3j:core:4.10.3")
     implementation("org.bitcoinj:bitcoinj-core:0.16.2")
 
-    // FCM (Firebase Cloud Messaging) 푸시 알림
+    // FCM (Firebase Cloud Messaging) ?紐꾨뻻 ???뵝
     implementation("com.google.firebase:firebase-admin:9.2.0")
     
     // Lombok
@@ -130,12 +136,12 @@ tasks.withType<ShadowJar> {
 tasks.withType<Test> {
     useJUnitPlatform()
     
-    // Windows에서 한글 인코딩 문제 해결
+    // Windows?癒?퐣 ??? ?紐꾪맜???얜챷????욧퍙
     systemProperty("file.encoding", "UTF-8")
     systemProperty("user.language", "ko")
     systemProperty("user.country", "KR")
     
-    // JVM 옵션 설정
+    // JVM ??????쇱젟
     jvmArgs = listOf(
         "-Dfile.encoding=UTF-8",
         "-Duser.language=ko",
@@ -163,7 +169,7 @@ tasks.register("stage") {
     dependsOn("shadowJar")
 }
 
-// Jib 설정 (Docker 이미지 빌드)
+// Jib ??쇱젟 (Docker ???筌왖 ??슢諭?
 jib {
     from {
         image = "eclipse-temurin:17-jre-alpine"
@@ -192,4 +198,40 @@ jib {
         )
         creationTime.set("USE_CURRENT_TIMESTAMP")
     }
+}
+val verifyNoBom by tasks.registering {
+    group = "verification"
+    description = "Fails build when UTF-8 BOM exists in source/config files."
+
+    doLast {
+        val patterns = listOf(
+            "**/*.java", "**/*.kt", "**/*.kts", "**/*.gradle", "**/*.properties",
+            "**/*.yml", "**/*.yaml", "**/*.sql", "**/*.md", "**/*.xml"
+        )
+
+        val files = fileTree(projectDir) {
+            include(patterns)
+            exclude(".git/**", ".gradle/**", "build/**", "target/**")
+        }
+
+        val bomFiles = files.files.filter { file ->
+            file.isFile && file.length() >= 3 && file.inputStream().use { input ->
+                val b1 = input.read()
+                val b2 = input.read()
+                val b3 = input.read()
+                b1 == 0xEF && b2 == 0xBB && b3 == 0xBF
+            }
+        }
+
+        if (bomFiles.isNotEmpty()) {
+            val details = bomFiles
+                .sortedBy { it.path }
+                .joinToString("\n") { it.relativeTo(projectDir).path.replace('\\', '/') }
+            throw GradleException("UTF-8 BOM detected in files:\n$details")
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(verifyNoBom)
 }
