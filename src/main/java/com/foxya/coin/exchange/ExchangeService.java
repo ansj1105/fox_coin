@@ -6,16 +6,19 @@ import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
-import com.foxya.coin.exchange.dto.ExchangeRequestDto;
-import com.foxya.coin.exchange.dto.ExchangeResponseDto;
 import com.foxya.coin.exchange.dto.ExchangeInfoDto;
 import com.foxya.coin.exchange.dto.ExchangeQuoteDto;
+import com.foxya.coin.exchange.dto.ExchangeRequestDto;
+import com.foxya.coin.exchange.dto.ExchangeResponseDto;
 import com.foxya.coin.exchange.entities.Exchange;
 import com.foxya.coin.exchange.entities.ExchangeSetting;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
@@ -26,72 +29,80 @@ import java.util.UUID;
 
 @Slf4j
 public class ExchangeService extends BaseService {
-    
+
     private final ExchangeRepository exchangeRepository;
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
     private final UserRepository userRepository;
-    
+    private final NotificationService notificationService;
+
     private static final String EXCHANGE_CHAIN = "INTERNAL";
-    
+
     public ExchangeService(PgPool pool, ExchangeRepository exchangeRepository,
                           CurrencyRepository currencyRepository,
                           TransferRepository transferRepository,
                           UserRepository userRepository) {
+        this(pool, exchangeRepository, currencyRepository, transferRepository, userRepository, null);
+    }
+
+    public ExchangeService(PgPool pool, ExchangeRepository exchangeRepository,
+                          CurrencyRepository currencyRepository,
+                          TransferRepository transferRepository,
+                          UserRepository userRepository,
+                          NotificationService notificationService) {
         super(pool);
         this.exchangeRepository = exchangeRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
-    
+
     /**
-     * 환전 실행 (KORI → F_COIN)
+     * ?섏쟾 ?ㅽ뻾 (KORI -> F_COIN)
      */
     public Future<ExchangeResponseDto> executeExchange(Long userId, ExchangeRequestDto request, String requestIp) {
-        log.info("환전 실행 요청 - userId: {}, fromAmount: {}", userId, request.getFromAmount());
+        log.info("?섏쟾 ?ㅽ뻾 ?붿껌 - userId: {}, fromAmount: {}", userId, request.getFromAmount());
 
         if (request.getTransactionPassword() == null || !request.getTransactionPassword().matches("^\\d{6}$")) {
-            return Future.failedFuture(new BadRequestException("거래 비밀번호는 숫자 6자리여야 합니다."));
+            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇???レ옄 6?먮━?ъ빞 ?⑸땲??"));
         }
 
         return loadActiveSetting()
             .compose(setting -> {
                 if (request.getFromAmount() == null || request.getFromAmount().compareTo(setting.getMinExchangeAmount()) < 0) {
-                    return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + setting.getMinExchangeAmount() + " 입니다."));
+                    return Future.failedFuture(new BadRequestException("理쒖냼 ?섏쟾 湲덉븸? " + setting.getMinExchangeAmount() + " ?낅땲??"));
                 }
                 return userRepository.getUserById(pool, userId)
                     .compose(user -> {
                         if (user == null) {
-                            return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
                         }
                         if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
-                            return Future.failedFuture(new BadRequestException("거래 비밀번호를 설정해주세요."));
+                            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇瑜??ㅼ젙?댁＜?몄슂."));
                         }
                         if (!matchesTransactionPassword(request.getTransactionPassword(), user.getTransactionPasswordHash())) {
-                            return Future.failedFuture(new BadRequestException("거래 비밀번호가 올바르지 않습니다."));
+                            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇媛 ?щ컮瑜댁? ?딆뒿?덈떎."));
                         }
-                        // 2. 통화 조회 (설정 기준) - 환전은 항상 INTERNAL 체인 사용
+
                         return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getFromCurrencyCode(), EXCHANGE_CHAIN)
                             .compose(fromCurrency -> {
                                 if (fromCurrency == null) {
-                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 통화를 찾을 수 없습니다."));
+                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " ?듯솕瑜?李얠쓣 ???놁뒿?덈떎."));
                                 }
 
                                 return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getToCurrencyCode(), EXCHANGE_CHAIN)
                                     .compose(toCurrency -> {
                                         if (toCurrency == null) {
-                                            return Future.failedFuture(new NotFoundException(setting.getToCurrencyCode() + " 통화를 찾을 수 없습니다."));
+                                            return Future.failedFuture(new NotFoundException(setting.getToCurrencyCode() + " ?듯솕瑜?李얠쓣 ???놁뒿?덈떎."));
                                         }
 
-                                        // 3. 사용자 지갑 조회
                                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, fromCurrency.getId())
                                             .compose(fromWallet -> {
                                                 if (fromWallet == null) {
-                                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 지갑을 찾을 수 없습니다."));
+                                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 吏媛묒쓣 李얠쓣 ???놁뒿?덈떎."));
                                                 }
 
-                                                // 4. TO 금액 계산
                                                 BigDecimal feeAmount = request.getFromAmount()
                                                     .multiply(setting.getFee())
                                                     .setScale(18, RoundingMode.DOWN);
@@ -101,52 +112,47 @@ public class ExchangeService extends BaseService {
                                                     .setScale(18, RoundingMode.DOWN);
 
                                                 if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                                                    return Future.failedFuture(new BadRequestException("환전 금액이 유효하지 않습니다."));
+                                                    return Future.failedFuture(new BadRequestException("?섏쟾 湲덉븸???좏슚?섏? ?딆뒿?덈떎."));
                                                 }
 
-                                                // 5. 잔액 확인
                                                 if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
-                                                    return Future.failedFuture(new BadRequestException("잔액이 부족합니다."));
+                                                    return Future.failedFuture(new BadRequestException("?붿븸??遺議깊빀?덈떎."));
                                                 }
 
-                                                // 6. 환전 실행
                                                 return executeExchangeTransaction(userId, fromCurrency, toCurrency,
-                                                    fromWallet, request.getFromAmount(), toAmount, requestIp);
+                                                    fromWallet, request.getFromAmount(), toAmount, requestIp)
+                                                    .compose(this::createExchangeCompletedNotification);
                                             });
                                     });
                             });
                     });
             });
     }
-    
+
     /**
-     * 환전 트랜잭션 실행
+     * ?섏쟾 ?몃옖??뀡 ?ㅽ뻾
      */
     private Future<ExchangeResponseDto> executeExchangeTransaction(Long userId, Currency fromCurrency, Currency toCurrency,
                                                                    Wallet fromWallet, BigDecimal fromAmount, BigDecimal toAmount,
                                                                    String requestIp) {
         String exchangeId = UUID.randomUUID().toString();
         String orderNumber = OrderNumberUtils.generateOrderNumber();
-        
-        return pool.withTransaction(client -> {
-            // 1. FROM 지갑 잔액 차감
-            return transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
+
+        return pool.withTransaction(client ->
+            transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
                 .compose(updatedFromWallet -> {
                     if (updatedFromWallet == null) {
-                        return Future.failedFuture(new BadRequestException("잔액 차감 실패"));
+                        return Future.failedFuture(new BadRequestException("?붿븸 李④컧 ?ㅽ뙣"));
                     }
-                    
-                    // 2. TO 지갑 조회 또는 생성
+
                     return transferRepository.getWalletByUserIdAndCurrencyId(client, userId, toCurrency.getId())
                         .compose(toWallet -> {
                             if (toWallet == null) {
-                                return Future.failedFuture(new NotFoundException("환전 받을 지갑을 찾을 수 없습니다."));
+                                return Future.failedFuture(new NotFoundException("?섏쟾 諛쏆쓣 吏媛묒쓣 李얠쓣 ???놁뒿?덈떎."));
                             }
-                            
-                            // 3. TO 지갑 잔액 추가
+
                             return transferRepository.addBalance(client, toWallet.getId(), toAmount)
                                 .compose(updatedToWallet -> {
-                                    // 4. 환전 기록 생성
                                     Exchange exchange = Exchange.builder()
                                         .exchangeId(exchangeId)
                                         .userId(userId)
@@ -157,7 +163,7 @@ public class ExchangeService extends BaseService {
                                         .toAmount(toAmount)
                                         .status(Exchange.STATUS_COMPLETED)
                                         .build();
-                                    
+
                                     return exchangeRepository.createExchange(client, exchange)
                                         .map(createdExchange -> ExchangeResponseDto.builder()
                                             .exchangeId(createdExchange.getExchangeId())
@@ -171,26 +177,64 @@ public class ExchangeService extends BaseService {
                                             .build());
                                 });
                         });
-                });
-        });
+                })
+        );
     }
-    
+
+    private Future<ExchangeResponseDto> createExchangeCompletedNotification(ExchangeResponseDto responseDto) {
+        if (notificationService == null || responseDto == null || responseDto.getExchangeId() == null) {
+            return Future.succeededFuture(responseDto);
+        }
+
+        return exchangeRepository.getExchangeByExchangeId(pool, responseDto.getExchangeId())
+            .compose(exchange -> {
+                if (exchange == null || exchange.getUserId() == null) {
+                    return Future.succeededFuture();
+                }
+
+                String title = "\uD658\uC804 \uC644\uB8CC";
+                String message = responseDto.getFromAmount() + " " + responseDto.getFromCurrencyCode() + " \uD658\uC804\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
+                JsonObject metadata = new JsonObject()
+                    .put("exchangeId", responseDto.getExchangeId())
+                    .put("orderNumber", responseDto.getOrderNumber())
+                    .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
+                    .put("toCurrencyCode", responseDto.getToCurrencyCode())
+                    .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+                    .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+                    .put("status", responseDto.getStatus());
+
+                return notificationService.createNotificationIfAbsentByRelatedId(
+                    exchange.getUserId(),
+                    NotificationType.EXCHANGE_SUCCESS,
+                    title,
+                    message,
+                    exchange.getId(),
+                    metadata.encode()
+                ).mapEmpty();
+            })
+            .map(v -> responseDto)
+            .recover(err -> {
+                log.warn("?섏쟾 ?꾨즺 ?뚮┝ ?앹꽦 ?ㅽ뙣(臾댁떆): exchangeId={}", responseDto.getExchangeId(), err);
+                return Future.succeededFuture(responseDto);
+            });
+    }
+
     /**
-     * 환전 상세 조회
+     * ?섏쟾 ?곸꽭 議고쉶
      */
     public Future<ExchangeResponseDto> getExchange(Long userId, String exchangeId) {
         return exchangeRepository.getExchangeByExchangeId(pool, exchangeId)
             .compose(exchange -> {
                 if (exchange == null) {
-                    return Future.failedFuture(new NotFoundException("환전을 찾을 수 없습니다."));
+                    return Future.failedFuture(new NotFoundException("?섏쟾??李얠쓣 ???놁뒿?덈떎."));
                 }
-                
+
                 if (!exchange.getUserId().equals(userId)) {
-                    return Future.failedFuture(new BadRequestException("권한이 없습니다."));
+                    return Future.failedFuture(new BadRequestException("沅뚰븳???놁뒿?덈떎."));
                 }
-                
+
                 return currencyRepository.getCurrencyById(pool, exchange.getFromCurrencyId())
-                    .compose(fromCurrency -> 
+                    .compose(fromCurrency ->
                         currencyRepository.getCurrencyById(pool, exchange.getToCurrencyId())
                             .map(toCurrency -> ExchangeResponseDto.builder()
                                 .exchangeId(exchange.getExchangeId())
@@ -204,9 +248,9 @@ public class ExchangeService extends BaseService {
                                 .build()));
             });
     }
-    
+
     /**
-     * 환전 정보 조회
+     * ?섏쟾 ?뺣낫 議고쉶
      */
     public Future<ExchangeInfoDto> getExchangeInfo(String currencyCode) {
         return loadActiveSetting()
@@ -221,13 +265,13 @@ public class ExchangeService extends BaseService {
     }
 
     /**
-     * 환전 예상 수량 조회
+     * ?섏쟾 ?덉긽 ?섎웾 議고쉶
      */
     public Future<ExchangeQuoteDto> getExchangeQuote(BigDecimal fromAmount) {
         return loadActiveSetting()
             .compose(setting -> {
                 if (fromAmount == null || fromAmount.compareTo(setting.getMinExchangeAmount()) < 0) {
-                    return Future.failedFuture(new BadRequestException("최소 환전 금액은 " + setting.getMinExchangeAmount() + " 입니다."));
+                    return Future.failedFuture(new BadRequestException("理쒖냼 ?섏쟾 湲덉븸? " + setting.getMinExchangeAmount() + " ?낅땲??"));
                 }
                 BigDecimal feeAmount = fromAmount
                     .multiply(setting.getFee())
@@ -237,7 +281,7 @@ public class ExchangeService extends BaseService {
                     .multiply(setting.getExchangeRate())
                     .setScale(18, RoundingMode.DOWN);
                 if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                    return Future.failedFuture(new BadRequestException("환전 금액이 유효하지 않습니다."));
+                    return Future.failedFuture(new BadRequestException("?섏쟾 湲덉븸???좏슚?섏? ?딆뒿?덈떎."));
                 }
                 return Future.succeededFuture(ExchangeQuoteDto.builder()
                     .fromCurrencyCode(setting.getFromCurrencyCode())
@@ -255,7 +299,7 @@ public class ExchangeService extends BaseService {
         return exchangeRepository.getActiveExchangeSetting(pool)
             .compose(setting -> {
                 if (setting == null) {
-                    return Future.failedFuture(new BadRequestException("환전 설정이 없습니다."));
+                    return Future.failedFuture(new BadRequestException("?섏쟾 ?ㅼ젙???놁뒿?덈떎."));
                 }
                 return Future.succeededFuture(setting);
             });

@@ -8,6 +8,8 @@ import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.level.LevelService;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.mining.dto.DailyLimitResponseDto;
 import com.foxya.coin.mining.dto.LevelInfoResponseDto;
 import com.foxya.coin.mining.dto.MiningHistoryResponseDto;
@@ -23,6 +25,7 @@ import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,14 +56,16 @@ public class MiningService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final LevelService levelService;
+    private final NotificationService notificationService;
     private static final int MAX_AD_WATCH_COUNT = 5;
-    /** 부스터 영상 보너스 타입 (채굴 시작 필수: 1회 시청) */
+    /** 遺?ㅽ꽣 ?곸긽 蹂대꼫?????(梨꾧뎬 ?쒖옉 ?꾩닔: 1???쒖껌) */
     private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
     
     public MiningService(PgPool pool, MiningRepository miningRepository, UserRepository userRepository,
                          BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
                          ReferralService referralService, TransferRepository transferRepository, CurrencyRepository currencyRepository,
-                         EmailVerificationRepository emailVerificationRepository, LevelService levelService) {
+                         EmailVerificationRepository emailVerificationRepository, LevelService levelService,
+                         NotificationService notificationService) {
         super(pool);
         this.miningRepository = miningRepository;
         this.userRepository = userRepository;
@@ -72,13 +77,14 @@ public class MiningService extends BaseService {
         this.currencyRepository = currencyRepository;
         this.emailVerificationRepository = emailVerificationRepository;
         this.levelService = levelService;
+        this.notificationService = notificationService;
     }
     
     public Future<DailyLimitResponseDto> getDailyLimit(Long userId) {
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
                 }
                 
                 Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
@@ -86,7 +92,7 @@ public class MiningService extends BaseService {
                 return miningRepository.getMiningLevelByLevel(pool, userLevel)
                     .compose(miningLevel -> {
                         if (miningLevel == null) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("레벨 정보를 찾을 수 없습니다."));
+                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?덈꺼 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎."));
                         }
                         
                         LocalDate today = LocalDate.now();
@@ -128,7 +134,7 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 채굴 내역 조회 (체굴 + 레퍼럴 수익 병합, 날짜순 정렬)
+     * 梨꾧뎬 ?댁뿭 議고쉶 (泥닿뎬 + ?덊띁???섏씡 蹂묓빀, ?좎쭨???뺣젹)
      */
     public Future<MiningHistoryResponseDto> getMiningHistory(Long userId, String period, Integer limit, Integer offset) {
         String periodValue = RankingPeriod.fromValue(period).getValue();
@@ -139,7 +145,7 @@ public class MiningService extends BaseService {
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
                 }
                 String nickname = user.getLoginId();
                 
@@ -220,21 +226,21 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 채굴 정보 조회.
-     * 호출 시 진행 중인 채굴 세션을 먼저 정산(settle)한 뒤, 활성 세션의 종료 시각(miningUntil)과 오늘 시작한 세션 수(adWatchCount)를 반환.
+     * 梨꾧뎬 ?뺣낫 議고쉶.
+     * ?몄텧 ??吏꾪뻾 以묒씤 梨꾧뎬 ?몄뀡??癒쇱? ?뺤궛(settle)???? ?쒖꽦 ?몄뀡??醫낅즺 ?쒓컖(miningUntil)怨??ㅻ뒛 ?쒖옉???몄뀡 ??adWatchCount)瑜?諛섑솚.
      */
     public Future<MiningInfoResponseDto> getMiningInfo(Long userId) {
         LocalDate today = LocalDate.now();
         
         return settleActiveMiningSession(userId)
             .compose(v -> {
-                // 사용자 정보 조회
+                // ?ъ슜???뺣낫 議고쉶
                 Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
                 Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today);
-                // 보너스 효율: 친구 초대(유효 직접 초대 수) 티어만 사용. -old: bonusService.getBonusEfficiency(userId) (8-type: 소셜연동, 본인인증, 광고시청 등)
+                // 蹂대꼫???⑥쑉: 移쒓뎄 珥덈?(?좏슚 吏곸젒 珥덈? ?? ?곗뼱留??ъ슜. -old: bonusService.getBonusEfficiency(userId) (8-type: ?뚯뀥?곕룞, 蹂몄씤?몄쬆, 愿묎퀬?쒖껌 ??
                 // Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId).map(response -> response.getTotalEfficiency());
                 Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
-                // 채굴/래퍼럴 적립은 KORI(INTERNAL) 지갑에 들어가므로, INTERNAL KORI 잔액을 우선 사용
+                // 梨꾧뎬/?섑띁???곷┰? KORI(INTERNAL) 吏媛묒뿉 ?ㅼ뼱媛誘濡? INTERNAL KORI ?붿븸???곗꽑 ?ъ슜
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
                     .map(wallets -> {
                         if (wallets == null || wallets.isEmpty()) return BigDecimal.ZERO;
@@ -253,7 +259,7 @@ public class MiningService extends BaseService {
                     });
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
-                // 오늘 시작한 채굴 세션 수 = 부스터 사용 횟수 (Tap to boost 잔여 = maxAdWatchCount - adWatchCount)
+                // ?ㅻ뒛 ?쒖옉??梨꾧뎬 ?몄뀡 ??= 遺?ㅽ꽣 ?ъ슜 ?잛닔 (Tap to boost ?붿뿬 = maxAdWatchCount - adWatchCount)
                 Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
                 Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId);
                 
@@ -261,11 +267,11 @@ public class MiningService extends BaseService {
                     .compose(compositeFuture -> {
                         com.foxya.coin.user.entities.User user = userFuture.result();
                         if (user == null) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
                         }
                         DailyMining dailyMining = dailyMiningFuture.result();
                         BigDecimal inviteMultiplier = inviteBonusFuture.result();
-                        // 보너스 효율(%) = 친구 초대 티어만. (multiplier - 1) * 100. 예: 1.06 → 6%
+                        // 蹂대꼫???⑥쑉(%) = 移쒓뎄 珥덈? ?곗뼱留? (multiplier - 1) * 100. ?? 1.06 ??6%
                         Integer bonusEfficiency = inviteMultiplier != null
                             ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).intValue()
                             : 0;
@@ -291,7 +297,7 @@ public class MiningService extends BaseService {
                                 String remainingTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
                                 int dailyMaxVideos = miningLevel != null && miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
                                     ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
-                                // miningUntil: 활성 채굴 세션이 있고 종료 시각이 미래이면 해당 시각(ISO-8601). 이 시각까지 부스터 버튼 비활성화.
+                                // miningUntil: ?쒖꽦 梨꾧뎬 ?몄뀡???덇퀬 醫낅즺 ?쒓컖??誘몃옒?대㈃ ?대떦 ?쒓컖(ISO-8601). ???쒓컖源뚯? 遺?ㅽ꽣 踰꾪듉 鍮꾪솢?깊솕.
                                 String miningUntil = (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now))
                                     ? activeSession.getEndsAt().toString()
                                     : null;
@@ -325,8 +331,8 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 진행 중인 채굴 세션을 "지금 시각"까지 정산 (시간당 채굴량 비례 적립).
-     * getMiningInfo / credit-video 호출 시 호출.
+     * 吏꾪뻾 以묒씤 梨꾧뎬 ?몄뀡??"吏湲??쒓컖"源뚯? ?뺤궛 (?쒓컙??梨꾧뎬??鍮꾨? ?곷┰).
+     * getMiningInfo / credit-video ?몄텧 ???몄텧.
      */
     private Future<Void> settleActiveMiningSession(Long userId) {
         LocalDate today = LocalDate.now();
@@ -359,7 +365,7 @@ public class MiningService extends BaseService {
                                 if (currency == null) return Future.succeededFuture();
                                 return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
                                     .compose(wallet -> {
-                                        // KORI(INTERNAL) 지갑 없으면 자동 생성 (채굴·에어드랍과 동일)
+                                        // KORI(INTERNAL) 吏媛??놁쑝硫??먮룞 ?앹꽦 (梨꾧뎬쨌?먯뼱?쒕엻怨??숈씪)
                                         if (wallet == null) {
                                             String dummyAddress = "KORI_INTERNAL_" + userId + "_" + currency.getId();
                                             return walletRepository.createWallet(pool, userId, currency.getId(), dummyAddress)
@@ -381,7 +387,10 @@ public class MiningService extends BaseService {
                                                 BigDecimal headroom = dailyMaxMining.subtract(todayAmount).max(BigDecimal.ZERO);
                                                 BigDecimal amountToCredit = amount.min(headroom);
                                                 if (amountToCredit.compareTo(BigDecimal.ZERO) <= 0) {
-                                                    return miningRepository.updateMiningSessionLastSettled(pool, session.getId(), settleEnd)
+                                                    Future<Void> notifyFuture = todayAmount.compareTo(dailyMaxMining) >= 0
+                                                        ? this.notifyMiningLimitReachedOnce(userId, today, dailyMaxMining, todayAmount)
+                                                        : Future.succeededFuture();
+                                                    return notifyFuture.compose(n -> miningRepository.updateMiningSessionLastSettled(pool, session.getId(), settleEnd))
                                                         .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
                                                 }
                                                 LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
@@ -392,7 +401,15 @@ public class MiningService extends BaseService {
                                                         .compose(v -> userRepository.addExp(client, userId, amountToCredit))
                                                         .compose(v -> miningRepository.updateMiningSessionLastSettled(client, session.getId(), settleEnd))
                                                         .map(v -> (Void) null)
-                                                ).compose(v -> levelService.syncLevelFromExp(userId).map(x -> (Void) null))
+                                                ).compose(v -> {
+                                                    boolean reachedNow = todayAmount.compareTo(dailyMaxMining) < 0
+                                                        && newTodayTotal.compareTo(dailyMaxMining) >= 0;
+                                                    if (reachedNow) {
+                                                        return this.notifyMiningLimitReachedOnce(userId, today, dailyMaxMining, newTodayTotal);
+                                                    }
+                                                    return Future.succeededFuture();
+                                                })
+                                                .compose(v -> levelService.syncLevelFromExp(userId).map(x -> (Void) null))
                                                 .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
                                             });
                                     });
@@ -402,8 +419,8 @@ public class MiningService extends BaseService {
     }
 
     /**
-     * 세션 종료 시점(settleEnd >= session.ends_at)이면 mining_history 삽입, 레퍼럴 보상, 레벨 동기화 수행.
-     * amountToCredit=0(한도 도달)이어도 세션 종료 시 호출됨.
+     * ?몄뀡 醫낅즺 ?쒖젏(settleEnd >= session.ends_at)?대㈃ mining_history ?쎌엯, ?덊띁??蹂댁긽, ?덈꺼 ?숆린???섑뻾.
+     * amountToCredit=0(?쒕룄 ?꾨떖)?댁뼱???몄뀡 醫낅즺 ???몄텧??
      */
     private Future<Void> completeSessionIfEnded(Long userId, MiningSession session, LocalDateTime settleEnd) {
         boolean sessionCompleted = !settleEnd.isBefore(session.getEndsAt());
@@ -441,16 +458,16 @@ public class MiningService extends BaseService {
     }
 
     /**
-     * 해당 유저의 정산 대기 세션이 있으면 지금 시각까지 정산 후, 종료된 세션은 mining_history·internal_transfers 반영.
-     * API 조회 없이 배치에서 호출할 때 사용.
+     * ?대떦 ?좎????뺤궛 ?湲??몄뀡???덉쑝硫?吏湲??쒓컖源뚯? ?뺤궛 ?? 醫낅즺???몄뀡? mining_history쨌internal_transfers 諛섏쁺.
+     * API 議고쉶 ?놁씠 諛곗튂?먯꽌 ?몄텧?????ъ슜.
      */
     public Future<Void> settlePendingSessionForUser(Long userId) {
         return settleActiveMiningSession(userId);
     }
 
     /**
-     * 정산 대기 세션이 있는 모든 유저에 대해 settle 수행 (mining_history, internal_transfers 반영).
-     * Vert.x setPeriodic(1시간 등)에서 주기 호출하여, 앱 미접속 유저의 채굴 완료도 DB에 반영.
+     * ?뺤궛 ?湲??몄뀡???덈뒗 紐⑤뱺 ?좎??????settle ?섑뻾 (mining_history, internal_transfers 諛섏쁺).
+     * Vert.x setPeriodic(1?쒓컙 ???먯꽌 二쇨린 ?몄텧?섏뿬, ??誘몄젒???좎???梨꾧뎬 ?꾨즺??DB??諛섏쁺.
      */
     public Future<Integer> runSettlementBatch() {
         return miningRepository.getDistinctUserIdsWithPendingSettlement(pool)
@@ -477,13 +494,13 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 영상 시청 1회 = 1시간 채굴 세션 시작 (MINING_AND_LEVEL_SPEC).
-     * 즉시 전량 적립 없음. 세션 생성 후 1시간에 걸쳐 시간당 채굴량만큼 settle로 적립. 다음 영상은 1시간 후에만 시청 가능.
+     * ?곸긽 ?쒖껌 1??= 1?쒓컙 梨꾧뎬 ?몄뀡 ?쒖옉 (MINING_AND_LEVEL_SPEC).
+     * 利됱떆 ?꾨웾 ?곷┰ ?놁쓬. ?몄뀡 ?앹꽦 ??1?쒓컙??嫄몄퀜 ?쒓컙??梨꾧뎬?됰쭔??settle濡??곷┰. ?ㅼ쓬 ?곸긽? 1?쒓컙 ?꾩뿉留??쒖껌 媛??
      */
     public Future<BigDecimal> creditMiningForVideo(Long userId) {
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
-        // 1. 먼저 진행 중인 세션 있으면 지금까지 분량 settle
+        // 1. 癒쇱? 吏꾪뻾 以묒씤 ?몄뀡 ?덉쑝硫?吏湲덇퉴吏 遺꾨웾 settle
         return settleActiveMiningSession(userId)
             .compose(v -> checkDailyMiningCap(userId, today))
             .compose(optCapped -> {
@@ -493,7 +510,7 @@ public class MiningService extends BaseService {
     }
 
     /**
-     * 일일 최대 채굴량 도달 시 Optional.of(BigDecimal.ZERO), 아니면 null.
+     * ?쇱씪 理쒕? 梨꾧뎬???꾨떖 ??Optional.of(BigDecimal.ZERO), ?꾨땲硫?null.
      */
     private Future<BigDecimal> checkDailyMiningCap(Long userId, LocalDate today) {
         return userRepository.getUserById(pool, userId)
@@ -502,11 +519,37 @@ public class MiningService extends BaseService {
                 Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
                 return miningRepository.getMiningLevelByLevel(pool, userLevel)
                     .compose(miningLevel -> miningRepository.getDailyMining(pool, userId, today)
-                        .map(dailyMining -> {
+                        .compose(dailyMining -> {
                             BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
                             BigDecimal dailyMax = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
-                            return todayAmount.compareTo(dailyMax) >= 0 ? BigDecimal.ZERO : null;
+                            if (todayAmount.compareTo(dailyMax) >= 0) {
+                                return this.notifyMiningLimitReachedOnce(userId, today, dailyMax, todayAmount)
+                                    .map(v -> BigDecimal.ZERO);
+                            }
+                            return Future.succeededFuture((BigDecimal) null);
                         }));
+            });
+    }
+
+    private Future<Void> notifyMiningLimitReachedOnce(Long userId, LocalDate localDate, BigDecimal dailyMaxMining, BigDecimal todayMiningAmount) {
+        if (notificationService == null || todayMiningAmount == null || dailyMaxMining == null) {
+            return Future.succeededFuture();
+        }
+        if (todayMiningAmount.compareTo(dailyMaxMining) < 0) {
+            return Future.succeededFuture();
+        }
+        String title = "\uAE08\uC77C \uCC44\uAD74\uB7C9 \uB2EC\uC131";
+        String message = "\uAE08\uC77C \uCD5C\uB300 \uCC44\uAD74\uB7C9\uC744 \uBAA8\uB450 \uCC44\uAD74\uD558\uC168\uC2B5\uB2C8\uB2E4.";
+        JsonObject metadata = new JsonObject()
+            .put("localDate", localDate.toString())
+            .put("dailyMaxMining", dailyMaxMining.toPlainString())
+            .put("todayMiningAmount", todayMiningAmount.toPlainString());
+        return notificationService.createNotificationIfAbsentByDate(
+                userId, NotificationType.MINING_LIMIT_REACHED, title, message, localDate, localDate.toEpochDay(), metadata.encode())
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("Mining limit notification failed (ignored) - userId: {}, date: {}", userId, localDate, err);
+                return Future.succeededFuture();
             });
     }
 
@@ -520,31 +563,31 @@ public class MiningService extends BaseService {
             })
             .compose(x -> miningRepository.getActiveMiningSession(pool, userId))
             .compose(activeSession -> {
-                // 2. 1시간이 안 지났으면 다음 영상 시청 불가
+                // 2. 1?쒓컙????吏?ъ쑝硫??ㅼ쓬 ?곸긽 ?쒖껌 遺덇?
                 if (activeSession != null && activeSession.getEndsAt().isAfter(now)) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("1시간이 지난 후에 다음 영상을 시청할 수 있습니다."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("1?쒓컙??吏???꾩뿉 ?ㅼ쓬 ?곸긽???쒖껌?????덉뒿?덈떎."));
                 }
                 return userRepository.getUserById(pool, userId);
             })
             .compose(user -> {
                 if (user == null) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("사용자를 찾을 수 없습니다."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
                 }
                 Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
                 return miningRepository.getMiningLevelByLevel(pool, userLevel)
                     .compose(miningLevel -> {
                         if (miningLevel == null) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("레벨 정보를 찾을 수 없습니다."));
+                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("?덈꺼 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎."));
                         }
                         int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0 ? miningLevel.getDailyMaxVideos() : 5;
                         return miningRepository.countSessionsStartedToday(pool, userId, today)
                             .compose(sessionsToday -> {
                                 if (sessionsToday >= dailyMaxVideos) {
-                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
+                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("?ㅻ뒛 ?쒖껌 媛?ν븳 ?곸긽 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎."));
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
                                 BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
-                                // 채굴 rate: 친구 초대 티어 배율만 적용. -old: perVideoBase * (1 + bonusEfficiency/100) * inviteMultiplier (BonusService 8-type 포함)
+                                // 梨꾧뎬 rate: 移쒓뎄 珥덈? ?곗뼱 諛곗쑉留??곸슜. -old: perVideoBase * (1 + bonusEfficiency/100) * inviteMultiplier (BonusService 8-type ?ы븿)
                                 // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
                                 return referralService.getInviteMiningBonusMultiplier(userId)
                                     .map(multiplier -> perVideoBase.multiply(multiplier != null ? multiplier : BigDecimal.ONE).setScale(18, RoundingMode.DOWN))
@@ -560,11 +603,11 @@ public class MiningService extends BaseService {
     }
     
     /**
-     * 광고 시청 처리
+     * 愿묎퀬 ?쒖껌 泥섎━
      */
     public Future<Boolean> watchAd(Long userId) {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime expiresAt = now.plusHours(24); // 24시간 후 만료
+        LocalDateTime expiresAt = now.plusHours(24); // 24?쒓컙 ??留뚮즺
         
         return bonusRepository.getUserBonus(pool, userId, "AD_WATCH")
             .compose(existingBonus -> {
@@ -573,14 +616,14 @@ public class MiningService extends BaseService {
                 Integer maxCount = existingBonus != null && existingBonus.getMaxCount() != null 
                     ? existingBonus.getMaxCount() : MAX_AD_WATCH_COUNT;
                 
-                // 최대 횟수 체크
+                // 理쒕? ?잛닔 泥댄겕
                 if (currentCount >= maxCount) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("일일 최대 광고 시청 횟수를 초과했습니다."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("?쇱씪 理쒕? 愿묎퀬 ?쒖껌 ?잛닔瑜?珥덇낵?덉뒿?덈떎."));
                 }
                 
-                // current_count 증가 및 is_active 설정
+                // current_count 利앷? 諛?is_active ?ㅼ젙
                 Integer newCount = currentCount + 1;
-                // 광고 시청 후 보너스 활성화 (24시간 동안 유효)
+                // 愿묎퀬 ?쒖껌 ??蹂대꼫???쒖꽦??(24?쒓컙 ?숈븞 ?좏슚)
                 Boolean isActive = true;
                 
                 return bonusRepository.createOrUpdateUserBonus(
@@ -594,7 +637,7 @@ public class MiningService extends BaseService {
                     null
                 )
                     .compose(adBonus -> {
-                        // 부스터 영상 1회 시청 처리 (채굴 시작 필수 조건)
+                        // 遺?ㅽ꽣 ?곸긽 1???쒖껌 泥섎━ (梨꾧뎬 ?쒖옉 ?꾩닔 議곌굔)
                         return bonusRepository.createOrUpdateUserBonus(
                             pool, userId, BOOSTER_VIDEO_BONUS_TYPE, true, null, 1, 1, null
                         ).map(b -> true);
@@ -602,3 +645,4 @@ public class MiningService extends BaseService {
             });
     }
 }
+

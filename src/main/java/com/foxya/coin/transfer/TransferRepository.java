@@ -87,10 +87,10 @@ public class TransferRepository extends BaseRepository {
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
     
-    // ========== 내부 전송 ==========
+    // ========== ?대? ?꾩넚 ==========
     
     /**
-     * 내부 전송 생성
+     * ?대? ?꾩넚 ?앹꽦
      */
     public Future<InternalTransfer> createInternalTransfer(SqlClient client, InternalTransfer transfer) {
         Map<String, Object> params = new HashMap<>();
@@ -113,11 +113,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("내부 전송 생성 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?대? ?꾩넚 ?앹꽦 ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 내부 전송 상태 업데이트 (완료)
+     * ?대? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?꾨즺)
      */
     public Future<InternalTransfer> completeInternalTransfer(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -132,11 +132,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("내부 전송 완료 처리 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?대? ?꾩넚 ?꾨즺 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 내부 전송 상태 업데이트 (실패)
+     * ?대? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?ㅽ뙣)
      */
     public Future<InternalTransfer> failInternalTransfer(SqlClient client, String transferId, String errorMessage) {
         String sql = QueryBuilder
@@ -152,11 +152,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("내부 전송 실패 처리 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?대? ?꾩넚 ?ㅽ뙣 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 내부 전송 조회 by transferId
+     * ?대? ?꾩넚 議고쉶 by transferId
      */
     public Future<InternalTransfer> getInternalTransferById(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -169,7 +169,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 사용자의 내부 전송 내역 조회 (sender 또는 receiver인 건만, deleted 제외)
+     * ?ъ슜?먯쓽 ?대? ?꾩넚 ?댁뿭 議고쉶 (sender ?먮뒗 receiver??嫄대쭔, deleted ?쒖쇅)
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
         String sql = QueryBuilder
@@ -191,7 +191,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 수신자 기준 레퍼럴 수익(REFERRAL_REWARD) 내역 조회 (채굴 내역 화면 병합용)
+     * ?섏떊??湲곗? ?덊띁???섏씡(REFERRAL_REWARD) ?댁뿭 議고쉶 (梨꾧뎬 ?댁뿭 ?붾㈃ 蹂묓빀??
      */
     public Future<List<InternalTransfer>> getReferralRewardTransfersByReceiver(SqlClient client, Long receiverId, LocalDate startDate, Integer limit, Integer offset) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -215,11 +215,11 @@ public class TransferRepository extends BaseRepository {
         params.put("offset", offset);
         return query(client, sql, params)
             .map(rows -> fetchAll(internalTransferMapper, rows))
-            .onFailure(throwable -> log.error("레퍼럴 수익 내역 조회 실패 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("?덊띁???섏씡 ?댁뿭 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
     }
     
     /**
-     * 수신자 기준 레퍼럴 수익 건수
+     * ?섏떊??湲곗? ?덊띁???섏씡 嫄댁닔
      */
     public Future<Long> getReferralRewardCountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -246,11 +246,11 @@ public class TransferRepository extends BaseRepository {
                 Long v = it.next().getLong("total");
                 return v != null ? v : 0L;
             })
-            .onFailure(throwable -> log.error("레퍼럴 수익 건수 조회 실패 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("?덊띁???섏씡 嫄댁닔 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
     }
     
     /**
-     * 수신자 기준 레퍼럴 수익 합계
+     * ?섏떊??湲곗? ?덊띁???섏씡 ?⑷퀎
      */
     public Future<BigDecimal> getReferralRewardTotalAmountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -277,13 +277,13 @@ public class TransferRepository extends BaseRepository {
                 BigDecimal v = it.next().getBigDecimal("total_amount");
                 return v != null ? v : BigDecimal.ZERO;
             })
-            .onFailure(throwable -> log.error("레퍼럴 수익 합계 조회 실패 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("?덊띁???섏씡 ?⑷퀎 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
     }
     
-    // ========== 외부 전송 ==========
+    // ========== ?몃? ?꾩넚 ==========
     
     /**
-     * 외부 전송 생성
+     * ?몃? ?꾩넚 ?앹꽦
      */
     public Future<ExternalTransfer> createExternalTransfer(SqlClient client, ExternalTransfer transfer) {
         Map<String, Object> params = new HashMap<>();
@@ -300,6 +300,7 @@ public class TransferRepository extends BaseRepository {
         params.put("transaction_type", transfer.getTransactionType());
         params.put("chain", transfer.getChain());
         params.put("required_confirmations", transfer.getRequiredConfirmations() != null ? transfer.getRequiredConfirmations() : 1);
+        params.put("retry_count", transfer.getRetryCount() != null ? transfer.getRetryCount() : 0);
         params.put("memo", transfer.getMemo());
         params.put("request_ip", transfer.getRequestIp());
         
@@ -307,11 +308,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 생성 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?몃? ?꾩넚 ?앹꽦 ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 외부 전송 상태 업데이트 (제출됨)
+     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?쒖텧??
      */
     public Future<ExternalTransfer> submitExternalTransfer(SqlClient client, String transferId, String txHash) {
         String sql = QueryBuilder
@@ -327,11 +328,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 제출 처리 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?몃? ?꾩넚 ?쒖텧 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 외부 전송 상태 업데이트 (컨펌)
+     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (而⑦럩)
      */
     public Future<ExternalTransfer> confirmExternalTransfer(SqlClient client, String transferId, int confirmations) {
         String sql = QueryBuilder
@@ -347,11 +348,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 컨펌 처리 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?몃? ?꾩넚 而⑦럩 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 외부 전송 상태 업데이트 (실패)
+     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?ㅽ뙣)
      */
     public Future<ExternalTransfer> failExternalTransfer(SqlClient client, String transferId, String errorCode, String errorMessage) {
         String sql = QueryBuilder
@@ -368,11 +369,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 실패 처리 실패: {}", e.getMessage()));
+            .onFailure(e -> log.error("?몃? ?꾩넚 ?ㅽ뙣 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
     }
     
     /**
-     * 사용자의 외부 전송 내역 조회
+     * ?ъ슜?먯쓽 ?몃? ?꾩넚 ?댁뿭 議고쉶
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
         String sql = QueryBuilder
@@ -391,11 +392,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchAll(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 내역 조회 실패 - userId: {}", userId));
+            .onFailure(e -> log.error("?몃? ?꾩넚 ?댁뿭 議고쉶 ?ㅽ뙣 - userId: {}", userId));
     }
     
     /**
-     * 외부 전송 조회 by transferId
+     * ?몃? ?꾩넚 議고쉶 by transferId
      */
     public Future<ExternalTransfer> getExternalTransferById(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -409,7 +410,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 상태별 외부 전송 목록 (출금 워커 컨펌 추적용)
+     * ?곹깭蹂??몃? ?꾩넚 紐⑸줉 (異쒓툑 ?뚯빱 而⑦럩 異붿쟻??
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByStatus(SqlClient client, String status, int limit) {
         String sql = QueryBuilder
@@ -425,11 +426,11 @@ public class TransferRepository extends BaseRepository {
         params.put("limit", Math.min(limit, 500));
         return query(client, sql, params)
             .map(rows -> fetchAll(externalTransferMapper, rows))
-            .onFailure(e -> log.error("외부 전송 목록 조회 실패 - status: {}", status));
+            .onFailure(e -> log.error("?몃? ?꾩넚 紐⑸줉 議고쉶 ?ㅽ뙣 - status: {}", status));
     }
 
     /**
-     * 외부 전송 조회 by txHash
+     * ?몃? ?꾩넚 議고쉶 by txHash
      */
     public Future<ExternalTransfer> getExternalTransferByTxHash(SqlClient client, String txHash) {
         String sql = QueryBuilder
@@ -442,12 +443,13 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 처리 대기중인 외부 전송 조회 (Node.js 서비스에서 처리)
+     * 泥섎━ ?湲곗쨷???몃? ?꾩넚 議고쉶 (Node.js ?쒕퉬?ㅼ뿉??泥섎━)
      */
     public Future<List<ExternalTransfer>> getPendingExternalTransfers(SqlClient client, int limit) {
         String sql = QueryBuilder
             .select("external_transfers")
             .where("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
             .orderBy("created_at", Sort.ASC)
             .limit(limit)
             .build();
@@ -455,11 +457,29 @@ public class TransferRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("status", ExternalTransfer.STATUS_PENDING))
             .map(rows -> fetchAll(externalTransferMapper, rows));
     }
+
+    /**
+     * Increase retry_count for a transfer. This is used by a periodic redispatch scheduler.
+     */
+    public Future<ExternalTransfer> incrementExternalTransferRetryCount(SqlClient client, String transferId) {
+        String sql = QueryBuilder
+            .update("external_transfers")
+            .setCustom("retry_count = COALESCE(retry_count, 0) + 1")
+            .where("transfer_id", Op.Equal, "transfer_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+
+        Map<String, Object> params = Collections.singletonMap("transfer_id", transferId);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(externalTransferMapper, rows))
+            .onFailure(e -> log.error("Failed to increment retry_count - transferId: {}", transferId, e));
+    }
     
-    // ========== 지갑 관련 ==========
+    // ========== 吏媛?愿??==========
     
     /**
-     * 지갑 주소로 지갑 조회
+     * 吏媛?二쇱냼濡?吏媛?議고쉶
      */
     public Future<Wallet> getWalletByAddress(SqlClient client, String address) {
         String sql = QueryBuilder
@@ -478,15 +498,15 @@ public class TransferRepository extends BaseRepository {
     }
 
     /**
-     * 지갑 주소로 지갑 조회 (대소문자 무시)
+     * 吏媛?二쇱냼濡?吏媛?議고쉶 (??뚮Ц??臾댁떆)
      */
     public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
-        String sql = """
-            SELECT * FROM user_wallets
-            WHERE LOWER(address) = LOWER(#{address})
-              AND status = #{status}
-              AND deleted_at IS NULL
-            """;
+        String sql = QueryBuilder
+            .select("user_wallets")
+            .where("LOWER(address) = LOWER(#{address})")
+            .andWhere("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
         Map<String, Object> params = new HashMap<>();
         params.put("address", address);
         params.put("status", "ACTIVE");
@@ -495,7 +515,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 사용자의 특정 통화 지갑 조회
+     * ?ъ슜?먯쓽 ?뱀젙 ?듯솕 吏媛?議고쉶
      */
     public Future<Wallet> getWalletByUserIdAndCurrencyId(SqlClient client, Long userId, Integer currencyId) {
         String sql = QueryBuilder
@@ -514,151 +534,154 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 사용자의 모든 전송 내역 Soft Delete
+     * ?ъ슜?먯쓽 紐⑤뱺 ?꾩넚 ?댁뿭 Soft Delete
      */
     public Future<Void> softDeleteTransfersByUserId(SqlClient client, Long userId) {
-        // 내부 전송 Soft Delete (updated_at 컬럼이 없으므로 제외)
-        // QueryBuilder는 복잡한 OR 조건을 지원하지 않으므로 직접 SQL 작성
-        String internalSql = """
-            UPDATE internal_transfers
-            SET deleted_at = #{deleted_at}
-            WHERE (sender_id = #{user_id} OR receiver_id = #{user_id})
-              AND deleted_at IS NULL
-            """;
-        
+        // Internal transfer soft delete.
+        String internalSql = QueryBuilder
+            .update("internal_transfers", "deleted_at")
+            .whereOrEquals("sender_id", "receiver_id", "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
         Map<String, Object> internalParams = new HashMap<>();
         internalParams.put("user_id", userId);
         internalParams.put("deleted_at", DateUtils.now());
-        
+
         Future<Void> internalDelete = query(client, internalSql, internalParams)
             .<Void>map(rows -> null);
-        
-        // 외부 전송 Soft Delete (updated_at 컬럼이 없으므로 제외)
+
+        // External transfer soft delete.
         String externalSql = QueryBuilder
             .update("external_transfers", "deleted_at")
             .where("user_id", Op.Equal, "user_id")
             .andWhere("deleted_at", Op.IsNull)
             .build();
-        
+
         Map<String, Object> externalParams = new HashMap<>();
         externalParams.put("user_id", userId);
         externalParams.put("deleted_at", DateUtils.now());
-        
+
         Future<Void> externalDelete = query(client, externalSql, externalParams)
             .<Void>map(rows -> null);
-        
+
         return Future.all(internalDelete, externalDelete)
             .<Void>map(v -> {
                 log.info("User transfers soft deleted - userId: {}", userId);
                 return null;
             })
-            .onFailure(throwable -> log.error("전송 내역 Soft Delete 실패 - userId: {}", userId, throwable));
+            .onFailure(throwable -> log.error("Failed to soft delete transfers - userId: {}", userId, throwable));
     }
     
     /**
-     * 지갑 잔액 차감 (송신자)
+     * 吏媛??붿븸 李④컧 (?≪떊??
      */
     public Future<Wallet> deductBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = """
-            UPDATE user_wallets SET balance = balance - #{amount}, updated_at = #{updated_at}
-            WHERE id = #{id} AND balance >= #{amount}
-            RETURNING *
-            """;
-        
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String sql = QueryBuilder
+            .update("user_wallets")
+            .setCustom("balance = balance - #{amount}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .andWhere("balance", Op.GreaterThanOrEqual, "amount")
+            .returning("*");
+
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
-        
-        return query(client, query, params)
+
+        return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
-            .onFailure(e -> log.error("잔액 차감 실패 - walletId: {}, amount: {}", walletId, amount));
+            .onFailure(e -> log.error("Failed to deduct balance - walletId: {}, amount: {}", walletId, amount));
     }
     
     /**
-     * 지갑 잔액 추가 (수신자)
+     * 吏媛??붿븸 異붽? (?섏떊??
      */
     public Future<Wallet> addBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = """
-            UPDATE user_wallets SET balance = balance + #{amount}, updated_at = #{updated_at}
-            WHERE id = #{id}
-            RETURNING *
-            """;
-        
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String sql = QueryBuilder
+            .update("user_wallets")
+            .setCustom("balance = balance + #{amount}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .returning("*");
+
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
-        
-        return query(client, query, params)
+
+        return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
-            .onFailure(e -> log.error("잔액 추가 실패 - walletId: {}, amount: {}", walletId, amount));
+            .onFailure(e -> log.error("Failed to add balance - walletId: {}, amount: {}", walletId, amount));
     }
     
     /**
-     * 지갑 잔액 잠금 (외부 전송 시)
+     * 吏媛??붿븸 ?좉툑 (?몃? ?꾩넚 ??
      */
     public Future<Wallet> lockBalance(SqlClient client, Long walletId, BigDecimal amount) {
-        String sql = """
-            UPDATE user_wallets SET balance = balance - #{amount}, locked_balance = locked_balance + #{amount}, updated_at = #{updated_at}
-            WHERE id = #{id} AND balance >= #{amount}
-            RETURNING *
-            """;
-        
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String sql = QueryBuilder
+            .update("user_wallets")
+            .setCustom("balance = balance - #{amount}")
+            .setCustom("locked_balance = locked_balance + #{amount}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .andWhere("balance", Op.GreaterThanOrEqual, "amount")
+            .returning("*");
+
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
-        
-        return query(client, query, params)
+
+        return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
-            .onFailure(e -> log.error("잔액 잠금 실패 - walletId: {}, amount: {}", walletId, amount));
+            .onFailure(e -> log.error("Failed to lock balance - walletId: {}, amount: {}", walletId, amount));
     }
     
     /**
-     * 지갑 잔액 잠금 해제 (외부 전송 완료/실패 시)
+     * 吏媛??붿븸 ?좉툑 ?댁젣 (?몃? ?꾩넚 ?꾨즺/?ㅽ뙣 ??
      */
     public Future<Wallet> unlockBalance(SqlClient client, Long walletId, BigDecimal amount, boolean refund) {
         String sql;
         if (refund) {
-            // 실패 시 잔액 복구
-            sql = """
-                UPDATE user_wallets SET balance = balance + #{amount}, locked_balance = locked_balance - #{amount}, updated_at = #{updated_at}
-                WHERE id = #{id}
-                RETURNING *
-                """;
+            // Refund on external transfer failure.
+            sql = QueryBuilder
+                .update("user_wallets")
+                .setCustom("balance = balance + #{amount}")
+                .setCustom("locked_balance = locked_balance - #{amount}")
+                .setCustom("updated_at = #{updated_at}")
+                .where("id", Op.Equal, "id")
+                .returning("*");
         } else {
-            // 성공 시 잠금 잔액만 차감
-            sql = """
-                UPDATE user_wallets SET locked_balance = locked_balance - #{amount}, updated_at = #{updated_at}
-                WHERE id = #{id}
-                RETURNING *
-                """;
+            // Release lock only after successful external settlement.
+            sql = QueryBuilder
+                .update("user_wallets")
+                .setCustom("locked_balance = locked_balance - #{amount}")
+                .setCustom("updated_at = #{updated_at}")
+                .where("id", Op.Equal, "id")
+                .returning("*");
         }
-        
-        String query = QueryBuilder.selectStringQuery(sql).build();
+
         Map<String, Object> params = new HashMap<>();
         params.put("id", walletId);
         params.put("amount", amount);
         params.put("updated_at", DateUtils.now());
-        
-        return query(client, query, params)
+
+        return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
-            .onFailure(e -> log.error("잔액 잠금 해제 실패 - walletId: {}, amount: {}, refund: {}", walletId, amount, refund));
+            .onFailure(e -> log.error("Failed to unlock balance - walletId: {}, amount: {}, refund: {}", walletId, amount, refund));
     }
     
     /**
-     * 삭제되지 않은 내부 전송 조회 (not_deleted 전용)
+     * ??젣?섏? ?딆? ?대? ?꾩넚 議고쉶 (not_deleted ?꾩슜)
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
         return getInternalTransfersByUserId(client, userId, limit, offset);
     }
     
     /**
-     * 삭제되지 않은 외부 전송 조회 (not_deleted 전용)
+     * ??젣?섏? ?딆? ?몃? ?꾩넚 議고쉶 (not_deleted ?꾩슜)
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
         return getExternalTransfersByUserId(client, userId, limit, offset);

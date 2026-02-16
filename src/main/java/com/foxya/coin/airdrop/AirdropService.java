@@ -8,9 +8,11 @@ import com.foxya.coin.airdrop.dto.AirdropTransferResponseDto;
 import com.foxya.coin.airdrop.entities.AirdropPhase;
 import com.foxya.coin.airdrop.entities.AirdropTransfer;
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.enums.TransactionType;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.ForbiddenException;
+import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.transfer.TransferRepository;
@@ -284,7 +286,7 @@ public class AirdropService extends BaseService {
         
         return pool.withTransaction(client -> {
             // 1. 에어드랍 전송 기록 생성
-            String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
+            String orderNumber = OrderNumberUtils.generateOrderNumber();
             AirdropTransfer airdropTransfer = AirdropTransfer.builder()
                 .transferId(transferId)
                 .userId(userId)
@@ -312,7 +314,7 @@ public class AirdropService extends BaseService {
                         .status(InternalTransfer.STATUS_COMPLETED)
                         .transferType(InternalTransfer.TYPE_ADMIN_GRANT)
                         .orderNumber(orderNumber)
-                        .transactionType(com.foxya.coin.common.enums.TransactionType.AIRDROP_TRANSFER.getValue())
+                        .transactionType(TransactionType.AIRDROP_TRANSFER.getValue())
                         .memo("에어드랍 락업 해제")
                         .requestIp("system")
                         .build();

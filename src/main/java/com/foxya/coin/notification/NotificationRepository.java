@@ -13,6 +13,7 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,6 +71,47 @@ public class NotificationRepository extends BaseRepository {
     /**
      * 사용자의 알림 목록 조회
      */
+    public Future<Boolean> existsByUserTypeAndRelatedId(SqlClient client, Long userId, NotificationType type, Long relatedId) {
+        if (relatedId == null) {
+            return Future.succeededFuture(false);
+        }
+
+        String sql = QueryBuilder
+            .count("notifications")
+            .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("type", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "type")
+            .andWhere("related_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "related_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("type", type.name());
+        params.put("related_id", relatedId);
+
+        return query(client, sql, params)
+            .map(rows -> rows.iterator().hasNext() && rows.iterator().next().getLong("count") > 0L);
+    }
+
+    public Future<Boolean> existsByUserTypeAndCreatedDate(SqlClient client, Long userId, NotificationType type, LocalDate localDate) {
+        String sql = """
+            SELECT COUNT(*) AS count
+            FROM notifications
+            WHERE user_id = #{user_id}
+              AND type = #{type}
+              AND created_at::date = #{local_date}
+              AND deleted_at IS NULL
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("type", type.name());
+        params.put("local_date", localDate);
+
+        return query(client, sql, params)
+            .map(rows -> rows.iterator().hasNext() && rows.iterator().next().getLong("count") > 0L);
+    }
+
     public Future<List<Notification>> getNotifications(SqlClient client, Long userId, Integer limit, Integer offset) {
         String sql = QueryBuilder
             .select("notifications", "id", "user_id", "type", "title", "message", "is_read", "related_id", "metadata", "created_at", "updated_at")

@@ -64,6 +64,36 @@ public class InquiryRepository extends BaseRepository {
     /**
      * 사용자의 모든 문의 Soft Delete
      */
+    public Future<Inquiry> getInquiryById(SqlClient client, Long inquiryId) {
+        String sql = QueryBuilder
+            .select("inquiries", "id", "user_id", "subject", "content", "email", "status", "created_at", "updated_at")
+            .where("id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", inquiryId);
+
+        return query(client, sql, params)
+            .map(rows -> rows.iterator().hasNext() ? inquiryMapper.map(rows.iterator().next()) : null);
+    }
+
+    public Future<Inquiry> updateInquiryStatus(SqlClient client, Long inquiryId, InquiryStatus status) {
+        String sql = QueryBuilder
+            .update("inquiries", "status", "updated_at")
+            .where("id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .returning("id, user_id, subject, content, email, status, created_at, updated_at");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", inquiryId);
+        params.put("status", status.name());
+        params.put("updated_at", java.time.LocalDateTime.now());
+
+        return query(client, sql, params)
+            .map(rows -> rows.iterator().hasNext() ? inquiryMapper.map(rows.iterator().next()) : null);
+    }
+
     public Future<Void> softDeleteInquiriesByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder
             .update("inquiries", "deleted_at", "updated_at")

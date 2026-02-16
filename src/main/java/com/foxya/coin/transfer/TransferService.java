@@ -7,6 +7,7 @@ import com.foxya.coin.common.enums.ChainType;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.enums.TransactionType;
+import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.event.EventPublisher;
@@ -41,10 +42,12 @@ import java.util.stream.Collectors;
 @Slf4j
 public class TransferService extends BaseService {
 
-    /** Redis 멱등 키 TTL (7일, 초 단위) */
+    /** Redis 筌롪퉭踰???TTL (7?? ????μ맄) */
     private static final int CONFIRMED_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 3600;
     private static final String REDIS_KEY_CONFIRMED = "transfer:confirmed:";
     private static final String REDIS_KEY_FAILED = "transfer:failed:";
+    private static final String INTERNAL_CHAIN = "INTERNAL";
+    private static final int WITHDRAWAL_REDISPATCH_MAX_RETRY = 50;
 
     private final TransferRepository transferRepository;
     private final UserRepository userRepository;
@@ -55,9 +58,9 @@ public class TransferService extends BaseService {
     private final NotificationService notificationService;
     private final AirdropRepository airdropRepository;
 
-    // 내부 전송 수수료 (0.1%)
+    // ??? ?袁⑸꽊 ??뤿땾??(0.1%)
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
-    // 최소 전송 금액
+    // 筌ㅼ뮇???袁⑸꽊 疫뀀뜆釉?
     private static final BigDecimal MIN_TRANSFER_AMOUNT = new BigDecimal("0.000001");
 
     public TransferService(PgPool pool,
@@ -111,55 +114,55 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 내부 전송 실행.
-     * 내부 전송 = DB만 사용. 블록체인 트랜잭션 없음. user_wallets 잔액 증감 + internal_transfers 기록만 수행.
+     * ??? ?袁⑸꽊 ??쎈뻬.
+     * ??? ?袁⑸꽊 = DB筌????? ?됰뗀以됵㎗?곸뵥 ?紐껋삏??????곸벉. user_wallets ?遺용만 筌앹빓而?+ internal_transfers 疫꿸퀡以됵쭕???묐뻬.
      */
     public Future<TransferResponseDto> executeInternalTransfer(Long senderId, InternalTransferRequestDto request, String requestIp) {
-        log.info("내부 전송 요청 - senderId: {}, receiverType: {}, receiverValue: {}, amount: {}", 
+        log.info("??? ?袁⑸꽊 ?遺욧퍕 - senderId: {}, receiverType: {}, receiverValue: {}, amount: {}", 
             senderId, request.getReceiverType(), request.getReceiverValue(), request.getAmount());
         
-        // 1. 유효성 검사
+        // 1. ?醫륁뒞??野꺜??
         if (request.getAmount() == null || request.getAmount().compareTo(MIN_TRANSFER_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
+            return Future.failedFuture(new BadRequestException("筌ㅼ뮇???袁⑸꽊 疫뀀뜆釉?? " + MIN_TRANSFER_AMOUNT + " ??낅빍??"));
         }
         
-        // 2. 통화 조회 (내부 전송은 항상 INTERNAL 체인 사용)
+        // 2. ???넅 鈺곌퀬??(??? ?袁⑸꽊?? ??湲?INTERNAL 筌ｋ똻??????
         return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), "INTERNAL")
-            .compose(currency -> {
-                if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + request.getCurrencyCode() + " on INTERNAL"));
+            .compose(externalCurrency -> {
+                if (externalCurrency == null) {
+                    return Future.failedFuture(new NotFoundException("???넅??筌≪뼚??????곷뮸??덈뼄: " + request.getCurrencyCode() + " on INTERNAL"));
                 }
                 
-                // 3. 수신자 조회
+                // 3. ??뤿뻿??鈺곌퀬??
                 return findReceiver(request.getReceiverType(), request.getReceiverValue())
                     .compose(receiver -> {
                         if (receiver == null) {
-                            return Future.failedFuture(new NotFoundException("수신자를 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("??뤿뻿?癒? 筌≪뼚??????곷뮸??덈뼄."));
                         }
                         
                         if (receiver.getId().equals(senderId)) {
-                            return Future.failedFuture(new BadRequestException("자기 자신에게 전송할 수 없습니다."));
+                            return Future.failedFuture(new BadRequestException("?癒?┛ ?癒?뻿?癒?쓺 ?袁⑸꽊??????곷뮸??덈뼄."));
                         }
                         
-                        // 4. 송신자 지갑 조회
-                        return getOrCreateInternalWallet(senderId, currency, false)
+                        // 4. ??る뻿??筌왖揶?鈺곌퀬??
+                        return getOrCreateInternalWallet(senderId, externalCurrency, false)
                             .compose(senderWallet ->
-                                getOrCreateInternalWallet(receiver.getId(), currency, true)
+                                getOrCreateInternalWallet(receiver.getId(), externalCurrency, true)
                                     .compose(receiverWallet -> {
-                                        // 6. 수수료 계산
+                                        // 6. ??뤿땾???④쑴沅?
                                         BigDecimal fee = request.getAmount().multiply(INTERNAL_FEE_RATE);
                                         BigDecimal totalDeduct = request.getAmount().add(fee);
 
-                                        // 7. 잔액 확인
+                                        // 7. ?遺용만 ?類ㅼ뵥
                                         if (senderWallet.getBalance().compareTo(totalDeduct) < 0) {
-                                            return Future.failedFuture(new BadRequestException("잔액이 부족합니다. 필요: " + totalDeduct + ", 보유: " + senderWallet.getBalance()));
+                                            return Future.failedFuture(new BadRequestException("?遺용만???봔鈺곌퉲鍮??덈뼄. ?袁⑹뒄: " + totalDeduct + ", 癰귣똻?: " + senderWallet.getBalance()));
                                         }
 
-                                        // 8. 전송 실행 (트랜잭션)
+                                        // 8. ?袁⑸꽊 ??쎈뻬 (?紐껋삏????
                                         return executeInternalTransferTransaction(
                                             senderId, receiver.getId(),
                                             senderWallet, receiverWallet,
-                                            currency, request.getAmount(), fee,
+                                            externalCurrency, request.getAmount(), fee,
                                             request.getMemo(), requestIp
                                         );
                                     })
@@ -169,7 +172,7 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 내부 전송 트랜잭션 실행 (DB만: deductBalance / addBalance / internal_transfers)
+     * ??? ?袁⑸꽊 ?紐껋삏??????쎈뻬 (DB筌? deductBalance / addBalance / internal_transfers)
      */
     private Future<TransferResponseDto> executeInternalTransferTransaction(
             Long senderId, Long receiverId,
@@ -180,25 +183,25 @@ public class TransferService extends BaseService {
         String transferId = UUID.randomUUID().toString();
         BigDecimal totalDeduct = amount.add(fee);
         
-        // 트랜잭션으로 처리
+        // ?紐껋삏?????곗쨮 筌ｌ꼶??
         return pool.withTransaction(client -> {
-            // 1. 송신자 잔액 차감
+            // 1. ??る뻿???遺용만 筌△몿而?
             return transferRepository.deductBalance(client, senderWallet.getId(), totalDeduct)
                 .compose(updatedSenderWallet -> {
                     if (updatedSenderWallet == null) {
-                        return Future.failedFuture(new BadRequestException("잔액 차감 실패 (잔액 부족)"));
+                        return Future.failedFuture(new BadRequestException("?遺용만 筌△몿而???쎈솭 (?遺용만 ?봔鈺?"));
                     }
                     
-                    // 2. 수신자 잔액 추가
+                    // 2. ??뤿뻿???遺용만 ?곕떽?
                     return transferRepository.addBalance(client, receiverWallet.getId(), amount);
                 })
                 .compose(updatedReceiverWallet -> {
                     if (updatedReceiverWallet == null) {
-                        return Future.failedFuture(new BadRequestException("잔액 추가 실패"));
+                        return Future.failedFuture(new BadRequestException("?遺용만 ?곕떽? ??쎈솭"));
                     }
                     
-                    // 3. 전송 기록 생성 (내부 트랜잭션도 전략적 추적을 위해 transfer_id, order_number 항상 기록)
-                    String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
+                    // 3. ?袁⑸꽊 疫꿸퀡以???밴쉐 (??? ?紐껋삏??????袁⑥셽???곕뗄????袁る퉸 transfer_id, order_number ??湲?疫꿸퀡以?
+                    String orderNumber = OrderNumberUtils.generateOrderNumber();
                     InternalTransfer transfer = InternalTransfer.builder()
                         .transferId(transferId)
                         .senderId(senderId)
@@ -211,7 +214,7 @@ public class TransferService extends BaseService {
                         .status(InternalTransfer.STATUS_COMPLETED)
                         .transferType(InternalTransfer.TYPE_INTERNAL)
                         .orderNumber(orderNumber)
-                        .transactionType(com.foxya.coin.common.enums.TransactionType.WITHDRAW.getValue())
+                        .transactionType(TransactionType.WITHDRAW.getValue())
                         .memo(memo)
                         .requestIp(requestIp)
                         .build();
@@ -219,11 +222,11 @@ public class TransferService extends BaseService {
                     return transferRepository.createInternalTransfer(client, transfer);
                 })
                 .compose(createdTransfer -> {
-                    // 4. 전송 완료 처리
+                    // 4. ?袁⑸꽊 ?袁⑥┷ 筌ｌ꼶??
                     return transferRepository.completeInternalTransfer(client, transferId);
                 });
         }).map(completedTransfer -> {
-            log.info("내부 전송 완료 - transferId: {}, sender: {}, receiver: {}, amount: {}", 
+            log.info("??? ?袁⑸꽊 ?袁⑥┷ - transferId: {}, sender: {}, receiver: {}, amount: {}", 
                 transferId, senderId, receiverId, amount);
             
             return TransferResponseDto.builder()
@@ -241,23 +244,50 @@ public class TransferService extends BaseService {
                 .build();
         });
     }
+
+    /**
+     * Use INTERNAL wallet first when available; fallback to external-chain wallet.
+     */
+    private Future<Wallet> resolvePreferredWalletForWithdrawal(Long userId, Currency externalCurrency) {
+        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId())
+            .compose(externalWallet ->
+                currencyRepository.getCurrencyByCodeAndChain(pool, externalCurrency.getCode(), INTERNAL_CHAIN)
+                    .compose(internalCurrency -> {
+                        if (internalCurrency == null) {
+                            if (externalWallet == null) {
+                                return Future.failedFuture(new NotFoundException("筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
+                            }
+                            return Future.succeededFuture(externalWallet);
+                        }
+                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, internalCurrency.getId())
+                            .compose(internalWallet -> {
+                                if (internalWallet != null) {
+                                    return Future.succeededFuture(internalWallet);
+                                }
+                                if (externalWallet != null) {
+                                    return Future.succeededFuture(externalWallet);
+                                }
+                                return Future.failedFuture(new NotFoundException("筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
+                            });
+                    }));
+    }
     
     /**
-     * 래퍼럴 수익 지급 (REFERRAL_REWARD: sender 없음, 수신자 지갑에 KORI 추가)
+     * ??묐쓠????륁뵡 筌왖疫?(REFERRAL_REWARD: sender ??곸벉, ??뤿뻿??筌왖揶쏅쵐肉?KORI ?곕떽?)
      */
     public Future<InternalTransfer> createReferralRewardTransfer(Long referrerId, BigDecimal amount, String memo) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            return Future.failedFuture(new BadRequestException("지급 금액은 0보다 커야 합니다."));
+            return Future.failedFuture(new BadRequestException("筌왖疫?疫뀀뜆釉?? 0癰귣????뚣끉鍮???몃빍??"));
         }
         return currencyRepository.getCurrencyByCodeAndChainAllowInactive(pool, "KORI", "INTERNAL")
             .compose(currency -> {
                 if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("KORI 통화를 찾을 수 없습니다."));
+                    return Future.failedFuture(new NotFoundException("KORI ???넅??筌≪뼚??????곷뮸??덈뼄."));
                 }
                 return getOrCreateInternalWallet(referrerId, currency, true)
                     .compose(receiverWallet -> {
                         if (receiverWallet == null) {
-                            return Future.failedFuture(new NotFoundException("추천인 지갑을 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("?곕뗄荑??筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
                         }
                         String transferId = UUID.randomUUID().toString();
                         InternalTransfer transfer = InternalTransfer.builder()
@@ -271,8 +301,8 @@ public class TransferService extends BaseService {
                             .fee(BigDecimal.ZERO)
                             .status(InternalTransfer.STATUS_COMPLETED)
                             .transferType(InternalTransfer.TYPE_REFERRAL_REWARD)
-                            .orderNumber(com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber())
-                            .transactionType(com.foxya.coin.common.enums.TransactionType.REFERRAL_REWARD.getValue())
+                            .orderNumber(OrderNumberUtils.generateOrderNumber())
+                            .transactionType(TransactionType.REFERRAL_REWARD.getValue())
                             .memo(memo != null ? memo : "REFERRAL_REWARD")
                             .requestIp(null)
                             .build();
@@ -283,12 +313,12 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 수신자 조회 (타입에 따라)
+     * ??뤿뻿??鈺곌퀬??(????녿퓠 ?怨뺤뵬)
      */
     private Future<User> findReceiver(String receiverType, String receiverValue) {
         return switch (receiverType) {
             case InternalTransferRequestDto.RECEIVER_TYPE_ADDRESS -> 
-                // 지갑 주소로 조회
+                // 筌왖揶?雅뚯눘?쇗에?鈺곌퀬??
                 transferRepository.getWalletByAddress(pool, receiverValue)
                     .compose(wallet -> {
                         if (wallet == null) {
@@ -298,14 +328,14 @@ public class TransferService extends BaseService {
                     });
             
             case InternalTransferRequestDto.RECEIVER_TYPE_REFERRAL_CODE -> 
-                // 추천인 코드로 조회
+                // ?곕뗄荑???꾨뗀諭뜻에?鈺곌퀬??
                 userRepository.getUserByReferralCode(pool, receiverValue);
             
             case InternalTransferRequestDto.RECEIVER_TYPE_USER_ID -> 
-                // 유저 ID로 조회 (관리자용)
+                // ?醫? ID嚥?鈺곌퀬??(?온?귐딆쁽??
                 userRepository.getUserById(pool, Long.parseLong(receiverValue));
             
-            default -> Future.failedFuture(new BadRequestException("잘못된 수신자 타입입니다: " + receiverType));
+            default -> Future.failedFuture(new BadRequestException("??롢걵????뤿뻿??????놁뿯??덈뼄: " + receiverType));
         };
     }
 
@@ -316,12 +346,12 @@ public class TransferService extends BaseService {
                     return Future.succeededFuture(existing);
                 }
                 if (!createIfMissing) {
-                    return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                    return Future.failedFuture(new NotFoundException("筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
                 }
                 return createInternalWalletIfNeeded(userId, currency)
                     .compose(created -> {
                         if (created == null) {
-                            return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
                         }
                         return Future.succeededFuture(created);
                     });
@@ -343,61 +373,61 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 외부 전송 요청 (출금).
-     * - 유저에게 보여지는 건 내부 지갑만 해당. 출금 시에도 사용·차감 대상은 유저의 내부 지갑(user_wallets) 뿐.
-     * - DB에 출금 요청 기록 + 내부 지갑 잔액 잠금. 실제 온체인 전송은 플랫폼 메인 지갑(중앙지갑)에서 Node 등이 PENDING 건을 처리.
+     * ?紐? ?袁⑸꽊 ?遺욧퍕 (?곗뮄??.
+     * - ?醫??癒?쓺 癰귣똻肉э쭪???椰???? 筌왖揶쏅쵎彛????? ?곗뮄????뽯퓠?????쒖쮯筌△몿而????怨? ?醫?????? 筌왖揶?user_wallets) ??
+     * - DB???곗뮄???遺욧퍕 疫꿸퀡以?+ ??? 筌왖揶??遺용만 ?醫됲닊. ??쇱젫 ??κ퍥???袁⑸꽊?? ???삸??筌롫뗄??筌왖揶?餓λ쵐釉곤쭪?揶??癒?퐣 Node ?源놁뵠 PENDING 椰꾨똻??筌ｌ꼶??
      */
     public Future<TransferResponseDto> requestExternalTransfer(Long userId, ExternalTransferRequestDto request, String requestIp) {
-        log.info("외부 전송 요청 - userId: {}, toAddress: {}, amount: {}, chain: {}",
+        log.info("?紐? ?袁⑸꽊 ?遺욧퍕 - userId: {}, toAddress: {}, amount: {}, chain: {}",
             userId, request.getToAddress(), request.getAmount(), request.getChain());
 
-        // 1. 유효성 검사
+        // 1. ?醫륁뒞??野꺜??
         if (request.getAmount() == null || request.getAmount().compareTo(MIN_TRANSFER_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("최소 전송 금액은 " + MIN_TRANSFER_AMOUNT + " 입니다."));
+            return Future.failedFuture(new BadRequestException("筌ㅼ뮇???袁⑸꽊 疫뀀뜆釉?? " + MIN_TRANSFER_AMOUNT + " ??낅빍??"));
         }
 
         if (request.getToAddress() == null || request.getToAddress().isEmpty()) {
-            return Future.failedFuture(new BadRequestException("수신 주소를 입력해주세요."));
+            return Future.failedFuture(new BadRequestException("??뤿뻿 雅뚯눘?쇘몴???낆젾??곻폒?紐꾩뒄."));
         }
 
-        // 2. 체인 유효성 검사
+        // 2. 筌ｋ똻???醫륁뒞??野꺜??
         ChainType chainType = ChainType.fromValue(request.getChain());
         if (chainType == null) {
-            return Future.failedFuture(new BadRequestException("지원하지 않는 체인입니다: " + request.getChain()));
+            return Future.failedFuture(new BadRequestException("筌왖?癒곕릭筌왖 ??낅뮉 筌ｋ똻???낅빍?? " + request.getChain()));
         }
 
-        // 3. 통화 조회 (예: KORI + TRON)
+        // 3. ???넅 鈺곌퀬??(?? KORI + TRON)
         return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), request.getChain())
             .compose(currency -> {
                 if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + request.getCurrencyCode() + " on " + request.getChain()));
+                    return Future.failedFuture(new NotFoundException("???넅??筌≪뼚??????곷뮸??덈뼄: " + request.getCurrencyCode() + " on " + request.getChain()));
                 }
 
-                // 4. 유저 내부 지갑만 조회·사용 (외부 지갑은 사용하지 않음)
-                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                // 4. ?醫? ??? 筌왖揶쏅쵎彛?鈺곌퀬?띠쮯????(?紐? 筌왖揶쏅쵐? ?????? ??놁벉)
+                return resolvePreferredWalletForWithdrawal(userId, currency)
                     .compose(wallet -> {
                         if (wallet == null) {
-                            return Future.failedFuture(new NotFoundException("지갑을 찾을 수 없습니다."));
+                            return Future.failedFuture(new NotFoundException("筌왖揶쏅쵐??筌≪뼚??????곷뮸??덈뼄."));
                         }
 
-                        // 5. 수수료 계산 (네트워크 수수료는 Node.js에서 계산)
+                        // 5. ??뤿땾???④쑴沅?(??쎈뱜??곌쾿 ??뤿땾?룸슢??Node.js?癒?퐣 ?④쑴沅?
                         BigDecimal serviceFee = request.getAmount().multiply(INTERNAL_FEE_RATE);
                         BigDecimal totalDeduct = request.getAmount().add(serviceFee);
 
-                        // 6. 내부 지갑 가용 잔액 확인 (balance = 이미 가용분만 있음, locked_balance 제외)
+                        // 6. ??? 筌왖揶?揶쎛???遺용만 ?類ㅼ뵥 (balance = ??? 揶쎛??명뀋筌???됱벉, locked_balance ??뽰뇚)
                         if (wallet.getBalance().compareTo(totalDeduct) < 0) {
-                            return Future.failedFuture(new BadRequestException("잔액이 부족합니다. 필요: " + totalDeduct + ", 보유: " + wallet.getBalance()));
+                            return Future.failedFuture(new BadRequestException("?遺용만???봔鈺곌퉲鍮??덈뼄. ?袁⑹뒄: " + totalDeduct + ", 癰귣똻?: " + wallet.getBalance()));
                         }
 
-                        // 7. 내부 지갑 잠금 + 출금 요청 생성 (실제 송금은 메인 지갑에서 처리)
+                        // 7. ??? 筌왖揶??醫됲닊 + ?곗뮄???遺욧퍕 ??밴쉐 (??쇱젫 ??뷀닊?? 筌롫뗄??筌왖揶쏅쵐肉??筌ｌ꼶??
                         return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp);
                     });
             });
     }
     
     /**
-     * 외부 전송 요청 생성: 유저 내부 지갑 잠금 + external_transfers PENDING 기록.
-     * 실제 온체인 전송은 플랫폼 메인 지갑(중앙지갑) 워커가 PENDING 건을 읽어 처리.
+     * ?紐? ?袁⑸꽊 ?遺욧퍕 ??밴쉐: ?醫? ??? 筌왖揶??醫됲닊 + external_transfers PENDING 疫꿸퀡以?
+     * ??쇱젫 ??κ퍥???袁⑸꽊?? ???삸??筌롫뗄??筌왖揶?餓λ쵐釉곤쭪?揶? ???묽揶쎛 PENDING 椰꾨똻????뚮선 筌ｌ꼶??
      */
     private Future<TransferResponseDto> createExternalTransferRequest(
             Long userId, Wallet wallet, Currency currency,
@@ -407,15 +437,15 @@ public class TransferService extends BaseService {
         BigDecimal totalDeduct = request.getAmount().add(serviceFee);
         
         return pool.withTransaction(client -> {
-            // 1. 잔액 잠금
+            // 1. ?遺용만 ?醫됲닊
             return transferRepository.lockBalance(client, wallet.getId(), totalDeduct)
                 .compose(updatedWallet -> {
                     if (updatedWallet == null) {
-                        return Future.failedFuture(new BadRequestException("잔액 잠금 실패 (잔액 부족)"));
+                        return Future.failedFuture(new BadRequestException("?遺용만 ?醫됲닊 ??쎈솭 (?遺용만 ?봔鈺?"));
                     }
                     
-                    // 2. 외부 전송 기록 생성
-                    String orderNumber = com.foxya.coin.common.utils.OrderNumberUtils.generateOrderNumber();
+                    // 2. ?紐? ?袁⑸꽊 疫꿸퀡以???밴쉐
+                    String orderNumber = OrderNumberUtils.generateOrderNumber();
                     ExternalTransfer transfer = ExternalTransfer.builder()
                         .transferId(transferId)
                         .userId(userId)
@@ -424,12 +454,13 @@ public class TransferService extends BaseService {
                         .toAddress(request.getToAddress())
                         .amount(request.getAmount())
                         .fee(serviceFee)
-                        .networkFee(BigDecimal.ZERO) // Node.js에서 계산 후 업데이트
+                        .networkFee(BigDecimal.ZERO) // Node.js?癒?퐣 ?④쑴沅?????낅쑓??꾨뱜
                         .status(ExternalTransfer.STATUS_PENDING)
                         .orderNumber(orderNumber)
-                        .transactionType(com.foxya.coin.common.enums.TransactionType.WITHDRAW.getValue())
+                        .transactionType(TransactionType.WITHDRAW.getValue())
                         .chain(request.getChain())
                         .requiredConfirmations(getRequiredConfirmations(request.getChain()))
+                        .retryCount(0)
                         .memo(request.getMemo())
                         .requestIp(requestIp)
                         .build();
@@ -437,9 +468,9 @@ public class TransferService extends BaseService {
                     return transferRepository.createExternalTransfer(client, transfer);
                 });
         }).compose(createdTransfer -> {
-            log.info("외부 전송 요청 생성 완료 - transferId: {}", transferId);
+            log.info("?紐? ?袁⑸꽊 ?遺욧퍕 ??밴쉐 ?袁⑥┷ - transferId: {}", transferId);
             
-            // 3. 이벤트 발행 (Node.js 서비스에서 처리)
+            // 3. ??源??獄쏆뮉六?(Node.js ??뺥돩??쇰퓠??筌ｌ꼶??
             if (eventPublisher != null) {
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("transferId", transferId);
@@ -450,7 +481,7 @@ public class TransferService extends BaseService {
                 payload.put("chain", request.getChain());
                 
                 eventPublisher.publishToStream(EventType.WITHDRAWAL_REQUESTED, payload)
-                    .onFailure(e -> log.error("외부 전송 이벤트 발행 실패: {}", e.getMessage()));
+                    .onFailure(e -> log.error("?紐? ?袁⑸꽊 ??源??獄쏆뮉六???쎈솭: {}", e.getMessage()));
             }
             
             return Future.succeededFuture(TransferResponseDto.builder()
@@ -469,7 +500,7 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 체인별 필요 컨펌 수
+     * 筌ｋ똻?ㅸ퉪??袁⑹뒄 ?뚢뫂????
      */
     private int getRequiredConfirmations(String chain) {
         return switch (chain) {
@@ -480,34 +511,85 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * 상태별 외부 전송 목록 (출금 워커 컨펌 추적용).
+     * ?怨밴묶癰??紐? ?袁⑸꽊 筌뤴뫖以?(?곗뮄?????묽 ?뚢뫂???곕뗄???.
      */
     public Future<List<ExternalTransfer>> listExternalTransfersByStatus(String status, int limit) {
         return transferRepository.getExternalTransfersByStatus(pool, status, limit);
     }
 
     /**
-     * 외부 전송 제출 처리 (Node.js 워커 등에서 호출).
-     * 온체인 tx 제출 후 txHash를 기록. 상태를 SUBMITTED로 변경.
+     * Periodically republishes pending withdrawals so external settlement is eventually executed.
+     */
+    public Future<Integer> redispatchPendingWithdrawals(int limit) {
+        if (eventPublisher == null) {
+            return Future.succeededFuture(0);
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        return transferRepository.getPendingExternalTransfers(pool, safeLimit)
+            .compose(pendingTransfers -> {
+                if (pendingTransfers == null || pendingTransfers.isEmpty()) {
+                    return Future.succeededFuture(0);
+                }
+
+                List<Future<Integer>> tasks = pendingTransfers.stream()
+                    .map(transfer -> {
+                        int retryCount = transfer.getRetryCount() != null ? transfer.getRetryCount() : 0;
+                        if (retryCount >= WITHDRAWAL_REDISPATCH_MAX_RETRY) {
+                            return Future.succeededFuture(0);
+                        }
+                        return currencyRepository.getCurrencyById(pool, transfer.getCurrencyId())
+                            .compose(currency -> {
+                                if (currency == null) {
+                                    return Future.succeededFuture(0);
+                                }
+                                Map<String, Object> payload = new HashMap<>();
+                                payload.put("transferId", transfer.getTransferId());
+                                payload.put("userId", transfer.getUserId());
+                                payload.put("toAddress", transfer.getToAddress());
+                                payload.put("amount", transfer.getAmount() != null ? transfer.getAmount().toPlainString() : null);
+                                payload.put("currencyCode", currency.getCode());
+                                payload.put("chain", transfer.getChain());
+                                payload.put("retryCount", retryCount + 1);
+                                return eventPublisher.publishToStream(EventType.WITHDRAWAL_REQUESTED, payload)
+                                    .compose(v -> transferRepository.incrementExternalTransferRetryCount(pool, transfer.getTransferId()))
+                                    .map(updated -> updated != null ? 1 : 0)
+                                    .recover(err -> {
+                                        log.warn("Failed to redispatch withdrawal - transferId: {}", transfer.getTransferId(), err);
+                                        return Future.succeededFuture(0);
+                                    });
+                            });
+                    })
+                    .collect(Collectors.toList());
+
+                return Future.all(tasks)
+                    .map(result -> result.list().stream()
+                        .mapToInt(item -> item instanceof Integer ? (Integer) item : 0)
+                        .sum());
+            });
+    }
+
+    /**
+     * ?紐? ?袁⑸꽊 ??뽱뀱 筌ｌ꼶??(Node.js ???묽 ?源녿퓠???紐꾪뀱).
+     * ??κ퍥??tx ??뽱뀱 ??txHash??疫꿸퀡以? ?怨밴묶??SUBMITTED嚥?癰궰野?
      */
     public Future<ExternalTransfer> submitExternalTransfer(String transferId, String txHash) {
         return transferRepository.getExternalTransferById(pool, transferId)
             .compose(et -> {
                 if (et == null) {
-                    return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                    return Future.failedFuture(new NotFoundException("?紐? ?袁⑸꽊??筌≪뼚??????곷뮸??덈뼄: " + transferId));
                 }
                 if (!ExternalTransfer.STATUS_PENDING.equals(et.getStatus()) && !ExternalTransfer.STATUS_PROCESSING.equals(et.getStatus())) {
-                    return Future.failedFuture(new BadRequestException("제출 가능한 상태가 아닙니다. status=" + et.getStatus()));
+                    return Future.failedFuture(new BadRequestException("??뽱뀱 揶쎛?館釉??怨밴묶揶쎛 ?袁⑤뻸??덈뼄. status=" + et.getStatus()));
                 }
                 return transferRepository.submitExternalTransfer(pool, transferId, txHash);
             });
     }
 
     /**
-     * 외부 전송 컨펌 완료 처리 (Node.js 워커 등에서 호출).
-     * 내부 지갑 잠금 해제(unlockBalance, refund=false)를 트랜잭션으로 수행하여
-     * 외부 지갑 차감이 확정되면 내부 장부도 최종 차감 반영.
-     * Redis 멱등 키로 중복 처리 방지.
+     * ?紐? ?袁⑸꽊 ?뚢뫂???袁⑥┷ 筌ｌ꼶??(Node.js ???묽 ?源녿퓠???紐꾪뀱).
+     * ??? 筌왖揶??醫됲닊 ??곸젫(unlockBalance, refund=false)???紐껋삏?????곗쨮 ??묐뻬??뤿연
+     * ?紐? 筌왖揶?筌△몿而???類ㅼ젟??롢늺 ??? ?貫???筌ㅼ뮇伊?筌△몿而?獄쏆꼷??
+     * Redis 筌롪퉭踰???살쨮 餓λ쵎??筌ｌ꼶??獄쎻뫗?.
      */
     public Future<ExternalTransfer> confirmExternalTransfer(String transferId, int confirmations) {
         if (redisApi != null) {
@@ -515,7 +597,7 @@ public class TransferService extends BaseService {
             return redisApi.exists(List.of(key))
                 .compose(reply -> {
                     if (reply != null && reply.toInteger() != null && reply.toInteger() > 0) {
-                        log.info("외부 전송 이미 컨펌 처리됨 (멱등) - transferId: {}", transferId);
+                        log.info("?紐? ?袁⑸꽊 ??? ?뚢뫂??筌ｌ꼶???(筌롪퉭踰? - transferId: {}", transferId);
                         return transferRepository.getExternalTransferById(pool, transferId);
                     }
                     return doConfirmExternalTransfer(transferId, confirmations)
@@ -528,7 +610,7 @@ public class TransferService extends BaseService {
             .compose(this::createWithdrawalCompletedNotification);
     }
 
-    /** 출금 완료 시 notifications 인서트 (앱 알람, 추후 FCM 푸시 활용) */
+    /** ?곗뮄???袁⑥┷ ??notifications ?紐꾧퐣??(?????뿺, ?곕???FCM ?紐꾨뻻 ??뽰뒠) */
     private Future<ExternalTransfer> createWithdrawalCompletedNotification(ExternalTransfer confirmed) {
         if (notificationService == null || confirmed == null || confirmed.getUserId() == null) {
             return Future.succeededFuture(confirmed);
@@ -537,20 +619,20 @@ public class TransferService extends BaseService {
             .compose(currency -> {
                 String currencyCode = currency != null ? currency.getCode() : "";
                 String amountStr = confirmed.getAmount() != null ? confirmed.getAmount().toPlainString() : "";
-                String title = "출금 완료";
-                String message = amountStr + " " + currencyCode + " 출금이 완료되었습니다.";
+                String title = "\uCD9C\uAE08 \uC644\uB8CC";
+                String message = amountStr + " " + currencyCode + " \uCD9C\uAE08\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject meta = new JsonObject()
                     .put("transferId", confirmed.getTransferId())
                     .put("amount", amountStr)
                     .put("currencyCode", currencyCode)
                     .put("txHash", confirmed.getTxHash())
                     .put("toAddress", confirmed.getToAddress());
-                return notificationService.createNotification(
-                    confirmed.getUserId(), NotificationType.WITHDRAW_SUCCESS, title, message, null, meta.encode());
+                return notificationService.createNotificationIfAbsentByRelatedId(
+                    confirmed.getUserId(), NotificationType.WITHDRAW_SUCCESS, title, message, confirmed.getId(), meta.encode());
             })
             .map(v -> confirmed)
             .recover(err -> {
-                log.warn("출금 완료 알림 생성 실패(무시): transferId={}", confirmed.getTransferId(), err);
+                log.warn("?곗뮄???袁⑥┷ ???뵝 ??밴쉐 ??쎈솭(?얜똻??: transferId={}", confirmed.getTransferId(), err);
                 return Future.succeededFuture(confirmed);
             });
     }
@@ -560,11 +642,11 @@ public class TransferService extends BaseService {
             transferRepository.getExternalTransferById(client, transferId)
                 .compose(et -> {
                     if (et == null) {
-                        return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                        return Future.failedFuture(new NotFoundException("?紐? ?袁⑸꽊??筌≪뼚??????곷뮸??덈뼄: " + transferId));
                     }
                     if (!ExternalTransfer.STATUS_SUBMITTED.equals(et.getStatus())) {
                         return Future.failedFuture(new BadRequestException(
-                            "컨펌 가능한 상태가 아닙니다. status=" + et.getStatus()));
+                            "?뚢뫂??揶쎛?館釉??怨밴묶揶쎛 ?袁⑤뻸??덈뼄. status=" + et.getStatus()));
                     }
                     BigDecimal totalDeduct = et.getAmount().add(et.getFee() != null ? et.getFee() : BigDecimal.ZERO);
                     return transferRepository.confirmExternalTransfer(client, transferId, confirmations)
@@ -575,9 +657,9 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * 외부 전송 실패 처리 및 잔액 복구 (Node.js 워커 등에서 호출).
-     * 실패 시 내부 지갑 잠금 해제( refund=true )로 잔액 복구.
-     * Redis 멱등 키로 중복 복구 방지.
+     * ?紐? ?袁⑸꽊 ??쎈솭 筌ｌ꼶??獄??遺용만 癰귣벀??(Node.js ???묽 ?源녿퓠???紐꾪뀱).
+     * ??쎈솭 ????? 筌왖揶??醫됲닊 ??곸젫( refund=true )嚥??遺용만 癰귣벀??
+     * Redis 筌롪퉭踰???살쨮 餓λ쵎??癰귣벀??獄쎻뫗?.
      */
     public Future<ExternalTransfer> failExternalTransferAndRefund(String transferId, String errorCode, String errorMessage) {
         if (redisApi != null) {
@@ -585,7 +667,7 @@ public class TransferService extends BaseService {
             return redisApi.exists(List.of(key))
                 .compose(reply -> {
                     if (reply != null && reply.toInteger() != null && reply.toInteger() > 0) {
-                        log.info("외부 전송 이미 실패 처리됨 (멱등) - transferId: {}", transferId);
+                        log.info("?紐? ?袁⑸꽊 ??? ??쎈솭 筌ｌ꼶???(筌롪퉭踰? - transferId: {}", transferId);
                         return transferRepository.getExternalTransferById(pool, transferId);
                     }
                     return doFailExternalTransferAndRefund(transferId, errorCode, errorMessage)
@@ -601,10 +683,10 @@ public class TransferService extends BaseService {
             transferRepository.getExternalTransferById(client, transferId)
                 .compose(et -> {
                     if (et == null) {
-                        return Future.failedFuture(new NotFoundException("외부 전송을 찾을 수 없습니다: " + transferId));
+                        return Future.failedFuture(new NotFoundException("?紐? ?袁⑸꽊??筌≪뼚??????곷뮸??덈뼄: " + transferId));
                     }
                     if (ExternalTransfer.STATUS_CONFIRMED.equals(et.getStatus()) || ExternalTransfer.STATUS_FAILED.equals(et.getStatus())) {
-                        return Future.failedFuture(new BadRequestException("이미 최종 처리된 전송입니다. status=" + et.getStatus()));
+                        return Future.failedFuture(new BadRequestException("??? 筌ㅼ뮇伊?筌ｌ꼶????袁⑸꽊??낅빍?? status=" + et.getStatus()));
                     }
                     BigDecimal totalRefund = et.getAmount().add(et.getFee() != null ? et.getFee() : BigDecimal.ZERO);
                     return transferRepository.failExternalTransfer(client, transferId, errorCode, errorMessage)
@@ -615,7 +697,7 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * 전송 내역 조회 (내부 + 외부 + 에어드랍 통합, OpenAPI TransferHistory 형식으로 반환)
+     * ?袁⑸꽊 ??곷열 鈺곌퀬??(??? + ?紐? + ?癒?선??뺤뿻 ????, OpenAPI TransferHistory ?類ㅻ뻼??곗쨮 獄쏆꼹??
      */
     public Future<TransferHistoryResponseDto> getTransferHistory(Long userId, int limit, int offset) {
         Future<List<AirdropTransfer>> airdropFuture = (airdropRepository != null)
@@ -627,7 +709,7 @@ public class TransferService extends BaseService {
                 transferRepository.getExternalTransfersByUserId(pool, userId, limit, offset)
                     .compose(externalTransfers ->
                         airdropFuture.compose(airdropTransfers -> {
-                            // 내부 전송 매핑 (래퍼럴/에어드랍은 transactionType 보정하여 라벨 구분)
+                            // ??? ?袁⑸꽊 筌띲끋釉?(??묐쓠???癒?선??뺤뿻?? transactionType 癰귣똻???뤿연 ??곌볼 ?닌됲뀋)
                             List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
                                 .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
                                     .map(currency -> TransferResponseDto.builder()
@@ -647,7 +729,7 @@ public class TransferService extends BaseService {
                                         .build()))
                                 .collect(Collectors.toList());
 
-                            // 외부 전송 매핑
+                            // ?紐? ?袁⑸꽊 筌띲끋釉?
                             List<Future<TransferResponseDto>> externalDtos = externalTransfers.stream()
                                 .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
                                     .map(currency -> TransferResponseDto.builder()
@@ -675,7 +757,7 @@ public class TransferService extends BaseService {
                                 .filter(o -> o != null && !o.isEmpty())
                                 .collect(Collectors.toSet());
 
-                            // 에어드랍 전송 매핑 (internal에 같은 order_number가 없을 때만 포함 — 중복 제거)
+                            // ?癒?선??뺤뿻 ?袁⑸꽊 筌띲끋釉?(internal??揶쏆늿? order_number揶쎛 ??곸뱽 ???춸 ??釉???餓λ쵎????볤탢)
                             List<Future<TransferResponseDto>> airdropDtos = airdropTransfers.stream()
                                 .filter(at -> {
                                     String on = at.getOrderNumber();
@@ -693,7 +775,7 @@ public class TransferService extends BaseService {
                                         .amount(t.getAmount())
                                         .fee(BigDecimal.ZERO)
                                         .status(t.getStatus())
-                                        .memo("에어드랍 락업 해제")
+                                        .memo("?癒?선??뺤뿻 ??뚮씜 ??곸젫")
                                         .createdAt(t.getCreatedAt())
                                         .completedAt(t.getUpdatedAt() != null ? t.getUpdatedAt() : t.getCreatedAt())
                                         .build()))
@@ -727,7 +809,7 @@ public class TransferService extends BaseService {
     }
     
     /**
-     * 내부 전송의 노출용 transactionType 결정 (래퍼럴 수익 / 에어드랍 전송 / 기타)
+     * ??? ?袁⑸꽊???紐꾪뀱??transactionType 野껉퀣??(??묐쓠????륁뵡 / ?癒?선??뺤뿻 ?袁⑸꽊 / 疫꿸퀬?)
      */
     private String resolveInternalTransactionType(InternalTransfer t) {
         if (InternalTransfer.TYPE_REFERRAL_REWARD.equals(t.getTransferType())) {
@@ -735,7 +817,7 @@ public class TransferService extends BaseService {
         }
         if (InternalTransfer.TYPE_ADMIN_GRANT.equals(t.getTransferType())) {
             String memo = t.getMemo();
-            if (memo != null && memo.contains("에어드랍")) {
+            if (memo != null && memo.contains("?癒?선??뺤뿻")) {
                 return TransactionType.AIRDROP_TRANSFER.getValue();
             }
         }
@@ -743,10 +825,10 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * 전송 상세 조회
+     * ?袁⑸꽊 ?怨멸쉭 鈺곌퀬??
      */
     public Future<TransferResponseDto> getTransferDetail(String transferId) {
-        // 먼저 내부 전송에서 조회
+        // ?믪눘? ??? ?袁⑸꽊?癒?퐣 鈺곌퀬??
         return transferRepository.getInternalTransferById(pool, transferId)
             .compose(internalTransfer -> {
                 if (internalTransfer != null) {
@@ -768,7 +850,7 @@ public class TransferService extends BaseService {
                             .build());
                 }
                 
-                // 외부 전송에서 조회
+                // ?紐? ?袁⑸꽊?癒?퐣 鈺곌퀬??
                 return transferRepository.getExternalTransferById(pool, transferId)
                     .compose(externalTransfer -> {
                         if (externalTransfer == null) {
@@ -797,4 +879,6 @@ public class TransferService extends BaseService {
             });
     }
 }
+
+
 

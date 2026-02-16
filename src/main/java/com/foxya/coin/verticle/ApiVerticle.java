@@ -135,7 +135,7 @@ public class ApiVerticle extends AbstractVerticle {
     public void start(Promise<Void> startPromise) throws Exception {
         log.info("Starting ApiVerticle...");
         
-        // 메트릭 수집기 초기화
+        // 硫뷀듃由??섏쭛湲?珥덇린??
         metricsCollector = new MetricsCollector();
         
         JsonObject httpConfig = config().getJsonObject("http", new JsonObject());
@@ -145,13 +145,13 @@ public class ApiVerticle extends AbstractVerticle {
         
         int port = httpConfig.getInteger("port", 8080);
         
-        // PostgreSQL 연결 풀
+        // PostgreSQL ?곌껐 ?
         PgPool pool = createPgPool(databaseConfig);
         
-        // JWT 인증
+        // JWT ?몄쬆
         JWTAuth jwtAuth = createJwtAuth(jwtConfig);
         
-        // Repository 초기화
+        // Repository 珥덇린??
         UserRepository userRepository = new UserRepository();
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
@@ -179,12 +179,13 @@ public class ApiVerticle extends AbstractVerticle {
         FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
         NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService);
         
-        // Redis 초기화 (토큰 블랙리스트·재시도 큐용)
+        // Redis 珥덇린??(?좏겙 釉붾옓由ъ뒪?맞룹옱?쒕룄 ?먯슜)
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
         RedisAPI redisApi = initializeRedis(redisConfig);
         RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
+        EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
 
-        // 이메일 서비스 (SMTP 설정은 선택 사항, 실패 시 Redis 재시도 큐 적재)
+        // ?대찓???쒕퉬??(SMTP ?ㅼ젙? ?좏깮 ?ы빆, ?ㅽ뙣 ??Redis ?ъ떆?????곸옱)
         EmailService emailService = new EmailService(
             vertx,
             config().getJsonObject("smtp", new JsonObject()),
@@ -192,29 +193,29 @@ public class ApiVerticle extends AbstractVerticle {
             retryQueuePublisher
         );
         
-        // UserService를 먼저 생성 (AuthService에서 사용)
+        // UserService瑜?癒쇱? ?앹꽦 (AuthService?먯꽌 ?ъ슜)
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService, redisApi, userExternalIdRepository);
         
-        // WebClient 초기화 (외부 API 호출용)
+        // WebClient 珥덇린??(?몃? API ?몄텧??
         WebClient webClient = WebClient.create(vertx);
         
-        // TRON 서비스 URL 가져오기
+        // TRON ?쒕퉬??URL 媛?몄삤湲?
         JsonObject blockchainConfig = config().getJsonObject("blockchain", new JsonObject());
         JsonObject tronConfig = blockchainConfig.getJsonObject("tron", new JsonObject());
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, null, redisApi, notificationService, airdropRepository);
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
         LevelService levelService = new LevelService(
-            pool, userRepository, miningRepository);
+            pool, userRepository, miningRepository, notificationService);
         MiningService miningService = new MiningService(
             pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
-            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService);
+            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService, notificationService);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
         SubscriptionService subscriptionService = new SubscriptionService(
@@ -230,21 +231,20 @@ public class ApiVerticle extends AbstractVerticle {
         BannerService bannerService = new BannerService(
             pool, bannerRepository);
         
-        // CurrencyService 초기화 (다른 서비스에서 사용)
+        // CurrencyService 珥덇린??(?ㅻⅨ ?쒕퉬?ㅼ뿉???ъ슜)
         ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
         CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, webClient);
         
         SwapRepository swapRepository = new SwapRepository();
         SwapService swapService = new SwapService(
-            pool, swapRepository, currencyRepository, currencyService, transferRepository);
+            pool, swapRepository, currencyRepository, currencyService, transferRepository, notificationService);
         ExchangeRepository exchangeRepository = new ExchangeRepository();
         ExchangeService exchangeService = new ExchangeService(
-            pool, exchangeRepository, currencyRepository, transferRepository, userRepository);
+            pool, exchangeRepository, currencyRepository, transferRepository, userRepository, notificationService);
         PaymentDepositRepository paymentDepositRepository = new PaymentDepositRepository();
         PaymentDepositService paymentDepositService = new PaymentDepositService(
-            pool, paymentDepositRepository, currencyRepository, transferRepository);
+            pool, paymentDepositRepository, currencyRepository, transferRepository, notificationService);
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
-        EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
@@ -256,14 +256,14 @@ public class ApiVerticle extends AbstractVerticle {
         InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
             vertx, transferService, depositScannerApiKey);
         
-        // Google OAuth 설정 (환경 변수 우선)
+        // Google OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
-        // Kakao OAuth 설정 (환경 변수 우선)
+        // Kakao OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
         JsonObject kakaoConfig = applyKakaoEnvOverrides(config().getJsonObject("kakao", new JsonObject()));
-        // Apple OAuth 설정 (환경 변수 우선)
+        // Apple OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
         JsonObject appleConfig = applyAppleEnvOverrides(config().getJsonObject("apple", new JsonObject()));
         
-        // Service 초기화 (AuthService는 다른 서비스들 이후에 초기화)
+        // Service 珥덇린??(AuthService???ㅻⅨ ?쒕퉬?ㅻ뱾 ?댄썑??珥덇린??
         String minAppVersion = System.getenv("MIN_APP_VERSION");
         if (minAppVersion == null || minAppVersion.isBlank()) {
             minAppVersion = config().getJsonObject("frontend", new JsonObject()).getString("minAppVersion");
@@ -279,26 +279,29 @@ public class ApiVerticle extends AbstractVerticle {
             minAppVersion, appConfigRepository);
         AuthUtils.configureDeviceGuard(new DeviceGuard(pool, deviceRepository, authService));
         InquiryService inquiryService = new InquiryService(
-            pool, inquiryRepository, userService);
+            pool, inquiryRepository, userService, notificationService);
         MissionService missionService = new MissionService(
-            pool, missionRepository);
+            pool, missionRepository, notificationService);
         AirdropService airdropService = new AirdropService(
             pool, airdropRepository, currencyRepository, transferRepository, walletRepository);
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
-        // 이메일 재시도 큐 소비 (Redis 있을 때만, 주기적으로 RPOP → 재시도 → 최종 실패 시 DLQ)
+        // ?대찓???ъ떆?????뚮퉬 (Redis ?덉쓣 ?뚮쭔, 二쇨린?곸쑝濡?RPOP ???ъ떆????理쒖쥌 ?ㅽ뙣 ??DLQ)
         if (redisApi != null && retryQueuePublisher != null) {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
         }
 
-        // 채굴 정산 배치: 1시간마다 미정산 세션을 mining_history·internal_transfers에 반영 (API 미호출 유저 대응)
+        // 梨꾧뎬 ?뺤궛 諛곗튂: 1?쒓컙留덈떎 誘몄젙???몄뀡??mining_history쨌internal_transfers??諛섏쁺 (API 誘명샇異??좎? ???
         startMiningSettlementBatch(miningService);
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
         startExchangeRateRefreshScheduler(currencyService);
 
-        // Handler 초기화
+        // Re-dispatch pending withdrawals so external settlement is eventually processed.
+        startWithdrawalRedispatchScheduler(transferService);
+
+        // Handler 珥덇린??
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
         AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
@@ -326,7 +329,7 @@ public class ApiVerticle extends AbstractVerticle {
         AirdropHandler airdropHandler = new AirdropHandler(vertx, airdropService, jwtAuth);
         ClientHandler clientHandler = new ClientHandler(vertx, clientService, jwtAuth);
         
-        // 모니터링 API 키 (환경 변수 또는 config에서 가져오기)
+        // 紐⑤땲?곕쭅 API ??(?섍꼍 蹂???먮뒗 config?먯꽌 媛?몄삤湲?
         String monitoringApiKey = System.getenv("MONITORING_API_KEY");
         if (monitoringApiKey == null || monitoringApiKey.isEmpty()) {
             monitoringApiKey = config().getString("monitoring.apiKey", "default-monitoring-key-change-in-production");
@@ -336,103 +339,103 @@ public class ApiVerticle extends AbstractVerticle {
         }
         MonitoringHandler monitoringHandler = new MonitoringHandler(vertx, monitoringApiKey);
         
-        // Router 생성
+        // Router ?앹꽦
         Router mainRouter = Router.router(vertx);
         
-        // 전역 핸들러
+        // ?꾩뿭 ?몃뱾??
         setupGlobalHandlers(mainRouter);
         
-        // 공개 API (인증 불필요)
+        // 怨듦컻 API (?몄쬆 遺덊븘??
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/app", appHandler.getRouter());
         
-        // 레벨 API를 먼저 등록 (구체적인 경로 우선)
+        // ?덈꺼 API瑜?癒쇱? ?깅줉 (援ъ껜?곸씤 寃쎈줈 ?곗꽑)
         mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/user", levelHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/users", levelHandler.getRouter());
         
-        // 사용자 API (레벨 API 이후에 등록하여 /:id가 나중에 매칭되도록)
+        // ?ъ슜??API (?덈꺼 API ?댄썑???깅줉?섏뿬 /:id媛 ?섏쨷??留ㅼ묶?섎룄濡?
         mainRouter.mountSubRouter("/api/v1/users", userHandler.getRouter());
-        // /api/v1/user도 지원 (단수형 경로)
+        // /api/v1/user??吏??(?⑥닔??寃쎈줈)
         mainRouter.mountSubRouter("/api/v1/user", userHandler.getRouter());
         
-        // 레퍼럴 API (인증 필요, 핸들러 내부에서 JWT 처리)
+        // ?덊띁??API (?몄쬆 ?꾩슂, ?몃뱾???대??먯꽌 JWT 泥섎━)
         mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
         
-        // 전송 API (인증 필요, 핸들러 내부에서 JWT 처리)
+        // ?꾩넚 API (?몄쬆 ?꾩슂, ?몃뱾???대??먯꽌 JWT 泥섎━)
         mainRouter.mountSubRouter("/api/v1/transfers", transferHandler.getRouter());
         
-        // 보너스 API
+        // 蹂대꼫??API
         mainRouter.mountSubRouter("/api/v1/bonus", bonusHandler.getRouter());
         
-        // 채굴 API
+        // 梨꾧뎬 API
         mainRouter.mountSubRouter("/api/v1/mining", miningHandler.getRouter());
         
-        // 공지사항 API
+        // 怨듭??ы빆 API
         mainRouter.mountSubRouter("/api/v1/notices", noticeHandler.getRouter());
         
-        // 알림 API
+        // ?뚮┝ API
         mainRouter.mountSubRouter("/api/v1/notifications", notificationHandler.getRouter());
         
-        // 문의하기 API
+        // 臾몄쓽?섍린 API
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());
         
-        // 미션 API
+        // 誘몄뀡 API
         mainRouter.mountSubRouter("/api/v1/missions", missionHandler.getRouter());
         
-        // 구독 API
+        // 援щ룆 API
         mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());
         
-        // 리뷰 API
+        // 由щ럭 API
         mainRouter.mountSubRouter("/api/v1/review", reviewHandler.getRouter());
         
-        // 에이전시 API
+        // ?먯씠?꾩떆 API
         mainRouter.mountSubRouter("/api/v1/agency", agencyHandler.getRouter());
         
-        // 랭킹 API
+        // ??궧 API
         mainRouter.mountSubRouter("/api/v1/ranking", rankingHandler.getRouter());
         
-        // 배너 API
+        // 諛곕꼫 API
         mainRouter.mountSubRouter("/api/v1/banners", bannerHandler.getRouter());
         
-        // 스왑 API
+        // ?ㅼ솑 API
         mainRouter.mountSubRouter("/api/v1/swap", swapHandler.getRouter());
         
-        // 환전 API
+        // ?섏쟾 API
         mainRouter.mountSubRouter("/api/v1/exchange", exchangeHandler.getRouter());
         
-        // 결제 입금 API
+        // 寃곗젣 ?낃툑 API
         mainRouter.mountSubRouter("/api/v1/payment", paymentDepositHandler.getRouter());
         
-        // 토큰 입금 API
+        // ?좏겙 ?낃툑 API
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
-        // 입금 스캐너용 내부 API (API 키 인증)
+        // ?낃툑 ?ㅼ틦?덉슜 ?대? API (API ???몄쬆)
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
         
-        // 에어드랍 API
+        // ?먯뼱?쒕엻 API
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
         
-        // 클라이언트 API (API Key 기반 토큰 발급 및 유저 데이터 수신)
+        // ?대씪?댁뼵??API (API Key 湲곕컲 ?좏겙 諛쒓툒 諛??좎? ?곗씠???섏떊)
         mainRouter.mountSubRouter("/api/v1/client", clientHandler.getRouter());
         
-        // 보안 API (거래 비밀번호 등)
+        // 蹂댁븞 API (嫄곕옒 鍮꾨?踰덊샇 ??
         mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
         
-        // 통화 API (환율 조회는 공개 API)
+        // ?듯솕 API (?섏쑉 議고쉶??怨듦컻 API)
         mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());
         
-        // 모니터링 페이지 (role 2, 3만 접근 가능)
+        // 紐⑤땲?곕쭅 ?섏씠吏 (role 2, 3留??묎렐 媛??
         mainRouter.mountSubRouter("/", monitoringHandler.getRouter());
         
-        // JWT 인증이 필요한 API
+        // JWT ?몄쬆???꾩슂??API
         Router protectedRouter = Router.router(vertx);
         protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         
         mainRouter.mountSubRouter("/", protectedRouter);
         
-        // HTTP 서버 시작
+        // HTTP ?쒕쾭 ?쒖옉
         HttpServerOptions serverOptions = new HttpServerOptions().setCompressionSupported(true);
         
         vertx.createHttpServer(serverOptions)
@@ -509,7 +512,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Body Handler
         router.route().handler(BodyHandler.create());
         
-        // Request 로깅 및 메트릭 수집 (/health, /metrics는 로그 생략해 다른 로그 확인 용이)
+        // Request 濡쒓퉭 諛?硫뷀듃由??섏쭛 (/health, /metrics??濡쒓렇 ?앸왂???ㅻⅨ 濡쒓렇 ?뺤씤 ?⑹씠)
         router.route().handler(ctx -> {
             long startTime = System.currentTimeMillis();
             String method = ctx.request().method().toString();
@@ -518,10 +521,10 @@ public class ApiVerticle extends AbstractVerticle {
             if (!skipRequestLog) {
                 log.info("[REQUEST] {} {} from {}", method, path, ctx.request().remoteAddress());
             }
-            // 시작 시간을 컨텍스트에 저장 (failure handler에서 사용)
+            // ?쒖옉 ?쒓컙??而⑦뀓?ㅽ듃?????(failure handler?먯꽌 ?ъ슜)
             ctx.put("startTime", startTime);
             
-            // 응답 완료 시 메트릭 기록
+            // ?묐떟 ?꾨즺 ??硫뷀듃由?湲곕줉
             ctx.response().endHandler(v -> {
                 long duration = System.currentTimeMillis() - startTime;
                 int statusCode = ctx.response().getStatusCode();
@@ -531,7 +534,7 @@ public class ApiVerticle extends AbstractVerticle {
             ctx.next();
         });
         
-        // Failure Handler (에러 발생 시 메트릭 기록)
+        // Failure Handler (?먮윭 諛쒖깮 ??硫뷀듃由?湲곕줉)
         router.route().failureHandler(ctx -> {
             Long startTime = ctx.get("startTime");
             if (startTime == null) {
@@ -566,7 +569,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // OpenAPI Spec
         router.get("/openapi.yaml").handler(ctx -> {
-            // Docker 환경: openapi.yaml, 개발 환경: src/main/resources/openapi.yaml
+            // Docker ?섍꼍: openapi.yaml, 媛쒕컻 ?섍꼍: src/main/resources/openapi.yaml
             vertx.fileSystem().readFile("openapi.yaml")
                 .recover(err -> vertx.fileSystem().readFile("src/main/resources/openapi.yaml"))
                 .onSuccess(buffer -> {
@@ -584,7 +587,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private void setupMetricsEndpoint(Router router) {
-        // Prometheus 메트릭 엔드포인트
+        // Prometheus 硫뷀듃由??붾뱶?ъ씤??
         router.get("/metrics").handler(ctx -> {
             try {
                 String prometheusMetrics = metricsCollector.scrape();
@@ -641,7 +644,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * 이메일 재시도 큐 주기 소비: RPOP → 재시도 → 최종 실패 시 DLQ
+     * ?대찓???ъ떆????二쇨린 ?뚮퉬: RPOP ???ъ떆????理쒖쥌 ?ㅽ뙣 ??DLQ
      */
     private void startEmailRetryProcessor(EmailService emailService, RetryQueuePublisher retryQueuePublisher) {
         long intervalMs = 15_000;
@@ -665,11 +668,11 @@ public class ApiVerticle extends AbstractVerticle {
     }
 
     /**
-     * 채굴 정산 배치: 1시간마다 정산 대기 세션(last_settled_at < ends_at)을 settle하여
-     * mining_history·internal_transfers에 반영. 앱을 열지 않은 유저도 채굴 완료 후 DB에 반영됨.
+     * 梨꾧뎬 ?뺤궛 諛곗튂: 1?쒓컙留덈떎 ?뺤궛 ?湲??몄뀡(last_settled_at < ends_at)??settle?섏뿬
+     * mining_history쨌internal_transfers??諛섏쁺. ?깆쓣 ?댁? ?딆? ?좎???梨꾧뎬 ?꾨즺 ??DB??諛섏쁺??
      */
     private void startMiningSettlementBatch(MiningService miningService) {
-        long intervalMs = 3600_000L; // 1시간
+        long intervalMs = 3600_000L; // 1?쒓컙
         vertx.setPeriodic(intervalMs, id -> {
             miningService.runSettlementBatch()
                 .onSuccess(count -> {
@@ -701,6 +704,33 @@ public class ApiVerticle extends AbstractVerticle {
         log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
     }
 
+    /**
+     * Periodically republishes pending withdrawals to guarantee eventual external processing.
+     */
+    private void startWithdrawalRedispatchScheduler(TransferService transferService) {
+        long intervalMs = parseLongEnv("WITHDRAWAL_REDISPATCH_MS", 15_000L);
+        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("WITHDRAWAL_REDISPATCH_BATCH", 100L), 500L));
+
+        // Kick once shortly after startup.
+        vertx.setTimer(2_000L, id -> transferService.redispatchPendingWithdrawals(batchSize)
+            .onSuccess(count -> {
+                if (count > 0) {
+                    log.info("Withdrawal redispatch startup run completed: {} events republished", count);
+                }
+            })
+            .onFailure(t -> log.warn("Withdrawal redispatch startup run failed", t)));
+
+        vertx.setPeriodic(intervalMs, id -> transferService.redispatchPendingWithdrawals(batchSize)
+            .onSuccess(count -> {
+                if (count > 0) {
+                    log.info("Withdrawal redispatch scheduled run completed: {} events republished", count);
+                }
+            })
+            .onFailure(t -> log.warn("Withdrawal redispatch scheduled run failed", t)));
+
+        log.info("Withdrawal redispatch scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
+    }
+
     private static long parseLongEnv(String key, long defaultValue) {
         String v = System.getenv(key);
         if (v == null || v.isBlank()) return defaultValue;
@@ -712,8 +742,8 @@ public class ApiVerticle extends AbstractVerticle {
     }
 
     /**
-     * Redis 초기화 (토큰 블랙리스트·재시도 큐용)
-     * Redis가 없어도 서비스는 동작하도록 null을 반환할 수 있음
+     * Redis 珥덇린??(?좏겙 釉붾옓由ъ뒪?맞룹옱?쒕룄 ?먯슜)
+     * Redis媛 ?놁뼱???쒕퉬?ㅻ뒗 ?숈옉?섎룄濡?null??諛섑솚?????덉쓬
      */
     private RedisAPI initializeRedis(JsonObject redisConfig) {
         try {
@@ -721,7 +751,7 @@ public class ApiVerticle extends AbstractVerticle {
             RedisOptions options = createRedisOptions(redisConfig, mode);
             Redis redisClient = Redis.createClient(vertx, options);
             
-            // 비동기 연결은 나중에 처리되므로, 연결 실패해도 서비스는 계속 동작
+            // 鍮꾨룞湲??곌껐? ?섏쨷??泥섎━?섎?濡? ?곌껐 ?ㅽ뙣?대룄 ?쒕퉬?ㅻ뒗 怨꾩냽 ?숈옉
             redisClient.connect()
                 .onSuccess(conn -> {
                     log.info("Redis connected successfully for token blacklist (mode: {})", mode);
@@ -730,7 +760,7 @@ public class ApiVerticle extends AbstractVerticle {
                     log.warn("Failed to connect to Redis for token blacklist. Logout will work but tokens won't be blacklisted: {}", throwable.getMessage());
                 });
             
-            // RedisAPI는 연결이 완료되기 전에도 생성 가능 (연결 실패 시 null 반환)
+            // RedisAPI???곌껐???꾨즺?섍린 ?꾩뿉???앹꽦 媛??(?곌껐 ?ㅽ뙣 ??null 諛섑솚)
             return RedisAPI.api(redisClient);
         } catch (Exception e) {
             log.warn("Failed to initialize Redis for token blacklist: {}", e.getMessage());
@@ -739,7 +769,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * Redis 모드에 따른 옵션 생성 (EventVerticle과 동일한 로직)
+     * Redis 紐⑤뱶???곕Ⅸ ?듭뀡 ?앹꽦 (EventVerticle怨??숈씪??濡쒖쭅)
      */
     private RedisOptions createRedisOptions(JsonObject redisConfig, String mode) {
         RedisOptions options = new RedisOptions();
@@ -843,3 +873,4 @@ public class ApiVerticle extends AbstractVerticle {
         }
     }
 }
+

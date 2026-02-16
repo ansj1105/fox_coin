@@ -33,6 +33,11 @@ public class InquiryHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::createInquiry);
+
+        router.patch("/:id/answered")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.ADMIN))
+            .handler(this::markInquiryAnswered);
         
         return router;
     }
@@ -48,6 +53,12 @@ public class InquiryHandler extends BaseHandler {
         
         log.info("Creating inquiry for user: {}, subject: {}", userId, dto.getSubject());
         response(ctx, inquiryService.createInquiry(userId, dto));
+    }
+
+    private void markInquiryAnswered(RoutingContext ctx) {
+        Long inquiryId = Long.parseLong(ctx.pathParam("id"));
+        log.info("Marking inquiry as answered: {}", inquiryId);
+        response(ctx, inquiryService.markInquiryAnswered(inquiryId));
     }
 }
 

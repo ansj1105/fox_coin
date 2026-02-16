@@ -11,6 +11,7 @@ import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -68,6 +69,32 @@ public class NotificationService extends BaseService {
     /**
      * 알림 목록 조회
      */
+    public Future<Notification> createNotificationIfAbsentByRelatedId(Long userId, NotificationType type, String title,
+                                                                      String message, Long relatedId, String metadata) {
+        if (relatedId == null) {
+            return createNotification(userId, type, title, message, null, metadata);
+        }
+        return notificationRepository.existsByUserTypeAndRelatedId(pool, userId, type, relatedId)
+            .compose(exists -> {
+                if (exists) {
+                    return Future.succeededFuture((Notification) null);
+                }
+                return createNotification(userId, type, title, message, relatedId, metadata);
+            });
+    }
+
+    public Future<Notification> createNotificationIfAbsentByDate(Long userId, NotificationType type, String title,
+                                                                 String message, LocalDate localDate, Long relatedId,
+                                                                 String metadata) {
+        return notificationRepository.existsByUserTypeAndCreatedDate(pool, userId, type, localDate)
+            .compose(exists -> {
+                if (exists) {
+                    return Future.succeededFuture((Notification) null);
+                }
+                return createNotification(userId, type, title, message, relatedId, metadata);
+            });
+    }
+
     public Future<NotificationListResponseDto> getNotifications(Long userId, Integer limit, Integer offset) {
         return Future.all(
             notificationRepository.getNotifications(pool, userId, limit, offset),

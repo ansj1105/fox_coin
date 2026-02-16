@@ -7,153 +7,183 @@ import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.currency.entities.Currency;
-import com.foxya.coin.swap.dto.SwapRequestDto;
-import com.foxya.coin.swap.dto.SwapResponseDto;
-import com.foxya.coin.swap.dto.SwapQuoteDto;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.swap.dto.SwapCurrenciesDto;
 import com.foxya.coin.swap.dto.SwapInfoDto;
+import com.foxya.coin.swap.dto.SwapQuoteDto;
+import com.foxya.coin.swap.dto.SwapRequestDto;
+import com.foxya.coin.swap.dto.SwapResponseDto;
 import com.foxya.coin.swap.entities.Swap;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
 public class SwapService extends BaseService {
-    
+
     private final SwapRepository swapRepository;
     private final CurrencyRepository currencyRepository;
     private final CurrencyService currencyService;
     private final TransferRepository transferRepository;
-    
-    // 스왑 수수료 (0.2%)
+    private final NotificationService notificationService;
+
     private static final BigDecimal SWAP_FEE_RATE = new BigDecimal("0.002");
-    // 스프레드 (0.3%)
     private static final BigDecimal SWAP_SPREAD_RATE = new BigDecimal("0.003");
-    // 최소 스왑 금액
     private static final BigDecimal MIN_SWAP_AMOUNT = new BigDecimal("0.000001");
-    // KRWT 최소 스왑 금액
     private static final BigDecimal MIN_SWAP_AMOUNT_KRWT = new BigDecimal("1000.0");
-    
-    // 임시 환율 (Oracle 연동 전까지 사용)
-    // KRWT 기준 환율
+
     private static final BigDecimal RATE_ETH = new BigDecimal("5000000.0");
     private static final BigDecimal RATE_USDT = new BigDecimal("1300.0");
     private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
-    
-    public SwapService(PgPool pool, SwapRepository swapRepository, 
-                      CurrencyRepository currencyRepository,
-                      CurrencyService currencyService,
-                      TransferRepository transferRepository) {
+
+    private static final String INTERNAL_CHAIN = "INTERNAL";
+
+    private record ResolvedSwapWallet(Currency currency, Wallet wallet) {}
+
+    public SwapService(PgPool pool,
+                       SwapRepository swapRepository,
+                       CurrencyRepository currencyRepository,
+                       CurrencyService currencyService,
+                       TransferRepository transferRepository) {
+        this(pool, swapRepository, currencyRepository, currencyService, transferRepository, null);
+    }
+
+    public SwapService(PgPool pool,
+                       SwapRepository swapRepository,
+                       CurrencyRepository currencyRepository,
+                       CurrencyService currencyService,
+                       TransferRepository transferRepository,
+                       NotificationService notificationService) {
         super(pool);
         this.swapRepository = swapRepository;
         this.currencyRepository = currencyRepository;
         this.currencyService = currencyService;
         this.transferRepository = transferRepository;
+        this.notificationService = notificationService;
     }
-    
+
     /**
-     * 스왑 실행
+     * Execute swap with internal-wallet-first resolution.
      */
     public Future<SwapResponseDto> executeSwap(Long userId, SwapRequestDto request, String requestIp) {
-        log.info("스왑 실행 요청 - userId: {}, fromCurrency: {}, toCurrency: {}, fromAmount: {}, network: {}", 
+        log.info("Swap request - userId: {}, fromCurrency: {}, toCurrency: {}, fromAmount: {}, network: {}",
             userId, request.getFromCurrencyCode(), request.getToCurrencyCode(), request.getFromAmount(), request.getNetwork());
-        
-        // 1. 유효성 검사
+
         if (request.getFromAmount() == null || request.getFromAmount().compareTo(MIN_SWAP_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("최소 스왑 금액은 " + MIN_SWAP_AMOUNT + " 입니다."));
+            return Future.failedFuture(new BadRequestException("Minimum swap amount is " + MIN_SWAP_AMOUNT));
         }
-        
+
         if (request.getFromCurrencyCode() == null || request.getToCurrencyCode() == null) {
-            return Future.failedFuture(new BadRequestException("통화 코드를 입력해주세요."));
+            return Future.failedFuture(new BadRequestException("Currency code is required."));
         }
-        
+
         if (request.getFromCurrencyCode().equals(request.getToCurrencyCode())) {
-            return Future.failedFuture(new BadRequestException("같은 통화로는 스왑할 수 없습니다."));
+            return Future.failedFuture(new BadRequestException("Cannot swap to the same currency."));
         }
-        
-        // 2. 통화 조회
-        return currencyRepository.getCurrencyByCodeAndChain(pool, request.getFromCurrencyCode(), request.getNetwork())
-            .compose(fromCurrency -> {
-                if (fromCurrency == null) {
-                    return Future.failedFuture(new NotFoundException("FROM 통화를 찾을 수 없습니다: " + request.getFromCurrencyCode()));
-                }
-                
-                return currencyRepository.getCurrencyByCodeAndChain(pool, request.getToCurrencyCode(), request.getNetwork())
-                    .compose(toCurrency -> {
-                        if (toCurrency == null) {
-                            return Future.failedFuture(new NotFoundException("TO 통화를 찾을 수 없습니다: " + request.getToCurrencyCode()));
+
+        return resolvePreferredSwapWallet(userId, request.getFromCurrencyCode(), request.getNetwork(), "FROM")
+            .compose(fromResolved ->
+                resolvePreferredSwapWallet(userId, request.getToCurrencyCode(), request.getNetwork(), "TO")
+                    .compose(toResolved -> {
+                        Currency fromCurrency = fromResolved.currency();
+                        Currency toCurrency = toResolved.currency();
+                        Wallet fromWallet = fromResolved.wallet();
+
+                        BigDecimal exchangeRate = currencyService.getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
+                        BigDecimal feeAmount = request.getFromAmount().multiply(SWAP_FEE_RATE).setScale(18, RoundingMode.DOWN);
+                        BigDecimal spreadAmount = request.getFromAmount().multiply(exchangeRate).multiply(SWAP_SPREAD_RATE).setScale(18, RoundingMode.DOWN);
+                        BigDecimal toAmount = request.getFromAmount().multiply(exchangeRate)
+                            .subtract(feeAmount)
+                            .subtract(spreadAmount)
+                            .setScale(18, RoundingMode.DOWN);
+
+                        if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
+                            return Future.failedFuture(new BadRequestException("Insufficient balance."));
                         }
-                        
-                        // 3. 사용자 지갑 조회
-                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, fromCurrency.getId())
-                            .compose(fromWallet -> {
-                                if (fromWallet == null) {
-                                    return Future.failedFuture(new NotFoundException("FROM 지갑을 찾을 수 없습니다."));
+
+                        return executeSwapTransaction(
+                            userId,
+                            fromCurrency,
+                            toCurrency,
+                            fromWallet,
+                            request.getFromAmount(),
+                            toAmount,
+                            request.getNetwork(),
+                            requestIp
+                        ).compose(this::createSwapCompletedNotification);
+                    }));
+    }
+
+    private Future<ResolvedSwapWallet> resolvePreferredSwapWallet(Long userId, String currencyCode, String network, String direction) {
+        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, network)
+            .compose(externalCurrency -> {
+                if (externalCurrency == null) {
+                    return Future.failedFuture(new NotFoundException(direction + " currency not found: " + currencyCode));
+                }
+
+                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId())
+                    .compose(externalWallet ->
+                        currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, INTERNAL_CHAIN)
+                            .compose(internalCurrency -> {
+                                if (internalCurrency == null) {
+                                    if (externalWallet == null) {
+                                        return Future.failedFuture(new NotFoundException(direction + " wallet not found."));
+                                    }
+                                    return Future.succeededFuture(new ResolvedSwapWallet(externalCurrency, externalWallet));
                                 }
-                                
-                                // 4. 환율 계산 (CurrencyService 사용)
-                                BigDecimal exchangeRate = currencyService.getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
-                                
-                                // 5. 수수료 계산
-                                BigDecimal feeAmount = request.getFromAmount().multiply(SWAP_FEE_RATE).setScale(18, RoundingMode.DOWN);
-                                
-                                // 6. 스프레드 계산
-                                BigDecimal spreadAmount = request.getFromAmount().multiply(exchangeRate).multiply(SWAP_SPREAD_RATE).setScale(18, RoundingMode.DOWN);
-                                
-                                // 7. TO 금액 계산: toAmount = (fromAmount * exchangeRate) - feeAmount - spreadAmount
-                                BigDecimal toAmount = request.getFromAmount().multiply(exchangeRate)
-                                    .subtract(feeAmount)
-                                    .subtract(spreadAmount)
-                                    .setScale(18, RoundingMode.DOWN);
-                                
-                                // 8. 잔액 확인
-                                if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
-                                    return Future.failedFuture(new BadRequestException("잔액이 부족합니다."));
-                                }
-                                
-                                // 9. 스왑 실행
-                                return executeSwapTransaction(userId, fromCurrency, toCurrency, fromWallet, 
-                                    request.getFromAmount(), toAmount, request.getNetwork(), requestIp);
-                            });
-                    });
+
+                                return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, internalCurrency.getId())
+                                    .compose(internalWallet -> {
+                                        if (internalWallet != null) {
+                                            return Future.succeededFuture(new ResolvedSwapWallet(internalCurrency, internalWallet));
+                                        }
+                                        if (externalWallet != null) {
+                                            return Future.succeededFuture(new ResolvedSwapWallet(externalCurrency, externalWallet));
+                                        }
+                                        return Future.failedFuture(new NotFoundException(direction + " wallet not found."));
+                                    });
+                            }));
             });
     }
-    
-    /**
-     * 스왑 트랜잭션 실행
-     */
-    private Future<SwapResponseDto> executeSwapTransaction(Long userId, Currency fromCurrency, Currency toCurrency,
-                                                           Wallet fromWallet, BigDecimal fromAmount, BigDecimal toAmount,
-                                                           String network, String requestIp) {
+
+    private Future<SwapResponseDto> executeSwapTransaction(Long userId,
+                                                           Currency fromCurrency,
+                                                           Currency toCurrency,
+                                                           Wallet fromWallet,
+                                                           BigDecimal fromAmount,
+                                                           BigDecimal toAmount,
+                                                           String network,
+                                                           String requestIp) {
         String swapId = UUID.randomUUID().toString();
         String orderNumber = OrderNumberUtils.generateOrderNumber();
-        
-        return pool.withTransaction(client -> {
-            // 1. FROM 지갑 잔액 차감
-            return transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
+
+        return pool.withTransaction(client ->
+            transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
                 .compose(updatedFromWallet -> {
                     if (updatedFromWallet == null) {
-                        return Future.failedFuture(new BadRequestException("잔액 차감 실패"));
+                        return Future.failedFuture(new BadRequestException("Failed to deduct balance."));
                     }
-                    
-                    // 2. TO 지갑 조회 또는 생성
+
                     return transferRepository.getWalletByUserIdAndCurrencyId(client, userId, toCurrency.getId())
                         .compose(toWallet -> {
                             if (toWallet == null) {
-                                return Future.failedFuture(new NotFoundException("TO 지갑을 찾을 수 없습니다."));
+                                return Future.failedFuture(new NotFoundException("Destination wallet not found."));
                             }
-                            
-                            // 3. TO 지갑 잔액 추가
+
                             return transferRepository.addBalance(client, toWallet.getId(), toAmount)
                                 .compose(updatedToWallet -> {
-                                    // 4. 스왑 기록 생성
                                     Swap swap = Swap.builder()
                                         .swapId(swapId)
                                         .userId(userId)
@@ -165,7 +195,7 @@ public class SwapService extends BaseService {
                                         .network(network)
                                         .status(Swap.STATUS_COMPLETED)
                                         .build();
-                                    
+
                                     return swapRepository.createSwap(client, swap)
                                         .map(createdSwap -> SwapResponseDto.builder()
                                             .swapId(createdSwap.getSwapId())
@@ -180,26 +210,65 @@ public class SwapService extends BaseService {
                                             .build());
                                 });
                         });
-                });
-        });
+                })
+        );
     }
-    
+
+    private Future<SwapResponseDto> createSwapCompletedNotification(SwapResponseDto responseDto) {
+        if (notificationService == null || responseDto == null || responseDto.getSwapId() == null) {
+            return Future.succeededFuture(responseDto);
+        }
+
+        return swapRepository.getSwapBySwapId(pool, responseDto.getSwapId())
+            .compose(swap -> {
+                if (swap == null || swap.getUserId() == null) {
+                    return Future.succeededFuture();
+                }
+
+                String title = "\uC2A4\uC649 \uC644\uB8CC";
+                String message = responseDto.getFromAmount() + " " + responseDto.getFromCurrencyCode() + " \uC2A4\uC649\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
+                JsonObject metadata = new JsonObject()
+                    .put("swapId", responseDto.getSwapId())
+                    .put("orderNumber", responseDto.getOrderNumber())
+                    .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
+                    .put("toCurrencyCode", responseDto.getToCurrencyCode())
+                    .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+                    .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+                    .put("network", responseDto.getNetwork())
+                    .put("status", responseDto.getStatus());
+
+                return notificationService.createNotificationIfAbsentByRelatedId(
+                    swap.getUserId(),
+                    NotificationType.SWAP_SUCCESS,
+                    title,
+                    message,
+                    swap.getId(),
+                    metadata.encode()
+                ).mapEmpty();
+            })
+            .map(v -> responseDto)
+            .recover(err -> {
+                log.warn("?ㅼ솑 ?꾨즺 ?뚮┝ ?앹꽦 ?ㅽ뙣(臾댁떆): swapId={}", responseDto.getSwapId(), err);
+                return Future.succeededFuture(responseDto);
+            });
+    }
+
     /**
-     * 스왑 상세 조회
+     * Get swap details.
      */
     public Future<SwapResponseDto> getSwap(Long userId, String swapId) {
         return swapRepository.getSwapBySwapId(pool, swapId)
             .compose(swap -> {
                 if (swap == null) {
-                    return Future.failedFuture(new NotFoundException("스왑을 찾을 수 없습니다."));
+                    return Future.failedFuture(new NotFoundException("Swap not found."));
                 }
-                
+
                 if (!swap.getUserId().equals(userId)) {
-                    return Future.failedFuture(new BadRequestException("권한이 없습니다."));
+                    return Future.failedFuture(new BadRequestException("No permission."));
                 }
-                
+
                 return currencyRepository.getCurrencyById(pool, swap.getFromCurrencyId())
-                    .compose(fromCurrency -> 
+                    .compose(fromCurrency ->
                         currencyRepository.getCurrencyById(pool, swap.getToCurrencyId())
                             .map(toCurrency -> SwapResponseDto.builder()
                                 .swapId(swap.getSwapId())
@@ -214,42 +283,34 @@ public class SwapService extends BaseService {
                                 .build()));
             });
     }
-    
+
     /**
-     * 스왑 예상 수량 조회
+     * Get swap quote.
      */
-    public Future<SwapQuoteDto> getSwapQuote(String fromCurrencyCode, String toCurrencyCode, 
+    public Future<SwapQuoteDto> getSwapQuote(String fromCurrencyCode, String toCurrencyCode,
                                              BigDecimal fromAmount, String network) {
-        // 1. 통화 조회
         return currencyRepository.getCurrencyByCodeAndChain(pool, fromCurrencyCode, network)
             .compose(fromCurrency -> {
                 if (fromCurrency == null) {
-                    return Future.failedFuture(new NotFoundException("FROM 통화를 찾을 수 없습니다: " + fromCurrencyCode));
+                    return Future.failedFuture(new NotFoundException("FROM currency not found: " + fromCurrencyCode));
                 }
-                
+
                 return currencyRepository.getCurrencyByCodeAndChain(pool, toCurrencyCode, network)
                     .map(toCurrency -> {
                         if (toCurrency == null) {
-                            throw new NotFoundException("TO 통화를 찾을 수 없습니다: " + toCurrencyCode);
+                            throw new NotFoundException("TO currency not found: " + toCurrencyCode);
                         }
-                        
-                                // 2. 환율 계산 (CurrencyService 사용)
+
                         BigDecimal exchangeRate = currencyService.getExchangeRate(fromCurrencyCode, toCurrencyCode);
-                        
-                        // 3. 수수료 계산
                         BigDecimal fee = SWAP_FEE_RATE;
                         BigDecimal feeAmount = fromAmount.multiply(fee).setScale(18, RoundingMode.DOWN);
-                        
-                        // 4. 스프레드 계산
                         BigDecimal spread = SWAP_SPREAD_RATE;
                         BigDecimal spreadAmount = fromAmount.multiply(exchangeRate).multiply(spread).setScale(18, RoundingMode.DOWN);
-                        
-                        // 5. TO 금액 계산: toAmount = (fromAmount * exchangeRate) - feeAmount - spreadAmount
                         BigDecimal toAmount = fromAmount.multiply(exchangeRate)
                             .subtract(feeAmount)
                             .subtract(spreadAmount)
                             .setScale(18, RoundingMode.DOWN);
-                        
+
                         return SwapQuoteDto.builder()
                             .fromCurrencyCode(fromCurrencyCode)
                             .toCurrencyCode(toCurrencyCode)
@@ -265,47 +326,46 @@ public class SwapService extends BaseService {
                     });
             });
     }
-    
+
     /**
-     * 스왑 가능한 통화 목록 조회
+     * Get list of swappable currencies.
      */
     public Future<SwapCurrenciesDto> getSwapCurrencies() {
         return currencyRepository.getAllActiveCurrencies(pool)
             .map(currencies -> {
                 List<SwapCurrenciesDto.CurrencyInfo> currencyInfos = currencies.stream()
-                    .filter(c -> !"INTERNAL".equals(c.getChain())) // INTERNAL 체인 제외 (스왑 불가)
+                    .filter(c -> !INTERNAL_CHAIN.equals(c.getChain()))
                     .map(c -> SwapCurrenciesDto.CurrencyInfo.builder()
                         .code(c.getCode())
                         .name(c.getName())
-                        .symbol(c.getCode()) // 임시로 code를 symbol로 사용
+                        .symbol(c.getCode())
                         .network(c.getChain())
-                        .decimals(18) // 임시로 18로 설정 (실제로는 DB에 저장되어야 함)
+                        .decimals(18)
                         .minSwapAmount("KRWT".equals(c.getCode()) ? MIN_SWAP_AMOUNT_KRWT : MIN_SWAP_AMOUNT)
                         .build())
                     .collect(Collectors.toList());
-                
+
                 return SwapCurrenciesDto.builder()
                     .currencies(currencyInfos)
                     .build();
             });
     }
-    
+
     /**
-     * 스왑 정보 조회
+     * Get static swap configuration.
      */
     public Future<SwapInfoDto> getSwapInfo(String currencyCode) {
         Map<String, BigDecimal> minSwapAmount = new HashMap<>();
         if (currencyCode != null && "KRWT".equals(currencyCode)) {
             minSwapAmount.put("KRWT", MIN_SWAP_AMOUNT_KRWT);
         }
-        
+
         return Future.succeededFuture(SwapInfoDto.builder()
             .fee(SWAP_FEE_RATE)
             .spread(SWAP_SPREAD_RATE)
             .minSwapAmount(minSwapAmount.isEmpty() ? null : minSwapAmount)
             .priceSource("Oracle")
-            .note("실시간 가격: (Oracle) 시세 기준")
+            .note("Realtime price source: Oracle")
             .build());
     }
-    
 }
