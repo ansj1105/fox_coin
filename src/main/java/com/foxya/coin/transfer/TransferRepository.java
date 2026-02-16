@@ -87,10 +87,10 @@ public class TransferRepository extends BaseRepository {
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
     
-    // ========== ?대? ?꾩넚 ==========
+    // Normalized comment.
     
     /**
-     * ?대? ?꾩넚 ?앹꽦
+      * Normalized comment.
      */
     public Future<InternalTransfer> createInternalTransfer(SqlClient client, InternalTransfer transfer) {
         Map<String, Object> params = new HashMap<>();
@@ -113,11 +113,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("?대? ?꾩넚 ?앹꽦 ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?대? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?꾨즺)
+      * Normalized comment.
      */
     public Future<InternalTransfer> completeInternalTransfer(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -132,11 +132,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("?대? ?꾩넚 ?꾨즺 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?대? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?ㅽ뙣)
+      * Normalized comment.
      */
     public Future<InternalTransfer> failInternalTransfer(SqlClient client, String transferId, String errorMessage) {
         String sql = QueryBuilder
@@ -152,11 +152,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(internalTransferMapper, rows))
-            .onFailure(e -> log.error("?대? ?꾩넚 ?ㅽ뙣 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?대? ?꾩넚 議고쉶 by transferId
+      * Normalized comment.
      */
     public Future<InternalTransfer> getInternalTransferById(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -169,7 +169,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ?ъ슜?먯쓽 ?대? ?꾩넚 ?댁뿭 議고쉶 (sender ?먮뒗 receiver??嫄대쭔, deleted ?쒖쇅)
+      * Normalized comment.
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
         String sql = QueryBuilder
@@ -191,7 +191,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ?섏떊??湲곗? ?덊띁???섏씡(REFERRAL_REWARD) ?댁뿭 議고쉶 (梨꾧뎬 ?댁뿭 ?붾㈃ 蹂묓빀??
+      * Normalized comment.
      */
     public Future<List<InternalTransfer>> getReferralRewardTransfersByReceiver(SqlClient client, Long receiverId, LocalDate startDate, Integer limit, Integer offset) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -215,11 +215,11 @@ public class TransferRepository extends BaseRepository {
         params.put("offset", offset);
         return query(client, sql, params)
             .map(rows -> fetchAll(internalTransferMapper, rows))
-            .onFailure(throwable -> log.error("?덊띁???섏씡 ?댁뿭 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("Normalized log message", receiverId, throwable));
     }
     
     /**
-     * ?섏떊??湲곗? ?덊띁???섏씡 嫄댁닔
+      * Normalized comment.
      */
     public Future<Long> getReferralRewardCountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -246,11 +246,11 @@ public class TransferRepository extends BaseRepository {
                 Long v = it.next().getLong("total");
                 return v != null ? v : 0L;
             })
-            .onFailure(throwable -> log.error("?덊띁???섏씡 嫄댁닔 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("Normalized log message", receiverId, throwable));
     }
     
     /**
-     * ?섏떊??湲곗? ?덊띁???섏씡 ?⑷퀎
+      * Normalized comment.
      */
     public Future<BigDecimal> getReferralRewardTotalAmountByReceiver(SqlClient client, Long receiverId, LocalDate startDate) {
         QueryBuilder.SelectQueryBuilder q = QueryBuilder
@@ -277,13 +277,13 @@ public class TransferRepository extends BaseRepository {
                 BigDecimal v = it.next().getBigDecimal("total_amount");
                 return v != null ? v : BigDecimal.ZERO;
             })
-            .onFailure(throwable -> log.error("?덊띁???섏씡 ?⑷퀎 議고쉶 ?ㅽ뙣 - receiverId: {}", receiverId, throwable));
+            .onFailure(throwable -> log.error("Normalized log message", receiverId, throwable));
     }
     
-    // ========== ?몃? ?꾩넚 ==========
+    // Normalized comment.
     
     /**
-     * ?몃? ?꾩넚 ?앹꽦
+      * Normalized comment.
      */
     public Future<ExternalTransfer> createExternalTransfer(SqlClient client, ExternalTransfer transfer) {
         Map<String, Object> params = new HashMap<>();
@@ -308,11 +308,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 ?앹꽦 ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?쒖텧??
+      * Normalized comment.
      */
     public Future<ExternalTransfer> submitExternalTransfer(SqlClient client, String transferId, String txHash) {
         String sql = QueryBuilder
@@ -328,11 +328,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 ?쒖텧 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (而⑦럩)
+      * Normalized comment.
      */
     public Future<ExternalTransfer> confirmExternalTransfer(SqlClient client, String transferId, int confirmations) {
         String sql = QueryBuilder
@@ -348,11 +348,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 而⑦럩 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?몃? ?꾩넚 ?곹깭 ?낅뜲?댄듃 (?ㅽ뙣)
+      * Normalized comment.
      */
     public Future<ExternalTransfer> failExternalTransfer(SqlClient client, String transferId, String errorCode, String errorMessage) {
         String sql = QueryBuilder
@@ -369,11 +369,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 ?ㅽ뙣 泥섎━ ?ㅽ뙣: {}", e.getMessage()));
+            .onFailure(e -> log.error("Normalized log message", e.getMessage()));
     }
     
     /**
-     * ?ъ슜?먯쓽 ?몃? ?꾩넚 ?댁뿭 議고쉶
+      * Normalized comment.
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByUserId(SqlClient client, Long userId, int limit, int offset) {
         String sql = QueryBuilder
@@ -392,11 +392,11 @@ public class TransferRepository extends BaseRepository {
         
         return query(client, sql, params)
             .map(rows -> fetchAll(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 ?댁뿭 議고쉶 ?ㅽ뙣 - userId: {}", userId));
+            .onFailure(e -> log.error("Normalized log message", userId));
     }
     
     /**
-     * ?몃? ?꾩넚 議고쉶 by transferId
+      * Normalized comment.
      */
     public Future<ExternalTransfer> getExternalTransferById(SqlClient client, String transferId) {
         String sql = QueryBuilder
@@ -410,7 +410,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ?곹깭蹂??몃? ?꾩넚 紐⑸줉 (異쒓툑 ?뚯빱 而⑦럩 異붿쟻??
+      * Normalized comment.
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByStatus(SqlClient client, String status, int limit) {
         String sql = QueryBuilder
@@ -426,11 +426,11 @@ public class TransferRepository extends BaseRepository {
         params.put("limit", Math.min(limit, 500));
         return query(client, sql, params)
             .map(rows -> fetchAll(externalTransferMapper, rows))
-            .onFailure(e -> log.error("?몃? ?꾩넚 紐⑸줉 議고쉶 ?ㅽ뙣 - status: {}", status));
+            .onFailure(e -> log.error("Normalized log message", status));
     }
 
     /**
-     * ?몃? ?꾩넚 議고쉶 by txHash
+      * Normalized comment.
      */
     public Future<ExternalTransfer> getExternalTransferByTxHash(SqlClient client, String txHash) {
         String sql = QueryBuilder
@@ -443,7 +443,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 泥섎━ ?湲곗쨷???몃? ?꾩넚 議고쉶 (Node.js ?쒕퉬?ㅼ뿉??泥섎━)
+      * Normalized comment.
      */
     public Future<List<ExternalTransfer>> getPendingExternalTransfers(SqlClient client, int limit) {
         String sql = QueryBuilder
@@ -476,10 +476,10 @@ public class TransferRepository extends BaseRepository {
             .onFailure(e -> log.error("Failed to increment retry_count - transferId: {}", transferId, e));
     }
     
-    // ========== 吏媛?愿??==========
+    // Normalized comment.
     
     /**
-     * 吏媛?二쇱냼濡?吏媛?議고쉶
+      * Normalized comment.
      */
     public Future<Wallet> getWalletByAddress(SqlClient client, String address) {
         String sql = QueryBuilder
@@ -498,7 +498,7 @@ public class TransferRepository extends BaseRepository {
     }
 
     /**
-     * 吏媛?二쇱냼濡?吏媛?議고쉶 (??뚮Ц??臾댁떆)
+      * Normalized comment.
      */
     public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
         String sql = QueryBuilder
@@ -515,7 +515,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ?ъ슜?먯쓽 ?뱀젙 ?듯솕 吏媛?議고쉶
+      * Normalized comment.
      */
     public Future<Wallet> getWalletByUserIdAndCurrencyId(SqlClient client, Long userId, Integer currencyId) {
         String sql = QueryBuilder
@@ -534,7 +534,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ?ъ슜?먯쓽 紐⑤뱺 ?꾩넚 ?댁뿭 Soft Delete
+      * Normalized comment.
      */
     public Future<Void> softDeleteTransfersByUserId(SqlClient client, Long userId) {
         // Internal transfer soft delete.
@@ -574,7 +574,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 吏媛??붿븸 李④컧 (?≪떊??
+      * Normalized comment.
      */
     public Future<Wallet> deductBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
@@ -596,7 +596,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 吏媛??붿븸 異붽? (?섏떊??
+      * Normalized comment.
      */
     public Future<Wallet> addBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
@@ -617,7 +617,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 吏媛??붿븸 ?좉툑 (?몃? ?꾩넚 ??
+      * Normalized comment.
      */
     public Future<Wallet> lockBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
@@ -640,7 +640,7 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * 吏媛??붿븸 ?좉툑 ?댁젣 (?몃? ?꾩넚 ?꾨즺/?ㅽ뙣 ??
+      * Normalized comment.
      */
     public Future<Wallet> unlockBalance(SqlClient client, Long walletId, BigDecimal amount, boolean refund) {
         String sql;
@@ -674,14 +674,14 @@ public class TransferRepository extends BaseRepository {
     }
     
     /**
-     * ??젣?섏? ?딆? ?대? ?꾩넚 議고쉶 (not_deleted ?꾩슜)
+      * Normalized comment.
      */
     public Future<List<InternalTransfer>> getInternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
         return getInternalTransfersByUserId(client, userId, limit, offset);
     }
     
     /**
-     * ??젣?섏? ?딆? ?몃? ?꾩넚 議고쉶 (not_deleted ?꾩슜)
+      * Normalized comment.
      */
     public Future<List<ExternalTransfer>> getExternalTransfersByUserIdNotDeleted(SqlClient client, Long userId, int limit, int offset) {
         return getExternalTransfersByUserId(client, userId, limit, offset);

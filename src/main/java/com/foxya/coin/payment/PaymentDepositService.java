@@ -47,21 +47,21 @@ public class PaymentDepositService extends BaseService {
     }
 
     public Future<PaymentDepositResponseDto> requestPaymentDeposit(Long userId, PaymentDepositRequestDto request, String requestIp) {
-        log.info("寃곗젣 ?낃툑 ?붿껌 - userId: {}, currencyCode: {}, amount: {}, depositMethod: {}, paymentAmount: {}",
+        log.info("Normalized log message",
             userId, request.getCurrencyCode(), request.getAmount(), request.getDepositMethod(), request.getPaymentAmount());
 
         if (request.getAmount() == null || request.getAmount().compareTo(MIN_DEPOSIT_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("理쒖냼 ?낃툑 湲덉븸? " + MIN_DEPOSIT_AMOUNT + " ?낅땲??"));
+            return Future.failedFuture(new BadRequestException("Invalid request." + MIN_DEPOSIT_AMOUNT + "Invalid request."));
         }
 
         if (request.getPaymentAmount() == null || request.getPaymentAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            return Future.failedFuture(new BadRequestException("寃곗젣 湲덉븸???낅젰?댁＜?몄슂."));
+            return Future.failedFuture(new BadRequestException("Invalid request."));
         }
 
         return currencyRepository.getCurrencyByCode(pool, request.getCurrencyCode())
             .compose(currency -> {
                 if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("?듯솕瑜?李얠쓣 ???놁뒿?덈떎: " + request.getCurrencyCode()));
+                    return Future.failedFuture(new NotFoundException("Resource not found." + request.getCurrencyCode()));
                 }
 
                 String depositId = UUID.randomUUID().toString();
@@ -96,18 +96,18 @@ public class PaymentDepositService extends BaseService {
         return paymentDepositRepository.getPaymentDepositByDepositId(pool, depositId)
             .compose(deposit -> {
                 if (deposit == null) {
-                    return Future.failedFuture(new NotFoundException("寃곗젣 ?낃툑??李얠쓣 ???놁뒿?덈떎."));
+                    return Future.failedFuture(new NotFoundException("Resource not found."));
                 }
 
                 if (!PaymentDeposit.STATUS_PENDING.equals(deposit.getStatus())) {
-                    return Future.failedFuture(new BadRequestException("?대? 泥섎━???낃툑?낅땲??"));
+                    return Future.failedFuture(new BadRequestException("Invalid request."));
                 }
 
                 return pool.withTransaction(client ->
                     transferRepository.getWalletByUserIdAndCurrencyId(client, deposit.getUserId(), deposit.getCurrencyId())
                         .compose(wallet -> {
                             if (wallet == null) {
-                                return Future.failedFuture(new NotFoundException("吏媛묒쓣 李얠쓣 ???놁뒿?덈떎."));
+                                return Future.failedFuture(new NotFoundException("Resource not found."));
                             }
 
                             return transferRepository.addBalance(client, wallet.getId(), deposit.getAmount())
@@ -161,7 +161,7 @@ public class PaymentDepositService extends BaseService {
             })
             .map(v -> responseDto)
             .recover(err -> {
-                log.warn("寃곗젣 ?낃툑 ?꾨즺 ?뚮┝ ?앹꽦 ?ㅽ뙣(臾댁떆): depositId={}", responseDto.getDepositId(), err);
+                log.warn("Normalized log message", responseDto.getDepositId(), err);
                 return Future.succeededFuture(responseDto);
             });
     }
@@ -170,11 +170,11 @@ public class PaymentDepositService extends BaseService {
         return paymentDepositRepository.getPaymentDepositByDepositId(pool, depositId)
             .compose(deposit -> {
                 if (deposit == null) {
-                    return Future.failedFuture(new NotFoundException("寃곗젣 ?낃툑??李얠쓣 ???놁뒿?덈떎."));
+                    return Future.failedFuture(new NotFoundException("Resource not found."));
                 }
 
                 if (!deposit.getUserId().equals(userId)) {
-                    return Future.failedFuture(new BadRequestException("沅뚰븳???놁뒿?덈떎."));
+                    return Future.failedFuture(new BadRequestException("Invalid request."));
                 }
 
                 return currencyRepository.getCurrencyById(pool, deposit.getCurrencyId())

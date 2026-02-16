@@ -59,48 +59,48 @@ public class ExchangeService extends BaseService {
     }
 
     /**
-     * ?섏쟾 ?ㅽ뻾 (KORI -> F_COIN)
+      * Normalized comment.
      */
     public Future<ExchangeResponseDto> executeExchange(Long userId, ExchangeRequestDto request, String requestIp) {
-        log.info("?섏쟾 ?ㅽ뻾 ?붿껌 - userId: {}, fromAmount: {}", userId, request.getFromAmount());
+        log.info("Normalized log message", userId, request.getFromAmount());
 
         if (request.getTransactionPassword() == null || !request.getTransactionPassword().matches("^\\d{6}$")) {
-            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇???レ옄 6?먮━?ъ빞 ?⑸땲??"));
+            return Future.failedFuture(new BadRequestException("Invalid request."));
         }
 
         return loadActiveSetting()
             .compose(setting -> {
                 if (request.getFromAmount() == null || request.getFromAmount().compareTo(setting.getMinExchangeAmount()) < 0) {
-                    return Future.failedFuture(new BadRequestException("理쒖냼 ?섏쟾 湲덉븸? " + setting.getMinExchangeAmount() + " ?낅땲??"));
+                    return Future.failedFuture(new BadRequestException("Invalid request." + setting.getMinExchangeAmount() + "Invalid request."));
                 }
                 return userRepository.getUserById(pool, userId)
                     .compose(user -> {
                         if (user == null) {
-                            return Future.failedFuture(new NotFoundException("?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎."));
+                            return Future.failedFuture(new NotFoundException("Resource not found."));
                         }
                         if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
-                            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇瑜??ㅼ젙?댁＜?몄슂."));
+                            return Future.failedFuture(new BadRequestException("Invalid request."));
                         }
                         if (!matchesTransactionPassword(request.getTransactionPassword(), user.getTransactionPasswordHash())) {
-                            return Future.failedFuture(new BadRequestException("嫄곕옒 鍮꾨?踰덊샇媛 ?щ컮瑜댁? ?딆뒿?덈떎."));
+                            return Future.failedFuture(new BadRequestException("Invalid request."));
                         }
 
                         return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getFromCurrencyCode(), EXCHANGE_CHAIN)
                             .compose(fromCurrency -> {
                                 if (fromCurrency == null) {
-                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " ?듯솕瑜?李얠쓣 ???놁뒿?덈떎."));
+                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + "Resource not found."));
                                 }
 
                                 return currencyRepository.getCurrencyByCodeAndChain(pool, setting.getToCurrencyCode(), EXCHANGE_CHAIN)
                                     .compose(toCurrency -> {
                                         if (toCurrency == null) {
-                                            return Future.failedFuture(new NotFoundException(setting.getToCurrencyCode() + " ?듯솕瑜?李얠쓣 ???놁뒿?덈떎."));
+                                            return Future.failedFuture(new NotFoundException(setting.getToCurrencyCode() + "Resource not found."));
                                         }
 
                                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, fromCurrency.getId())
                                             .compose(fromWallet -> {
                                                 if (fromWallet == null) {
-                                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + " 吏媛묒쓣 李얠쓣 ???놁뒿?덈떎."));
+                                                    return Future.failedFuture(new NotFoundException(setting.getFromCurrencyCode() + "Resource not found."));
                                                 }
 
                                                 BigDecimal feeAmount = request.getFromAmount()
@@ -112,11 +112,11 @@ public class ExchangeService extends BaseService {
                                                     .setScale(18, RoundingMode.DOWN);
 
                                                 if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                                                    return Future.failedFuture(new BadRequestException("?섏쟾 湲덉븸???좏슚?섏? ?딆뒿?덈떎."));
+                                                    return Future.failedFuture(new BadRequestException("Invalid request."));
                                                 }
 
                                                 if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
-                                                    return Future.failedFuture(new BadRequestException("?붿븸??遺議깊빀?덈떎."));
+                                                    return Future.failedFuture(new BadRequestException("Invalid request."));
                                                 }
 
                                                 return executeExchangeTransaction(userId, fromCurrency, toCurrency,
@@ -130,7 +130,7 @@ public class ExchangeService extends BaseService {
     }
 
     /**
-     * ?섏쟾 ?몃옖??뀡 ?ㅽ뻾
+      * Normalized comment.
      */
     private Future<ExchangeResponseDto> executeExchangeTransaction(Long userId, Currency fromCurrency, Currency toCurrency,
                                                                    Wallet fromWallet, BigDecimal fromAmount, BigDecimal toAmount,
@@ -142,13 +142,13 @@ public class ExchangeService extends BaseService {
             transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
                 .compose(updatedFromWallet -> {
                     if (updatedFromWallet == null) {
-                        return Future.failedFuture(new BadRequestException("?붿븸 李④컧 ?ㅽ뙣"));
+                        return Future.failedFuture(new BadRequestException("Invalid request."));
                     }
 
                     return transferRepository.getWalletByUserIdAndCurrencyId(client, userId, toCurrency.getId())
                         .compose(toWallet -> {
                             if (toWallet == null) {
-                                return Future.failedFuture(new NotFoundException("?섏쟾 諛쏆쓣 吏媛묒쓣 李얠쓣 ???놁뒿?덈떎."));
+                                return Future.failedFuture(new NotFoundException("Resource not found."));
                             }
 
                             return transferRepository.addBalance(client, toWallet.getId(), toAmount)
@@ -214,23 +214,23 @@ public class ExchangeService extends BaseService {
             })
             .map(v -> responseDto)
             .recover(err -> {
-                log.warn("?섏쟾 ?꾨즺 ?뚮┝ ?앹꽦 ?ㅽ뙣(臾댁떆): exchangeId={}", responseDto.getExchangeId(), err);
+                log.warn("Normalized log message", responseDto.getExchangeId(), err);
                 return Future.succeededFuture(responseDto);
             });
     }
 
     /**
-     * ?섏쟾 ?곸꽭 議고쉶
+      * Normalized comment.
      */
     public Future<ExchangeResponseDto> getExchange(Long userId, String exchangeId) {
         return exchangeRepository.getExchangeByExchangeId(pool, exchangeId)
             .compose(exchange -> {
                 if (exchange == null) {
-                    return Future.failedFuture(new NotFoundException("?섏쟾??李얠쓣 ???놁뒿?덈떎."));
+                    return Future.failedFuture(new NotFoundException("Resource not found."));
                 }
 
                 if (!exchange.getUserId().equals(userId)) {
-                    return Future.failedFuture(new BadRequestException("沅뚰븳???놁뒿?덈떎."));
+                    return Future.failedFuture(new BadRequestException("Invalid request."));
                 }
 
                 return currencyRepository.getCurrencyById(pool, exchange.getFromCurrencyId())
@@ -250,7 +250,7 @@ public class ExchangeService extends BaseService {
     }
 
     /**
-     * ?섏쟾 ?뺣낫 議고쉶
+      * Normalized comment.
      */
     public Future<ExchangeInfoDto> getExchangeInfo(String currencyCode) {
         return loadActiveSetting()
@@ -265,13 +265,13 @@ public class ExchangeService extends BaseService {
     }
 
     /**
-     * ?섏쟾 ?덉긽 ?섎웾 議고쉶
+      * Normalized comment.
      */
     public Future<ExchangeQuoteDto> getExchangeQuote(BigDecimal fromAmount) {
         return loadActiveSetting()
             .compose(setting -> {
                 if (fromAmount == null || fromAmount.compareTo(setting.getMinExchangeAmount()) < 0) {
-                    return Future.failedFuture(new BadRequestException("理쒖냼 ?섏쟾 湲덉븸? " + setting.getMinExchangeAmount() + " ?낅땲??"));
+                    return Future.failedFuture(new BadRequestException("Invalid request." + setting.getMinExchangeAmount() + "Invalid request."));
                 }
                 BigDecimal feeAmount = fromAmount
                     .multiply(setting.getFee())
@@ -281,7 +281,7 @@ public class ExchangeService extends BaseService {
                     .multiply(setting.getExchangeRate())
                     .setScale(18, RoundingMode.DOWN);
                 if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                    return Future.failedFuture(new BadRequestException("?섏쟾 湲덉븸???좏슚?섏? ?딆뒿?덈떎."));
+                    return Future.failedFuture(new BadRequestException("Invalid request."));
                 }
                 return Future.succeededFuture(ExchangeQuoteDto.builder()
                     .fromCurrencyCode(setting.getFromCurrencyCode())
@@ -299,7 +299,7 @@ public class ExchangeService extends BaseService {
         return exchangeRepository.getActiveExchangeSetting(pool)
             .compose(setting -> {
                 if (setting == null) {
-                    return Future.failedFuture(new BadRequestException("?섏쟾 ?ㅼ젙???놁뒿?덈떎."));
+                    return Future.failedFuture(new BadRequestException("Invalid request."));
                 }
                 return Future.succeededFuture(setting);
             });

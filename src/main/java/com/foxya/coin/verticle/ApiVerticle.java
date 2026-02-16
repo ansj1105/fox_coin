@@ -135,7 +135,7 @@ public class ApiVerticle extends AbstractVerticle {
     public void start(Promise<Void> startPromise) throws Exception {
         log.info("Starting ApiVerticle...");
         
-        // 硫뷀듃由??섏쭛湲?珥덇린??
+        // Normalized comment.
         metricsCollector = new MetricsCollector();
         
         JsonObject httpConfig = config().getJsonObject("http", new JsonObject());
@@ -145,13 +145,13 @@ public class ApiVerticle extends AbstractVerticle {
         
         int port = httpConfig.getInteger("port", 8080);
         
-        // PostgreSQL ?곌껐 ?
+        // Normalized comment.
         PgPool pool = createPgPool(databaseConfig);
         
-        // JWT ?몄쬆
+        // Normalized comment.
         JWTAuth jwtAuth = createJwtAuth(jwtConfig);
         
-        // Repository 珥덇린??
+        // Normalized comment.
         UserRepository userRepository = new UserRepository();
         WalletRepository walletRepository = new WalletRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
@@ -179,13 +179,13 @@ public class ApiVerticle extends AbstractVerticle {
         FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
         NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService);
         
-        // Redis 珥덇린??(?좏겙 釉붾옓由ъ뒪?맞룹옱?쒕룄 ?먯슜)
+        // Normalized comment.
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
         RedisAPI redisApi = initializeRedis(redisConfig);
         RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
         EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
 
-        // ?대찓???쒕퉬??(SMTP ?ㅼ젙? ?좏깮 ?ы빆, ?ㅽ뙣 ??Redis ?ъ떆?????곸옱)
+        // Normalized comment.
         EmailService emailService = new EmailService(
             vertx,
             config().getJsonObject("smtp", new JsonObject()),
@@ -193,14 +193,14 @@ public class ApiVerticle extends AbstractVerticle {
             retryQueuePublisher
         );
         
-        // UserService瑜?癒쇱? ?앹꽦 (AuthService?먯꽌 ?ъ슜)
+        // Normalized comment.
         UserService userService = new UserService(
             pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService, redisApi, userExternalIdRepository);
         
-        // WebClient 珥덇린??(?몃? API ?몄텧??
+        // Normalized comment.
         WebClient webClient = WebClient.create(vertx);
         
-        // TRON ?쒕퉬??URL 媛?몄삤湲?
+        // Normalized comment.
         JsonObject blockchainConfig = config().getJsonObject("blockchain", new JsonObject());
         JsonObject tronConfig = blockchainConfig.getJsonObject("tron", new JsonObject());
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
@@ -231,7 +231,7 @@ public class ApiVerticle extends AbstractVerticle {
         BannerService bannerService = new BannerService(
             pool, bannerRepository);
         
-        // CurrencyService 珥덇린??(?ㅻⅨ ?쒕퉬?ㅼ뿉???ъ슜)
+        // Normalized comment.
         ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
         CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, webClient);
         
@@ -256,14 +256,14 @@ public class ApiVerticle extends AbstractVerticle {
         InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
             vertx, transferService, depositScannerApiKey);
         
-        // Google OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
+        // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
-        // Kakao OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
+        // Normalized comment.
         JsonObject kakaoConfig = applyKakaoEnvOverrides(config().getJsonObject("kakao", new JsonObject()));
-        // Apple OAuth ?ㅼ젙 (?섍꼍 蹂???곗꽑)
+        // Normalized comment.
         JsonObject appleConfig = applyAppleEnvOverrides(config().getJsonObject("apple", new JsonObject()));
         
-        // Service 珥덇린??(AuthService???ㅻⅨ ?쒕퉬?ㅻ뱾 ?댄썑??珥덇린??
+        // Normalized comment.
         String minAppVersion = System.getenv("MIN_APP_VERSION");
         if (minAppVersion == null || minAppVersion.isBlank()) {
             minAppVersion = config().getJsonObject("frontend", new JsonObject()).getString("minAppVersion");
@@ -287,12 +287,12 @@ public class ApiVerticle extends AbstractVerticle {
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
-        // ?대찓???ъ떆?????뚮퉬 (Redis ?덉쓣 ?뚮쭔, 二쇨린?곸쑝濡?RPOP ???ъ떆????理쒖쥌 ?ㅽ뙣 ??DLQ)
+        // Normalized comment.
         if (redisApi != null && retryQueuePublisher != null) {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
         }
 
-        // 梨꾧뎬 ?뺤궛 諛곗튂: 1?쒓컙留덈떎 誘몄젙???몄뀡??mining_history쨌internal_transfers??諛섏쁺 (API 誘명샇異??좎? ???
+        // Normalized comment.
         startMiningSettlementBatch(miningService);
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
@@ -301,7 +301,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
 
-        // Handler 珥덇린??
+        // Normalized comment.
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
         AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
@@ -329,7 +329,7 @@ public class ApiVerticle extends AbstractVerticle {
         AirdropHandler airdropHandler = new AirdropHandler(vertx, airdropService, jwtAuth);
         ClientHandler clientHandler = new ClientHandler(vertx, clientService, jwtAuth);
         
-        // 紐⑤땲?곕쭅 API ??(?섍꼍 蹂???먮뒗 config?먯꽌 媛?몄삤湲?
+        // Normalized comment.
         String monitoringApiKey = System.getenv("MONITORING_API_KEY");
         if (monitoringApiKey == null || monitoringApiKey.isEmpty()) {
             monitoringApiKey = config().getString("monitoring.apiKey", "default-monitoring-key-change-in-production");
@@ -339,103 +339,103 @@ public class ApiVerticle extends AbstractVerticle {
         }
         MonitoringHandler monitoringHandler = new MonitoringHandler(vertx, monitoringApiKey);
         
-        // Router ?앹꽦
+        // Normalized comment.
         Router mainRouter = Router.router(vertx);
         
-        // ?꾩뿭 ?몃뱾??
+        // Normalized comment.
         setupGlobalHandlers(mainRouter);
         
-        // 怨듦컻 API (?몄쬆 遺덊븘??
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/app", appHandler.getRouter());
         
-        // ?덈꺼 API瑜?癒쇱? ?깅줉 (援ъ껜?곸씤 寃쎈줈 ?곗꽑)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/user", levelHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/users", levelHandler.getRouter());
         
-        // ?ъ슜??API (?덈꺼 API ?댄썑???깅줉?섏뿬 /:id媛 ?섏쨷??留ㅼ묶?섎룄濡?
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/users", userHandler.getRouter());
-        // /api/v1/user??吏??(?⑥닔??寃쎈줈)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/user", userHandler.getRouter());
         
-        // ?덊띁??API (?몄쬆 ?꾩슂, ?몃뱾???대??먯꽌 JWT 泥섎━)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/referrals", referralHandler.getRouter());
         
-        // ?꾩넚 API (?몄쬆 ?꾩슂, ?몃뱾???대??먯꽌 JWT 泥섎━)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/transfers", transferHandler.getRouter());
         
-        // 蹂대꼫??API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/bonus", bonusHandler.getRouter());
         
-        // 梨꾧뎬 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/mining", miningHandler.getRouter());
         
-        // 怨듭??ы빆 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/notices", noticeHandler.getRouter());
         
-        // ?뚮┝ API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/notifications", notificationHandler.getRouter());
         
-        // 臾몄쓽?섍린 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());
         
-        // 誘몄뀡 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/missions", missionHandler.getRouter());
         
-        // 援щ룆 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/subscription", subscriptionHandler.getRouter());
         
-        // 由щ럭 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/review", reviewHandler.getRouter());
         
-        // ?먯씠?꾩떆 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/agency", agencyHandler.getRouter());
         
-        // ??궧 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/ranking", rankingHandler.getRouter());
         
-        // 諛곕꼫 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/banners", bannerHandler.getRouter());
         
-        // ?ㅼ솑 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/swap", swapHandler.getRouter());
         
-        // ?섏쟾 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/exchange", exchangeHandler.getRouter());
         
-        // 寃곗젣 ?낃툑 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/payment", paymentDepositHandler.getRouter());
         
-        // ?좏겙 ?낃툑 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/deposits", tokenDepositHandler.getRouter());
-        // ?낃툑 ?ㅼ틦?덉슜 ?대? API (API ???몄쬆)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
         
-        // ?먯뼱?쒕엻 API
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
         
-        // ?대씪?댁뼵??API (API Key 湲곕컲 ?좏겙 諛쒓툒 諛??좎? ?곗씠???섏떊)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/client", clientHandler.getRouter());
         
-        // 蹂댁븞 API (嫄곕옒 鍮꾨?踰덊샇 ??
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
         
-        // ?듯솕 API (?섏쑉 議고쉶??怨듦컻 API)
+        // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());
         
-        // 紐⑤땲?곕쭅 ?섏씠吏 (role 2, 3留??묎렐 媛??
+        // Normalized comment.
         mainRouter.mountSubRouter("/", monitoringHandler.getRouter());
         
-        // JWT ?몄쬆???꾩슂??API
+        // Normalized comment.
         Router protectedRouter = Router.router(vertx);
         protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         
         mainRouter.mountSubRouter("/", protectedRouter);
         
-        // HTTP ?쒕쾭 ?쒖옉
+        // Normalized comment.
         HttpServerOptions serverOptions = new HttpServerOptions().setCompressionSupported(true);
         
         vertx.createHttpServer(serverOptions)
@@ -512,7 +512,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Body Handler
         router.route().handler(BodyHandler.create());
         
-        // Request 濡쒓퉭 諛?硫뷀듃由??섏쭛 (/health, /metrics??濡쒓렇 ?앸왂???ㅻⅨ 濡쒓렇 ?뺤씤 ?⑹씠)
+        // Normalized comment.
         router.route().handler(ctx -> {
             long startTime = System.currentTimeMillis();
             String method = ctx.request().method().toString();
@@ -521,10 +521,10 @@ public class ApiVerticle extends AbstractVerticle {
             if (!skipRequestLog) {
                 log.info("[REQUEST] {} {} from {}", method, path, ctx.request().remoteAddress());
             }
-            // ?쒖옉 ?쒓컙??而⑦뀓?ㅽ듃?????(failure handler?먯꽌 ?ъ슜)
+            // Normalized comment.
             ctx.put("startTime", startTime);
             
-            // ?묐떟 ?꾨즺 ??硫뷀듃由?湲곕줉
+            // Normalized comment.
             ctx.response().endHandler(v -> {
                 long duration = System.currentTimeMillis() - startTime;
                 int statusCode = ctx.response().getStatusCode();
@@ -534,7 +534,7 @@ public class ApiVerticle extends AbstractVerticle {
             ctx.next();
         });
         
-        // Failure Handler (?먮윭 諛쒖깮 ??硫뷀듃由?湲곕줉)
+        // Normalized comment.
         router.route().failureHandler(ctx -> {
             Long startTime = ctx.get("startTime");
             if (startTime == null) {
@@ -569,7 +569,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // OpenAPI Spec
         router.get("/openapi.yaml").handler(ctx -> {
-            // Docker ?섍꼍: openapi.yaml, 媛쒕컻 ?섍꼍: src/main/resources/openapi.yaml
+            // Normalized comment.
             vertx.fileSystem().readFile("openapi.yaml")
                 .recover(err -> vertx.fileSystem().readFile("src/main/resources/openapi.yaml"))
                 .onSuccess(buffer -> {
@@ -587,7 +587,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private void setupMetricsEndpoint(Router router) {
-        // Prometheus 硫뷀듃由??붾뱶?ъ씤??
+        // Normalized comment.
         router.get("/metrics").handler(ctx -> {
             try {
                 String prometheusMetrics = metricsCollector.scrape();
@@ -644,7 +644,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * ?대찓???ъ떆????二쇨린 ?뚮퉬: RPOP ???ъ떆????理쒖쥌 ?ㅽ뙣 ??DLQ
+      * Normalized comment.
      */
     private void startEmailRetryProcessor(EmailService emailService, RetryQueuePublisher retryQueuePublisher) {
         long intervalMs = 15_000;
@@ -668,11 +668,11 @@ public class ApiVerticle extends AbstractVerticle {
     }
 
     /**
-     * 梨꾧뎬 ?뺤궛 諛곗튂: 1?쒓컙留덈떎 ?뺤궛 ?湲??몄뀡(last_settled_at < ends_at)??settle?섏뿬
-     * mining_history쨌internal_transfers??諛섏쁺. ?깆쓣 ?댁? ?딆? ?좎???梨꾧뎬 ?꾨즺 ??DB??諛섏쁺??
+      * Normalized comment.
+      * Normalized comment.
      */
     private void startMiningSettlementBatch(MiningService miningService) {
-        long intervalMs = 3600_000L; // 1?쒓컙
+        long intervalMs = 3600_000L; // 1?�간
         vertx.setPeriodic(intervalMs, id -> {
             miningService.runSettlementBatch()
                 .onSuccess(count -> {
@@ -742,8 +742,8 @@ public class ApiVerticle extends AbstractVerticle {
     }
 
     /**
-     * Redis 珥덇린??(?좏겙 釉붾옓由ъ뒪?맞룹옱?쒕룄 ?먯슜)
-     * Redis媛 ?놁뼱???쒕퉬?ㅻ뒗 ?숈옉?섎룄濡?null??諛섑솚?????덉쓬
+      * Normalized comment.
+      * Normalized comment.
      */
     private RedisAPI initializeRedis(JsonObject redisConfig) {
         try {
@@ -751,7 +751,7 @@ public class ApiVerticle extends AbstractVerticle {
             RedisOptions options = createRedisOptions(redisConfig, mode);
             Redis redisClient = Redis.createClient(vertx, options);
             
-            // 鍮꾨룞湲??곌껐? ?섏쨷??泥섎━?섎?濡? ?곌껐 ?ㅽ뙣?대룄 ?쒕퉬?ㅻ뒗 怨꾩냽 ?숈옉
+            // Normalized comment.
             redisClient.connect()
                 .onSuccess(conn -> {
                     log.info("Redis connected successfully for token blacklist (mode: {})", mode);
@@ -760,7 +760,7 @@ public class ApiVerticle extends AbstractVerticle {
                     log.warn("Failed to connect to Redis for token blacklist. Logout will work but tokens won't be blacklisted: {}", throwable.getMessage());
                 });
             
-            // RedisAPI???곌껐???꾨즺?섍린 ?꾩뿉???앹꽦 媛??(?곌껐 ?ㅽ뙣 ??null 諛섑솚)
+            // Normalized comment.
             return RedisAPI.api(redisClient);
         } catch (Exception e) {
             log.warn("Failed to initialize Redis for token blacklist: {}", e.getMessage());
@@ -769,7 +769,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     /**
-     * Redis 紐⑤뱶???곕Ⅸ ?듭뀡 ?앹꽦 (EventVerticle怨??숈씪??濡쒖쭅)
+      * Normalized comment.
      */
     private RedisOptions createRedisOptions(JsonObject redisConfig, String mode) {
         RedisOptions options = new RedisOptions();
