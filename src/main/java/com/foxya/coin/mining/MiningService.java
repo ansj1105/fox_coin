@@ -147,7 +147,7 @@ public class MiningService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
                 }
-                String nickname = user.getLoginId();
+                final String nickname = (user.getNickname() != null && !user.getNickname().isBlank()) ? user.getNickname() : user.getLoginId();
                 
                 int fetchSize = limitValue + offsetValue;
                 Future<List<MiningHistory>> miningListFuture = miningRepository.getMiningHistory(pool, userId, periodValue, fetchSize, 0);
