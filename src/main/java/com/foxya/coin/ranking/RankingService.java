@@ -6,6 +6,7 @@ import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.RankingScope;
 import com.foxya.coin.ranking.dto.CountryRankingResponseDto;
 import com.foxya.coin.ranking.dto.RankingResponseDto;
+import com.foxya.coin.user.ProfileImageProcessor;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
@@ -172,7 +173,7 @@ public class RankingService extends BaseService {
                                         .userId(ranking.getUserId())
                                         .rank(rank++)
                                         .nickname(ranking.getNickname())
-                                        .profileImage(null) // TODO: 프로필 이미지 추가 시 수정
+                                        .profileImage(ProfileImageProcessor.toRankVariantUrl(ranking.getProfileImageUrl()))
                                         .level(ranking.getLevel())
                                         .levelName("여우야") // TODO: 레벨 이름 매핑 추가 (사용자가 수정함)
                                         .totalAmount(ranking.getTotalAmount() != null ? ranking.getTotalAmount() : BigDecimal.ZERO)
@@ -201,7 +202,7 @@ public class RankingService extends BaseService {
                                         .userId(myRanking.getUserId())
                                         .rank(userRank)
                                         .nickname(myRanking.getNickname())
-                                        .profileImage(null) // TODO: 프로필 이미지 추가 시 수정
+                                        .profileImage(ProfileImageProcessor.toRankVariantUrl(myRanking.getProfileImageUrl()))
                                         .level(myRanking.getLevel())
                                         .levelName("여우야") // TODO: 레벨 이름 매핑 추가
                                         .totalAmount(myRanking.getTotalAmount() != null ? myRanking.getTotalAmount() : BigDecimal.ZERO)
@@ -244,4 +245,3 @@ public class RankingService extends BaseService {
         return rankings.size() + 1;
     }
 }
-

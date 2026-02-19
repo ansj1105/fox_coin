@@ -25,7 +25,7 @@ public class RankingRepository extends BaseRepository {
      * 랭킹 집계 = (채굴된 코인 + 레퍼럴 수익) + (팀원 수 × 20).
      */
     private static final String SQL_PERSONAL_RANKING_FROM_USER_STATS =
-        "SELECT user_id, nickname, level, country_code, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats";
+        "SELECT user_id, nickname, level, country_code, profile_image_url, (mining_amount + referral_reward) as total_amount, team_count, ((mining_amount + referral_reward) + (team_count * 20)) as aggregation FROM user_stats";
 
     /**
      * 국가별 팀 랭킹 조회.
@@ -242,6 +242,7 @@ public class RankingRepository extends BaseRepository {
             .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
+            .append(" u.profile_image_url as profile_image_url,")
             .append(" COALESCE(ms.mining_amount, 0) as mining_amount,")
             .append(" COALESCE(rs.referral_reward, 0) as referral_reward,")
             .append(" COALESCE(ts.team_count, 0) as team_count")
@@ -286,6 +287,7 @@ public class RankingRepository extends BaseRepository {
                         .nickname(getStringColumnValue(row, "nickname"))
                         .level(getIntegerColumnValue(row, "level"))
                         .countryCode(getStringColumnValue(row, "country_code"))
+                        .profileImageUrl(getStringColumnValue(row, "profile_image_url"))
                         .totalAmount(getBigDecimalColumnValue(row, "total_amount"))
                         .teamCount(getLongColumnValue(row, "team_count"))
                         .aggregation(getBigDecimalColumnValue(row, "total_amount"))
@@ -330,6 +332,7 @@ public class RankingRepository extends BaseRepository {
             .append(" COALESCE(NULLIF(TRIM(u.nickname), ''), '') as nickname,")
             .append(" u.level,")
             .append(" COALESCE(u.country_code, 'UNKNOWN') as country_code,")
+            .append(" u.profile_image_url as profile_image_url,")
             .append(" COALESCE(ms.mining_amount, 0) as mining_amount,")
             .append(" COALESCE(rs.referral_reward, 0) as referral_reward,")
             .append(" COALESCE(ts.team_count, 0) as team_count")
@@ -371,6 +374,7 @@ public class RankingRepository extends BaseRepository {
                         .nickname(getStringColumnValue(row, "nickname"))
                         .level(getIntegerColumnValue(row, "level"))
                         .countryCode(getStringColumnValue(row, "country_code"))
+                        .profileImageUrl(getStringColumnValue(row, "profile_image_url"))
                         .totalAmount(getBigDecimalColumnValue(row, "total_amount"))
                         .teamCount(getLongColumnValue(row, "team_count"))
                         .aggregation(getBigDecimalColumnValue(row, "total_amount"))
@@ -409,6 +413,7 @@ public class RankingRepository extends BaseRepository {
         private String nickname;
         private Integer level;
         private String countryCode;
+        private String profileImageUrl;
         private BigDecimal totalAmount;
         private Long teamCount;
         private BigDecimal aggregation;

@@ -3669,6 +3669,91 @@ paths:
         '404':
           description: 사용자를 찾을 수 없음
 
+  /api/v1/users/me/profile-image:
+    post:
+      summary: 내 프로필 이미지 업로드
+      description: 레벨 2 이상 사용자만 프로필 이미지를 등록할 수 있습니다. PNG/JPG 업로드 시 thumb/rank/profile 크기로 저장되며, 서버 이미지 검수(선정성/폭력성 차단)가 활성화된 경우 검수 후 저장됩니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 업로드 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          profileImageUrl:
+                            type: string
+                            example: /api/v1/users/profile-images/39/profile?v=1739999999999
+        '400':
+          description: 레벨 부족, 포맷 오류, 파일 크기 초과 등
+        '401':
+          description: 인증 실패
+    delete:
+      summary: 내 프로필 이미지 삭제
+      description: 현재 저장된 프로필 이미지 1개를 하드 삭제(파일 물리 삭제)하고 DB URL을 null로 변경합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/profile-images/{userId}/{variant}:
+    get:
+      summary: 프로필 이미지 조회
+      description: 저장된 프로필 이미지 변형(thumb/rank/profile)을 PNG로 반환합니다.
+      tags: [User]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: variant
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [thumb, rank, profile]
+      responses:
+        '200':
+          description: 이미지 반환 성공
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: 잘못된 파라미터
+        '404':
+          description: 이미지가 존재하지 않음
+
   /api/v1/user/{id}:
     get:
       summary: 사용자 정보 조회 (legacy path)

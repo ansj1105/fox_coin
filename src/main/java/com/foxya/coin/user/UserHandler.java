@@ -2,6 +2,7 @@ package com.foxya.coin.user;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.ext.web.FileUpload;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -19,6 +20,8 @@ import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.MeResponseDto;
 import com.foxya.coin.user.dto.ExternalLinkCodeRequestDto;
 import lombok.extern.slf4j.Slf4j;
+
+import java.nio.file.Path;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
@@ -55,6 +58,10 @@ public class UserHandler extends BaseHandler {
         // 공개 API (인증 불필요)
         router.post("/register").handler(registerValidation(parser)).handler(this::register);
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
+
+        // 프로필 이미지 조회 (공개)
+        router.get("/profile-images/:userId/:variant")
+            .handler(this::getProfileImage);
         
         // 인증 필요 API - 구체적인 경로를 먼저 등록 (파라미터 경로보다 우선)
 
@@ -69,6 +76,16 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(patchMeValidation(parser))
             .handler(this::patchMe);
+
+        router.post("/me/profile-image")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::uploadProfileImage);
+
+        router.delete("/me/profile-image")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::deleteProfileImage);
 
         // 이메일 관련 API (가장 구체적인 경로 우선)
         router.get("/email")
@@ -198,6 +215,50 @@ public class UserHandler extends BaseHandler {
     private void patchMe(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         response(ctx, userService.updateMe(userId, ctx.getBodyAsJson()), v -> null);
+    }
+
+    private void uploadProfileImage(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        if (ctx.fileUploads() == null || ctx.fileUploads().isEmpty()) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("업로드할 이미지 파일을 선택해주세요."));
+            return;
+        }
+        FileUpload upload = ctx.fileUploads().iterator().next();
+        Path uploadedTempPath = Path.of(upload.uploadedFileName());
+        response(ctx, userService.uploadMyProfileImage(
+            userId,
+            uploadedTempPath,
+            upload.contentType(),
+            upload.fileName(),
+            upload.size()
+        ));
+    }
+
+    private void deleteProfileImage(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.deleteMyProfileImage(userId), v -> null);
+    }
+
+    private void getProfileImage(RoutingContext ctx) {
+        String userIdParam = ctx.pathParam("userId");
+        Long userId;
+        try {
+            userId = Long.parseLong(userIdParam);
+        } catch (Exception e) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("유효하지 않은 userId 입니다."));
+            return;
+        }
+        String variant = ctx.pathParam("variant");
+        userService.getProfileImagePath(userId, variant)
+            .onSuccess(path -> ctx.response()
+                .putHeader("Content-Type", "image/png")
+                .putHeader("Cache-Control", "public, max-age=86400")
+                .sendFile(path.toString(), ar -> {
+                    if (ar.failed()) {
+                        ctx.fail(ar.cause());
+                    }
+                }))
+            .onFailure(ctx::fail);
     }
 
     /**

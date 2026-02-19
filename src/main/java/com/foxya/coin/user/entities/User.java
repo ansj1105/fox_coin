@@ -24,6 +24,7 @@ public class User {
     private BigDecimal exp;
     private String transactionPasswordHash;
     private String countryCode;
+    private String profileImageUrl;
     private String nickname;
     private String name;
     private String gender;

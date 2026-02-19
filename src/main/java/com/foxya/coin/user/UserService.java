@@ -1,6 +1,7 @@
 package com.foxya.coin.user;
 
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.pgclient.PgPool;
@@ -19,6 +20,7 @@ import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.dto.LoginDto;
 import com.foxya.coin.user.dto.LoginResponseDto;
 import com.foxya.coin.user.dto.MeResponseDto;
+import com.foxya.coin.user.dto.ProfileImageUploadResponseDto;
 import com.foxya.coin.user.dto.ReferralCodeResponseDto;
 import com.foxya.coin.user.dto.UserProfileResponseDto;
 import com.foxya.coin.user.dto.EmailInfoDto;
@@ -26,6 +28,9 @@ import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
@@ -39,6 +44,7 @@ public class UserService extends BaseService {
     private static final String EXTERNAL_LINK_CODE_PREFIX = "external-link:code:";
     private static final int EXTERNAL_LINK_CODE_TTL_SECONDS = 300;
     private static final int EXTERNAL_LINK_CODE_LENGTH = 8;
+    private static final String DEFAULT_PROFILE_IMAGE_UPLOAD_DIR = "/tmp/fox_coin/profile-images";
     
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
@@ -52,6 +58,8 @@ public class UserService extends BaseService {
     private final EmailService emailService;
     private final RedisAPI redisApi;
     private final UserExternalIdRepository userExternalIdRepository;
+    private final ProfileImageProcessor profileImageProcessor;
+    private final ProfileImageModerationService profileImageModerationService;
     
     public UserService(PgPool pool,
                        UserRepository userRepository,
@@ -61,7 +69,9 @@ public class UserService extends BaseService {
                        EmailVerificationRepository emailVerificationRepository,
                        EmailService emailService,
                        RedisAPI redisApi,
-                       UserExternalIdRepository userExternalIdRepository) {
+                       UserExternalIdRepository userExternalIdRepository,
+                       String profileImageUploadDir,
+                       ProfileImageModerationService profileImageModerationService) {
         super(pool);
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
@@ -71,6 +81,12 @@ public class UserService extends BaseService {
         this.emailService = emailService;
         this.redisApi = redisApi;
         this.userExternalIdRepository = userExternalIdRepository;
+        this.profileImageProcessor = new ProfileImageProcessor(
+            profileImageUploadDir != null && !profileImageUploadDir.isBlank()
+                ? profileImageUploadDir
+                : DEFAULT_PROFILE_IMAGE_UPLOAD_DIR
+        );
+        this.profileImageModerationService = profileImageModerationService;
     }
     
     public Future<User> createUser(CreateUserDto dto) {
@@ -153,12 +169,144 @@ public class UserService extends BaseService {
                     .id(user.getId())
                     .loginId(user.getLoginId())
                     .nickname(user.getNickname())
-                    .profileImageUrl(null)
+                    .profileImageUrl(user.getProfileImageUrl())
                     .level(user.getLevel() != null ? user.getLevel() : 1)
                     .referralCode(user.getReferralCode())
                     .country(user.getCountryCode())
                     .build());
             });
+    }
+
+    public Future<ProfileImageUploadResponseDto> uploadMyProfileImage(
+        Long userId,
+        Path uploadedTempFile,
+        String contentType,
+        String originalFileName,
+        long uploadBytes
+    ) {
+        if (uploadedTempFile == null) {
+            return Future.failedFuture(new BadRequestException("업로드된 이미지 파일이 없습니다."));
+        }
+
+        long resolvedUploadBytes = uploadBytes;
+        if (resolvedUploadBytes <= 0) {
+            try {
+                resolvedUploadBytes = Files.size(uploadedTempFile);
+            } catch (IOException ignored) {
+                resolvedUploadBytes = 0;
+            }
+        }
+        if (resolvedUploadBytes <= 0) {
+            return Future.failedFuture(new BadRequestException("업로드된 이미지 파일이 비어 있습니다."));
+        }
+        if (resolvedUploadBytes > ProfileImageProcessor.MAX_UPLOAD_BYTES) {
+            return Future.failedFuture(new BadRequestException("프로필 이미지는 최대 5MB까지 업로드할 수 있습니다."));
+        }
+
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+
+                int level = user.getLevel() != null ? user.getLevel() : 1;
+                if (level < ProfileImageProcessor.MIN_LEVEL_TO_UPLOAD) {
+                    return Future.failedFuture(new BadRequestException("레벨 2 이상부터 프로필 사진을 등록할 수 있습니다."));
+                }
+
+                Future<Void> moderationFuture = profileImageModerationService != null
+                    ? profileImageModerationService.validate(uploadedTempFile)
+                    : Future.succeededFuture();
+
+                return moderationFuture.compose(v -> processProfileImageBlocking(userId, uploadedTempFile, contentType, originalFileName))
+                    .compose(version -> {
+                        String profileImageUrl = ProfileImageProcessor.buildVariantUrl(
+                            userId,
+                            ProfileImageProcessor.VARIANT_PROFILE,
+                            version
+                        );
+                        return userRepository.updateProfileImageUrl(pool, userId, profileImageUrl)
+                            .map(updated -> ProfileImageUploadResponseDto.builder()
+                                .profileImageUrl(profileImageUrl)
+                                .build());
+                    });
+            });
+    }
+
+    public Future<Void> deleteMyProfileImage(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return hardDeleteProfileImageBlocking(userId)
+                    .compose(v -> userRepository.updateProfileImageUrl(pool, userId, null).mapEmpty());
+            });
+    }
+
+    public Future<Path> getProfileImagePath(Long userId, String rawVariant) {
+        String variant = profileImageProcessor.normalizeVariant(rawVariant);
+        if (variant == null) {
+            return Future.failedFuture(new BadRequestException("지원하지 않는 이미지 변형 타입입니다."));
+        }
+        Path path = profileImageProcessor.resolveVariantPath(userId, variant);
+        if (!Files.exists(path)) {
+            return Future.failedFuture(new NotFoundException("프로필 이미지를 찾을 수 없습니다."));
+        }
+        return Future.succeededFuture(path);
+    }
+
+    private Future<Long> processProfileImageBlocking(
+        Long userId,
+        Path uploadedTempFile,
+        String contentType,
+        String originalFileName
+    ) {
+        io.vertx.core.Context context = Vertx.currentContext();
+        if (context == null) {
+            try {
+                return Future.succeededFuture(profileImageProcessor.processAndStore(
+                    userId, uploadedTempFile, contentType, originalFileName));
+            } catch (IOException e) {
+                return Future.failedFuture(new BadRequestException(resolveProfileImageErrorMessage(e)));
+            }
+        }
+        return context.owner().<Long>executeBlocking(promise -> {
+            try {
+                long version = profileImageProcessor.processAndStore(userId, uploadedTempFile, contentType, originalFileName);
+                promise.complete(version);
+            } catch (IOException e) {
+                promise.fail(e);
+            }
+        }).recover(throwable -> Future.failedFuture(new BadRequestException(resolveProfileImageErrorMessage(throwable))));
+    }
+
+    private Future<Void> hardDeleteProfileImageBlocking(Long userId) {
+        io.vertx.core.Context context = Vertx.currentContext();
+        if (context == null) {
+            try {
+                profileImageProcessor.hardDeleteUserImages(userId);
+                return Future.succeededFuture();
+            } catch (IOException e) {
+                return Future.failedFuture(new BadRequestException("프로필 이미지 삭제에 실패했습니다."));
+            }
+        }
+        return context.owner().<Void>executeBlocking(promise -> {
+            try {
+                profileImageProcessor.hardDeleteUserImages(userId);
+                promise.complete();
+            } catch (IOException e) {
+                promise.fail(e);
+            }
+        }).recover(throwable -> Future.failedFuture(new BadRequestException("프로필 이미지 삭제에 실패했습니다.")));
+    }
+
+    private String resolveProfileImageErrorMessage(Throwable throwable) {
+        String message = throwable != null ? throwable.getMessage() : null;
+        if (message == null || message.isBlank()) {
+            return "프로필 이미지 처리에 실패했습니다.";
+        }
+        return message;
     }
 
     /**

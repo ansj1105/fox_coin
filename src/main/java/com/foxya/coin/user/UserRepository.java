@@ -36,6 +36,7 @@ public class UserRepository extends BaseRepository {
         .exp(getBigDecimalColumnValue(row, "exp"))
         .transactionPasswordHash(getStringColumnValue(row, "transaction_password_hash"))
         .countryCode(getStringColumnValue(row, "country_code"))
+        .profileImageUrl(getStringColumnValue(row, "profile_image_url"))
         .nickname(getStringColumnValue(row, "nickname"))
         .name(getStringColumnValue(row, "name"))
         .gender(getStringColumnValue(row, "gender"))
@@ -180,6 +181,24 @@ public class UserRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("레벨 업데이트 실패 - userId: {}", userId, throwable));
+    }
+
+    /**
+     * 프로필 이미지 URL 업데이트
+     */
+    public Future<User> updateProfileImageUrl(SqlClient client, Long userId, String profileImageUrl) {
+        String sql = QueryBuilder
+            .update("users", "profile_image_url", "updated_at")
+            .whereById()
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("profile_image_url", profileImageUrl);
+        params.put("updated_at", DateUtils.now());
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("프로필 이미지 URL 업데이트 실패 - userId: {}", userId, throwable));
     }
 
     /**

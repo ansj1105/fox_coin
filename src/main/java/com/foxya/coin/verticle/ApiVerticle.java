@@ -27,6 +27,7 @@ import com.foxya.coin.transfer.TransferHandler;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserHandler;
+import com.foxya.coin.user.ProfileImageModerationService;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.UserExternalIdRepository;
@@ -195,13 +196,43 @@ public class ApiVerticle extends AbstractVerticle {
             frontendConfig,
             retryQueuePublisher
         );
+
+        // Normalized comment.
+        WebClient webClient = WebClient.create(vertx);
+
+        String profileImageUploadDir = System.getenv("PROFILE_IMAGE_UPLOAD_DIR");
+        if (profileImageUploadDir == null || profileImageUploadDir.isBlank()) {
+            profileImageUploadDir = config().getString("profileImageUploadDir", "/tmp/fox_coin/profile-images");
+        }
+
+        boolean profileImageModerationEnabled = "true".equalsIgnoreCase(System.getenv("PROFILE_IMAGE_MODERATION_ENABLED"));
+        if (!profileImageModerationEnabled) {
+            profileImageModerationEnabled = config().getBoolean("profileImageModerationEnabled", false);
+        }
+        String googleCloudVisionApiKey = System.getenv("GOOGLE_CLOUD_VISION_API_KEY");
+        if (googleCloudVisionApiKey == null || googleCloudVisionApiKey.isBlank()) {
+            googleCloudVisionApiKey = config().getString("googleCloudVisionApiKey", "");
+        }
+        ProfileImageModerationService profileImageModerationService = new ProfileImageModerationService(
+            webClient,
+            profileImageModerationEnabled,
+            googleCloudVisionApiKey
+        );
         
         // Normalized comment.
         UserService userService = new UserService(
-            pool, userRepository, jwtAuth, jwtConfig, frontendConfig, emailVerificationRepository, emailService, redisApi, userExternalIdRepository);
-        
-        // Normalized comment.
-        WebClient webClient = WebClient.create(vertx);
+            pool,
+            userRepository,
+            jwtAuth,
+            jwtConfig,
+            frontendConfig,
+            emailVerificationRepository,
+            emailService,
+            redisApi,
+            userExternalIdRepository,
+            profileImageUploadDir,
+            profileImageModerationService
+        );
         
         // Normalized comment.
         JsonObject blockchainConfig = config().getJsonObject("blockchain", new JsonObject());

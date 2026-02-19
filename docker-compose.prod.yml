@@ -82,10 +82,14 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+      PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
+      PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
+      GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
     ports:
       - "8080:8080"
     volumes:
       - ./logs:/app/logs
+      - ./storage/profile-images:/app/storage/profile-images
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
     depends_on:
       postgres:
@@ -140,9 +144,13 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+      PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
+      PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
+      GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
     # 포트 미노출 (Nginx가 내부 네트워크로만 접근)
     volumes:
       - ./logs:/app/logs
+      - ./storage/profile-images:/app/storage/profile-images
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
     depends_on:
       postgres:
