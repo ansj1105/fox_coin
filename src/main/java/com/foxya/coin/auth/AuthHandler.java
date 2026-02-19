@@ -720,17 +720,30 @@ public class AuthHandler extends BaseHandler {
         String error = form.get("error");
         String errorDescription = form.get("error_description");
 
-        String scheme = ctx.request().getHeader("X-Forwarded-Proto");
-        if (scheme == null || scheme.isBlank()) {
-            scheme = ctx.request().scheme();
-        }
-        String host = ctx.request().getHeader("X-Forwarded-Host");
-        if (host == null || host.isBlank()) {
-            host = ctx.request().getHeader(HttpHeaders.HOST.toString());
+        String userAgent = ctx.request().getHeader("User-Agent");
+        String ua = userAgent == null ? "" : userAgent.toLowerCase();
+        boolean isAndroid = ua.contains("android");
+        boolean isIos = ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod");
+
+        String callbackBase;
+        if (isAndroid) {
+            callbackBase = "com.korion.wallet://auth/apple/callback";
+        } else if (isIos) {
+            callbackBase = "korion://auth/apple/callback";
+        } else {
+            String scheme = ctx.request().getHeader("X-Forwarded-Proto");
+            if (scheme == null || scheme.isBlank()) {
+                scheme = ctx.request().scheme();
+            }
+            String host = ctx.request().getHeader("X-Forwarded-Host");
+            if (host == null || host.isBlank()) {
+                host = ctx.request().getHeader(HttpHeaders.HOST.toString());
+            }
+            callbackBase = scheme + "://" + host + "/auth/apple/callback";
         }
 
         StringBuilder redirectUrl = new StringBuilder();
-        redirectUrl.append(scheme).append("://").append(host).append("/auth/apple/callback");
+        redirectUrl.append(callbackBase);
         String sep = "?";
         if (code != null && !code.isBlank()) {
             redirectUrl.append(sep).append("code=").append(urlEncode(code));
