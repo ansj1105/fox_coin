@@ -20,6 +20,7 @@ public class ProfileImageModerationService {
     private static final Set<String> BLOCKED_LEVELS = Set.of("LIKELY", "VERY_LIKELY");
     private static final String MODERATION_FAIL_MESSAGE = "이미지 검수 서비스 오류로 업로드할 수 없습니다.";
     private static final String INAPPROPRIATE_IMAGE_MESSAGE = "선정적/폭력적 이미지로 판단되어 업로드할 수 없습니다.";
+    private static final int MAX_ERROR_BODY_LOG_LENGTH = 1000;
 
     private final WebClient webClient;
     private final boolean enabled;
@@ -88,14 +89,21 @@ public class ProfileImageModerationService {
 
         return webClient
             .postAbs(url)
-            .as(BodyCodec.jsonObject())
+            .as(BodyCodec.string())
             .sendJsonObject(request)
             .compose(response -> {
+                String rawBody = response.body();
+                JsonObject body = parseJsonObject(rawBody);
                 if (response.statusCode() >= 400) {
-                    log.warn("Vision SafeSearch request failed - status: {}, body: {}", response.statusCode(), response.bodyAsString());
-                    return Future.failedFuture(new RuntimeException("Vision SafeSearch HTTP error"));
+                    String apiMessage = extractVisionErrorMessage(body);
+                    log.warn(
+                        "Vision SafeSearch request failed - status: {}, message: {}, body: {}",
+                        response.statusCode(),
+                        apiMessage != null ? apiMessage : "N/A",
+                        truncateForLog(rawBody)
+                    );
+                    return Future.failedFuture(new RuntimeException("Vision SafeSearch HTTP error: status=" + response.statusCode()));
                 }
-                JsonObject body = response.body();
                 JsonArray responses = body.getJsonArray("responses", new JsonArray());
                 if (responses.isEmpty()) {
                     return Future.failedFuture(new RuntimeException("Vision SafeSearch response is empty"));
@@ -109,6 +117,38 @@ public class ProfileImageModerationService {
                 JsonObject safeSearch = first.getJsonObject("safeSearchAnnotation", new JsonObject());
                 return Future.succeededFuture(safeSearch);
             });
+    }
+
+    static JsonObject parseJsonObject(String rawBody) {
+        if (rawBody == null || rawBody.isBlank()) {
+            return new JsonObject();
+        }
+        try {
+            return new JsonObject(rawBody);
+        } catch (Exception e) {
+            return new JsonObject();
+        }
+    }
+
+    static String extractVisionErrorMessage(JsonObject body) {
+        if (body == null) {
+            return null;
+        }
+        JsonObject error = body.getJsonObject("error");
+        if (error == null) {
+            return null;
+        }
+        return error.getString("message");
+    }
+
+    private static String truncateForLog(String value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value.length() <= MAX_ERROR_BODY_LOG_LENGTH) {
+            return value;
+        }
+        return value.substring(0, MAX_ERROR_BODY_LOG_LENGTH) + "...(truncated)";
     }
 
     private boolean isBlocked(JsonObject safeSearch) {
