@@ -65,7 +65,28 @@ public abstract class BaseRepository {
     }
     
     public JsonObject getJsonObjectColumnValue(Row row, String column) {
-        return checkColumn(row, column) ? null : row.getJsonObject(column);
+        if (checkColumn(row, column)) {
+            return null;
+        }
+
+        Object value = row.getValue(column);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof JsonObject jsonObject) {
+            return jsonObject;
+        }
+        if (value instanceof String jsonString) {
+            try {
+                return new JsonObject(jsonString);
+            } catch (Exception e) {
+                log.warn("Invalid JSON object string in column '{}': {}, reason={}", column, jsonString, e.getMessage());
+                return null;
+            }
+        }
+
+        log.warn("Unsupported JSON object column type for '{}': {}", column, value.getClass().getName());
+        return null;
     }
     
     public Double getDoubleColumnValue(Row row, String column) {
@@ -99,4 +120,3 @@ public abstract class BaseRepository {
         return data;
     }
 }
-
