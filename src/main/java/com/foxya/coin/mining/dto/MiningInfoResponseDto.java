@@ -15,6 +15,10 @@ public class MiningInfoResponseDto {
     private BigDecimal todayMiningAmount;
     private BigDecimal totalBalance;
     private Integer bonusEfficiency;
+    /** 초대 기반 보너스 효율(%) */
+    private Integer inviteEfficiency;
+    /** 미션 기반 보너스 효율(%) */
+    private Integer missionEfficiency;
     private String remainingTime;
     private Boolean isActive;
     private BigDecimal dailyMaxMining;

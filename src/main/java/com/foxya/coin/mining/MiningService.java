@@ -237,7 +237,7 @@ public class MiningService extends BaseService {
                 // Normalized comment.
                 Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
                 Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today);
-                // Normalized comment.
+                // 보너스 효율: 초대 효율 + 미션 효율 합산. (미션 효율은 BonusService 기준, 초대는 invite multiplier)
                 // Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId).map(response -> response.getTotalEfficiency());
                 Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
                 // Normalized comment.
@@ -258,12 +258,13 @@ public class MiningService extends BaseService {
                         return target != null && target.getBalance() != null ? target.getBalance() : BigDecimal.ZERO;
                     });
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
+                Future<Integer> missionEfficiencyFuture = bonusService.getMissionEfficiency(userId);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
                 // Normalized comment.
                 Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
                 Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId);
                 
-                return Future.all(List.of(userFuture, dailyMiningFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, validDirectCountFuture, sessionsStartedTodayFuture, activeSessionFuture))
+                return Future.all(List.of(userFuture, dailyMiningFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, missionEfficiencyFuture, validDirectCountFuture, sessionsStartedTodayFuture, activeSessionFuture))
                     .compose(compositeFuture -> {
                         com.foxya.coin.user.entities.User user = userFuture.result();
                         if (user == null) {
@@ -271,10 +272,11 @@ public class MiningService extends BaseService {
                         }
                         DailyMining dailyMining = dailyMiningFuture.result();
                         BigDecimal inviteMultiplier = inviteBonusFuture.result();
-                        // Normalized comment.
-                        Integer bonusEfficiency = inviteMultiplier != null
-                            ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).intValue()
+                        Integer inviteEfficiency = inviteMultiplier != null
+                            ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
                             : 0;
+                        Integer missionEfficiency = missionEfficiencyFuture.result() != null ? missionEfficiencyFuture.result() : 0;
+                        Integer bonusEfficiency = inviteEfficiency + missionEfficiency;
                         BigDecimal totalBalance = totalBalanceFuture.result();
                         int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
                         MiningSession activeSession = activeSessionFuture.result();
@@ -310,6 +312,8 @@ public class MiningService extends BaseService {
                                     .todayMiningAmount(todayMiningAmount)
                                     .totalBalance(totalBalance)
                                     .bonusEfficiency(bonusEfficiency != null ? bonusEfficiency : 0)
+                                    .inviteEfficiency(inviteEfficiency)
+                                    .missionEfficiency(missionEfficiency)
                                     .remainingTime(remainingTime)
                                     .isActive(true)
                                     .dailyMaxMining(dailyMaxMining)
@@ -587,10 +591,26 @@ public class MiningService extends BaseService {
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
                                 BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
+<<<<<<< HEAD
                                 // Normalized comment.
+=======
+                                // 채굴 rate: (초대 효율 + 미션 효율) 합산 후 perVideoBase에 적용
+>>>>>>> 1249974 ([ADD] ㅋㅋㅋ)
                                 // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
                                 return referralService.getInviteMiningBonusMultiplier(userId)
-                                    .map(multiplier -> perVideoBase.multiply(multiplier != null ? multiplier : BigDecimal.ONE).setScale(18, RoundingMode.DOWN))
+                                    .compose(multiplier -> bonusService.getMissionEfficiency(userId)
+                                        .map(missionEfficiency -> {
+                                            int inviteEfficiency = multiplier != null
+                                                ? multiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
+                                                : 0;
+                                            int missionEff = missionEfficiency != null ? missionEfficiency : 0;
+                                            int totalEfficiency = inviteEfficiency + missionEff;
+                                            BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
+                                                BigDecimal.valueOf(totalEfficiency)
+                                                    .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)
+                                            );
+                                            return perVideoBase.multiply(efficiencyMultiplier).setScale(18, RoundingMode.DOWN);
+                                        }))
                                     .compose(ratePerHour -> {
                                         LocalDateTime endsAt = now.plusHours(1);
                                         return pool.withTransaction(client ->

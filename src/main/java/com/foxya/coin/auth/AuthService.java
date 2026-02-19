@@ -57,6 +57,7 @@ import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.mining.MiningRepository;
 import com.foxya.coin.mission.MissionRepository;
 import com.foxya.coin.notification.NotificationRepository;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.subscription.SubscriptionRepository;
 import com.foxya.coin.review.ReviewRepository;
 import com.foxya.coin.agency.AgencyRepository;
@@ -75,6 +76,7 @@ import org.mindrot.jbcrypt.BCrypt;
 import java.util.List;
 import java.util.UUID;
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 public class AuthService extends BaseService {
@@ -122,6 +124,8 @@ public class AuthService extends BaseService {
     private static final String KAKAO_OAUTH_LOCK_PREFIX = "oauth:kakao:lock:";
     private static final int KAKAO_OAUTH_CACHE_TTL_SECONDS = 60;
     private static final int KAKAO_OAUTH_LOCK_TTL_SECONDS = 10;
+    private static final String APPLE_SIGNUP_NOTICE_TITLE = "애플 가입 안내";
+    private static final String APPLE_SIGNUP_NOTICE_MESSAGE = "애플 가입시 기본정보로 가입 됐습니다. 설정>내정보관리 에서 수정해주세요.";
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
@@ -649,6 +653,9 @@ public class AuthService extends BaseService {
         if (isSocialFlow && (signupToken == null || signupToken.isBlank())) {
             return Future.failedFuture(new BadRequestException("소셜 가입 토큰이 필요합니다."));
         }
+
+        AtomicReference<String> socialProviderRef = new AtomicReference<>(null);
+
         return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
             .compose(existingAny -> {
                 if (existingAny != null && existingAny.getDeletedAt() != null) {
@@ -669,6 +676,7 @@ public class AuthService extends BaseService {
                     .compose(ignored -> loadSocialSignupPayload(signupToken, isSocialFlow))
                     .compose(payload -> {
                         if (isSocialFlow) {
+                            socialProviderRef.set(payload != null ? payload.getString("provider") : null);
                             String socialEmail = payload.getString("email");
                             if (socialEmail == null || !email.equalsIgnoreCase(socialEmail)) {
                                 return Future.failedFuture(new BadRequestException("소셜 가입 정보가 유효하지 않습니다."));
@@ -753,6 +761,8 @@ public class AuthService extends BaseService {
                     // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
                     .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
                         .map(ignored -> user))
+                    .compose(user -> maybeCreateAppleSignupNotice(user.getId(), isSocialFlow, socialProviderRef.get())
+                        .map(ignored -> user))
                     .compose(user -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
                         .compose(dbMin -> {
                             String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
@@ -799,6 +809,26 @@ public class AuthService extends BaseService {
             });
     }
     
+    private Future<Void> maybeCreateAppleSignupNotice(Long userId, boolean isSocialFlow, String provider) {
+        if (!isSocialFlow || userId == null || provider == null || !"APPLE".equalsIgnoreCase(provider)) {
+            return Future.succeededFuture();
+        }
+        return notificationRepository.insert(
+                pool,
+                userId,
+                NotificationType.NOTICE,
+                APPLE_SIGNUP_NOTICE_TITLE,
+                APPLE_SIGNUP_NOTICE_MESSAGE,
+                null,
+                null
+            )
+            .<Void>map(v -> null)
+            .recover(err -> {
+                log.warn("Apple 기본정보 가입 안내 알림 생성 실패(무시) - userId: {}", userId, err);
+                return Future.succeededFuture((Void) null);
+            });
+    }
+
     /**
      * API Key 생성
      */

@@ -92,6 +92,36 @@ public class BonusService extends BaseService {
                 .build();
         });
     }
+
+    /**
+     * 미션 기반 보너스 효율 합산 (친구초대 제외).
+     * 초대 효율은 referralService.getInviteMiningBonusMultiplier 기반으로 별도 합산.
+     */
+    public Future<Integer> getMissionEfficiency(Long userId) {
+        List<Future<BonusEfficiencyResponseDto.BonusInfo>> futures = Arrays.asList(
+            getSocialLinkBonus(userId),
+            getPhoneVerificationBonus(userId),
+            getAdWatchBonus(userId),
+            getPremiumSubscriptionBonus(userId),
+            getReviewBonus(userId),
+            getAgencyBonus(userId),
+            getReferralCodeInputBonus(userId)
+        );
+
+        return Future.all(futures).map(results -> {
+            int totalEfficiency = 0;
+            for (Object result : results.list()) {
+                if (result != null) {
+                    BonusEfficiencyResponseDto.BonusInfo bonus = (BonusEfficiencyResponseDto.BonusInfo) result;
+                    if (bonus.getIsActive()) {
+                        totalEfficiency += bonus.getEfficiency();
+                    }
+                }
+            }
+            return totalEfficiency;
+        });
+    }
+
     
     private Future<BonusEfficiencyResponseDto.BonusInfo> getSocialLinkBonus(Long userId) {
         return socialLinkRepository.hasSocialLink(pool, userId)

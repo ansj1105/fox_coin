@@ -1143,6 +1143,12 @@ components:
         bonusEfficiency:
           type: integer
           description: 채굴효율 (%)
+        inviteEfficiency:
+          type: integer
+          description: 초대 기반 보너스 효율 (%)
+        missionEfficiency:
+          type: integer
+          description: 미션 기반 보너스 효율 (%)
         remainingTime:
           type: string
           description: 남은 시간 (HH:MM:SS 형식) - 매일 00:00:00(자정) 기준으로 다음 자정까지의 남은 시간
