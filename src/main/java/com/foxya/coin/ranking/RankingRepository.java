@@ -86,7 +86,7 @@ public class RankingRepository extends BaseRepository {
                         .countryCode(getStringColumnValue(row, "country_code"))
                         .totalMembers(getLongColumnValue(row, "total_members"))
                         .totalMinedCoins(getBigDecimalColumnValue(row, "total_mined_coins"))
-                        .aggregation(getBigDecimalColumnValue(row, "aggregation"))
+                        .aggregation(getBigDecimalColumnValue(row, "total_mined_coins"))
                         .build();
                     rankings.add(ranking);
                 }
@@ -145,7 +145,7 @@ public class RankingRepository extends BaseRepository {
                         .countryCode(getStringColumnValue(row, "country_code"))
                         .totalMembers(getLongColumnValue(row, "total_members"))
                         .totalMinedCoins(getBigDecimalColumnValue(row, "total_mined_coins"))
-                        .aggregation(getBigDecimalColumnValue(row, "aggregation"))
+                        .aggregation(getBigDecimalColumnValue(row, "total_mined_coins"))
                         .build();
                 }
                 return null;
@@ -274,7 +274,7 @@ public class RankingRepository extends BaseRepository {
                         .countryCode(getStringColumnValue(row, "country_code"))
                         .totalAmount(getBigDecimalColumnValue(row, "total_amount"))
                         .teamCount(getLongColumnValue(row, "team_count"))
-                        .aggregation(getBigDecimalColumnValue(row, "aggregation"))
+                        .aggregation(getBigDecimalColumnValue(row, "total_amount"))
                         .build();
                     rankings.add(ranking);
                 }
@@ -363,7 +363,7 @@ public class RankingRepository extends BaseRepository {
                         .countryCode(getStringColumnValue(row, "country_code"))
                         .totalAmount(getBigDecimalColumnValue(row, "total_amount"))
                         .teamCount(getLongColumnValue(row, "team_count"))
-                        .aggregation(getBigDecimalColumnValue(row, "aggregation"))
+                        .aggregation(getBigDecimalColumnValue(row, "total_amount"))
                         .build();
                 }
                 return null;
@@ -404,4 +404,3 @@ public class RankingRepository extends BaseRepository {
         private BigDecimal aggregation;
     }
 }
-
