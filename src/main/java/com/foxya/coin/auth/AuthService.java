@@ -126,6 +126,9 @@ public class AuthService extends BaseService {
     private static final int KAKAO_OAUTH_LOCK_TTL_SECONDS = 10;
     private static final String APPLE_SIGNUP_NOTICE_TITLE = "애플 가입 안내";
     private static final String APPLE_SIGNUP_NOTICE_MESSAGE = "애플 가입시 기본정보로 가입 됐습니다. 설정>내정보관리 에서 수정해주세요.";
+    private static final int REFERRAL_REGISTER_AIRDROP_PHASE = 1;
+    private static final java.math.BigDecimal REFERRAL_REGISTER_AIRDROP_AMOUNT = new java.math.BigDecimal("2");
+    private static final int REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS = 7;
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
@@ -793,7 +796,7 @@ public class AuthService extends BaseService {
                                                                 return Future.succeededFuture(loginDto); // 동일 IP/기기 중복 초대 무효: 관계 생성 안 함
                                                             }
                                                             return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                                .map(r -> loginDto)
+                                                                .compose(r -> grantRegisterAirdropIfFirstTime(user.getId()).map(loginDto))
                                                                 .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
                                                         });
                                                 }
@@ -806,6 +809,28 @@ public class AuthService extends BaseService {
                         }
                             return Future.succeededFuture(loginDto);
                         }));
+            });
+    }
+
+    /**
+     * 추천인 등록 보상: 사용자당 최초 1회만 Phase 1 / Amount 2 / Unlock 7일 지급
+     */
+    private Future<Void> grantRegisterAirdropIfFirstTime(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null || Boolean.TRUE.equals(user.getReferralAirdropRewarded())) {
+                    return Future.succeededFuture();
+                }
+                LocalDateTime unlockDate = LocalDateTime.now().plusDays(REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS);
+                return airdropRepository.createPhaseIfAbsent(
+                        pool,
+                        userId,
+                        REFERRAL_REGISTER_AIRDROP_PHASE,
+                        REFERRAL_REGISTER_AIRDROP_AMOUNT,
+                        unlockDate,
+                        REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS
+                    )
+                    .compose(v -> userRepository.updateReferralAirdropRewarded(pool, userId, true));
             });
     }
     

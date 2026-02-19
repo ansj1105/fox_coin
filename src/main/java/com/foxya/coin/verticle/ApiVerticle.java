@@ -121,6 +121,8 @@ import io.vertx.redis.client.RedisReplicas;
 import io.vertx.core.json.JsonArray;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 @Slf4j
 public class ApiVerticle extends AbstractVerticle {
     
@@ -209,7 +211,7 @@ public class ApiVerticle extends AbstractVerticle {
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
         AppConfigRepository appConfigRepository = new AppConfigRepository();
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
-        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository);
+        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository, airdropRepository, notificationService);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
@@ -304,6 +306,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
         startWaitingWithdrawalPromotionScheduler(transferService);
+        startLevelSyncScheduler(levelService);
 
         // Normalized comment.
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -757,6 +760,35 @@ public class ApiVerticle extends AbstractVerticle {
             .onFailure(t -> log.warn("Waiting withdrawal promotion scheduled run failed", t)));
 
         log.info("Waiting withdrawal promotion scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
+    }
+
+    /**
+     * EXP-레벨 불일치 사용자 보정 스케줄러.
+     * - users.exp 기준 계산 레벨이 users.level보다 높을 때 자동 보정
+     * - 레벨업 알림은 기존 dedupe 규칙(related_id=newLevel)으로 중복 방지
+     */
+    private void startLevelSyncScheduler(LevelService levelService) {
+        long intervalMs = parseLongEnv("LEVEL_SYNC_SCHEDULER_MS", 300_000L);
+        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("LEVEL_SYNC_SCHEDULER_BATCH", 300L), 2000L));
+        AtomicBoolean running = new AtomicBoolean(false);
+
+        Runnable runTask = () -> {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            levelService.runLevelSyncBatch(batchSize)
+                .onSuccess(updatedCount -> {
+                    if (updatedCount > 0) {
+                        log.info("Level sync scheduled run completed: {} users updated", updatedCount);
+                    }
+                })
+                .onFailure(t -> log.warn("Level sync scheduled run failed", t))
+                .onComplete(ar -> running.set(false));
+        };
+
+        vertx.setTimer(3_000L, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("Level sync scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
     }
 
     private static long parseLongEnv(String key, long defaultValue) {

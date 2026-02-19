@@ -11,10 +11,20 @@ import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 @Slf4j
 public class UserRepository extends BaseRepository {
+
+    @lombok.Builder
+    @lombok.Getter
+    public static class LevelSyncCandidate {
+        private Long userId;
+        private Integer currentLevel;
+        private Integer computedLevel;
+    }
     
     private final RowMapper<User> userMapper = row -> User.builder()
         .id(getLongColumnValue(row, "id"))
@@ -31,6 +41,7 @@ public class UserRepository extends BaseRepository {
         .gender(getStringColumnValue(row, "gender"))
         .phone(getStringColumnValue(row, "phone"))
         .isTest(getIntegerColumnValue(row, "is_test"))
+        .referralAirdropRewarded(getBooleanColumnValue(row, "referral_airdrop_rewarded"))
         .isWarning(getIntegerColumnValue(row, "is_warning"))
         .isMiningSuspended(getIntegerColumnValue(row, "is_mining_suspended"))
         .isAccountBlocked(getIntegerColumnValue(row, "is_account_blocked"))
@@ -170,6 +181,64 @@ public class UserRepository extends BaseRepository {
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("레벨 업데이트 실패 - userId: {}", userId, throwable));
     }
+
+    /**
+     * EXP 기준 계산 레벨이 현재 레벨보다 높은 사용자 목록을 ID cursor 순서로 조회
+     */
+    public Future<List<LevelSyncCandidate>> findUsersRequiringLevelSync(SqlClient client, Long afterUserId, int limit) {
+        String sql = """
+            SELECT
+                u.id AS user_id,
+                COALESCE(u.level, 1) AS current_level,
+                CASE
+                    WHEN COALESCE(u.exp, 0) >= 520 THEN 9
+                    WHEN COALESCE(u.exp, 0) >= 350 THEN 8
+                    WHEN COALESCE(u.exp, 0) >= 220 THEN 7
+                    WHEN COALESCE(u.exp, 0) >= 130 THEN 6
+                    WHEN COALESCE(u.exp, 0) >= 70 THEN 5
+                    WHEN COALESCE(u.exp, 0) >= 35 THEN 4
+                    WHEN COALESCE(u.exp, 0) >= 15 THEN 3
+                    WHEN COALESCE(u.exp, 0) >= 5 THEN 2
+                    ELSE 1
+                END AS computed_level
+            FROM users u
+            WHERE u.deleted_at IS NULL
+              AND u.id > #{after_user_id}
+              AND (
+                CASE
+                    WHEN COALESCE(u.exp, 0) >= 520 THEN 9
+                    WHEN COALESCE(u.exp, 0) >= 350 THEN 8
+                    WHEN COALESCE(u.exp, 0) >= 220 THEN 7
+                    WHEN COALESCE(u.exp, 0) >= 130 THEN 6
+                    WHEN COALESCE(u.exp, 0) >= 70 THEN 5
+                    WHEN COALESCE(u.exp, 0) >= 35 THEN 4
+                    WHEN COALESCE(u.exp, 0) >= 15 THEN 3
+                    WHEN COALESCE(u.exp, 0) >= 5 THEN 2
+                    ELSE 1
+                END
+              ) > COALESCE(u.level, 1)
+            ORDER BY u.id ASC
+            LIMIT #{limit}
+            """;
+        String built = QueryBuilder.selectStringQuery(sql).build();
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("after_user_id", afterUserId != null ? afterUserId : 0L);
+        params.put("limit", Math.max(1, Math.min(limit, 2000)));
+
+        return query(client, built, params)
+            .map(rows -> {
+                List<LevelSyncCandidate> result = new ArrayList<>();
+                for (var row : rows) {
+                    result.add(LevelSyncCandidate.builder()
+                        .userId(getLongColumnValue(row, "user_id"))
+                        .currentLevel(getIntegerColumnValue(row, "current_level"))
+                        .computedLevel(getIntegerColumnValue(row, "computed_level"))
+                        .build());
+                }
+                return result;
+            })
+            .onFailure(throwable -> log.error("레벨 동기화 대상 조회 실패 - afterUserId: {}, limit: {}", afterUserId, limit, throwable));
+    }
     
     /**
      * 레퍼럴 코드로 사용자 조회
@@ -283,6 +352,26 @@ public class UserRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("레퍼럴 코드 업데이트 실패 - userId: {}, referralCode: {}", userId, referralCode));
+    }
+
+    /**
+     * 추천인 등록 에어드랍 지급 완료 플래그 업데이트
+     */
+    public Future<Void> updateReferralAirdropRewarded(SqlClient client, Long userId, boolean rewarded) {
+        String sql = QueryBuilder
+            .update("users", "referral_airdrop_rewarded", "updated_at")
+            .whereById()
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("id", userId);
+        params.put("referral_airdrop_rewarded", rewarded);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("추천인 에어드랍 지급 플래그 업데이트 실패 - userId: {}", userId, throwable));
     }
 
     /**

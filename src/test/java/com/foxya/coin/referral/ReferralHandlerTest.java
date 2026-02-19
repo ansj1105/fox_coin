@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import com.foxya.coin.airdrop.dto.AirdropStatusDto;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
@@ -31,6 +32,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
     private final TypeReference<ApiResponse<CurrentReferralCodeDto>> refCurrentCode = new TypeReference<>() {};
     private final TypeReference<ApiResponse<InviteTiersResponseDto>> refInviteTiers = new TypeReference<>() {};
     private final TypeReference<ApiResponse<List<ReferralRevenueTierDto>>> refRevenueTiers = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<AirdropStatusDto>> refAirdropStatus = new TypeReference<>() {};
     
     public ReferralHandlerTest() {
         super("/api/v1/referrals");
@@ -140,7 +142,7 @@ public class ReferralHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(6)
-        @DisplayName("성공 - X-Forwarded-For, X-Device-Id 헤더 전달 시 중복 추천 판단에 사용")
+        @DisplayName("성공 - X-Forwarded-For, X-Device-Id 헤더 전달 시 중복 추천 판단 + 최초 1회 에어드랍 지급")
         void successRegisterWithIpAndDeviceHeaders(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(4L); // blocked_user (아직 레퍼럴 미등록 가정)
             JsonObject data = new JsonObject().put("referralCode", "REFER123");
@@ -150,7 +152,20 @@ public class ReferralHandlerTest extends HandlerTestBase {
                 .putHeader("X-Device-Id", "test-device-unique-001")
                 .sendJson(data, tc.succeeding(res -> tc.verify(() -> {
                     assertThat(res.statusCode()).isEqualTo(200);
-                    tc.completeNow();
+
+                    reqGet("/api/v1/airdrop/status")
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(statusRes -> tc.verify(() -> {
+                            assertThat(statusRes.statusCode()).isEqualTo(200);
+                            AirdropStatusDto airdropStatus = expectSuccessAndGetResponse(statusRes, refAirdropStatus);
+                            assertThat(airdropStatus).isNotNull();
+                            assertThat(airdropStatus.getPhases()).isNotNull();
+                            assertThat(airdropStatus.getPhases()).hasSize(1);
+                            assertThat(airdropStatus.getPhases().get(0).getPhase()).isEqualTo(1);
+                            assertThat(airdropStatus.getPhases().get(0).getAmount()).isEqualByComparingTo("2");
+                            assertThat(airdropStatus.getPhases().get(0).getDaysRemaining()).isBetween(6, 7);
+                            tc.completeNow();
+                        })));
                 })));
         }
     }

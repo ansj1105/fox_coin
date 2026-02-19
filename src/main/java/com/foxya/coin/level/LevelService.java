@@ -6,6 +6,7 @@ import com.foxya.coin.level.dto.UserLevelResponseDto;
 import com.foxya.coin.mining.MiningRepository;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.user.entities.User;
 import io.vertx.core.Future;
@@ -35,6 +36,10 @@ public class LevelService extends BaseService {
         BigDecimal.valueOf(350),
         BigDecimal.valueOf(520)
     };
+    private static final String LEVEL_UP_NOTICE_TITLE = "Level Up";
+    private static final String LEVEL_UP_NOTICE_MESSAGE = "You have reached level %d.";
+    private static final String LEVEL_UP_NOTICE_TITLE_KEY = "notifications.levelUp.title";
+    private static final String LEVEL_UP_NOTICE_MESSAGE_KEY = "notifications.levelUp.message";
 
     public LevelService(PgPool pool, UserRepository userRepository, MiningRepository miningRepository) {
         this(pool, userRepository, miningRepository, null);
@@ -138,22 +143,69 @@ public class LevelService extends BaseService {
             });
     }
 
+    /**
+     * 레벨 동기화 배치:
+     * - EXP 기준 계산 레벨이 users.level 보다 높은 사용자만 대상으로 보정
+     * - 연속 ID cursor 방식으로 한 번의 실행에서 누락 유저를 끝까지 처리
+     */
+    public Future<Integer> runLevelSyncBatch(int batchSize) {
+        int safeBatchSize = Math.max(1, Math.min(batchSize, 2000));
+        return runLevelSyncBatchFromCursor(0L, safeBatchSize, 0);
+    }
+
+    private Future<Integer> runLevelSyncBatchFromCursor(Long afterUserId, int batchSize, int accumulatedUpdated) {
+        return userRepository.findUsersRequiringLevelSync(pool, afterUserId, batchSize)
+            .compose(candidates -> {
+                if (candidates == null || candidates.isEmpty()) {
+                    return Future.succeededFuture(accumulatedUpdated);
+                }
+
+                final long[] nextCursor = {afterUserId};
+                final int[] updatedCount = {accumulatedUpdated};
+
+                Future<Void> chain = Future.succeededFuture();
+                for (UserRepository.LevelSyncCandidate candidate : candidates) {
+                    nextCursor[0] = candidate.getUserId();
+                    chain = chain.compose(ignored -> userRepository.updateLevel(pool, candidate.getUserId(), candidate.getComputedLevel())
+                        .compose(updated -> createLevelUpNotification(
+                            candidate.getUserId(),
+                            candidate.getCurrentLevel(),
+                            candidate.getComputedLevel()))
+                        .map(v -> {
+                            updatedCount[0]++;
+                            return (Void) null;
+                        })
+                        .recover(err -> {
+                            log.warn("Level sync failed for userId={} (ignored)", candidate.getUserId(), err);
+                            return Future.<Void>succeededFuture();
+                        }));
+                }
+
+                return chain.compose(v -> runLevelSyncBatchFromCursor(nextCursor[0], batchSize, updatedCount[0]));
+            });
+    }
+
     private Future<Void> createLevelUpNotification(Long userId, int previousLevel, int newLevel) {
         if (notificationService == null) {
             return Future.<Void>succeededFuture();
         }
 
-        JsonObject metadata = new JsonObject()
+        JsonObject metadataVariables = new JsonObject()
             .put("previousLevel", previousLevel)
             .put("newLevel", newLevel);
+        String metadata = NotificationI18nUtils.buildMetadata(
+            LEVEL_UP_NOTICE_TITLE_KEY,
+            LEVEL_UP_NOTICE_MESSAGE_KEY,
+            metadataVariables
+        );
 
         return notificationService.createNotificationIfAbsentByRelatedId(
                 userId,
                 NotificationType.LEVEL_UP,
-                "\uB808\uBCA8 \uC0C1\uC2B9",
-                newLevel + "\uB808\uBCA8\uB85C \uC0C1\uC2B9\uD588\uC2B5\uB2C8\uB2E4.",
+                LEVEL_UP_NOTICE_TITLE,
+                String.format(LEVEL_UP_NOTICE_MESSAGE, newLevel),
                 (long) newLevel,
-                metadata.encode())
+                metadata)
             .map(v -> (Void) null)
             .recover(err -> {
                 log.warn("Level up notification failed (ignored): userId={}, level={}", userId, newLevel, err);
@@ -161,4 +213,3 @@ public class LevelService extends BaseService {
             });
     }
 }
-

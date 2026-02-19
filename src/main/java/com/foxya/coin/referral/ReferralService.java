@@ -1,12 +1,18 @@
 package com.foxya.coin.referral;
 
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
+import com.foxya.coin.airdrop.AirdropRepository;
 import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.notification.entities.Notification;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.InviteTierItemDto;
 import com.foxya.coin.referral.dto.InviteTiersResponseDto;
@@ -15,7 +21,6 @@ import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
 import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserRepository;
-import com.foxya.coin.user.entities.User;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -35,22 +40,35 @@ public class ReferralService extends BaseService {
     private static final int[] DEFAULT_REVENUE_TIER_MIN = { 1, 5, 10, 20, 50, 100 };
     private static final int[] DEFAULT_REVENUE_TIER_MAX = { 4, 9, 19, 49, 99, -1 };
     private static final double[] DEFAULT_REFERRAL_REVENUE_PERCENTS = { 3, 5, 7, 9, 11, 13 };
+    private static final int REFERRAL_REGISTER_AIRDROP_PHASE = 1;
+    private static final BigDecimal REFERRAL_REGISTER_AIRDROP_AMOUNT = new BigDecimal("2");
+    private static final int REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS = 7;
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE = "Referral Registration Completed";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE = "Airdrop granted for referral registration.";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE_KEY = "notifications.referralAirdrop.title";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE_KEY = "notifications.referralAirdrop.message";
     
     private final ReferralRepository referralRepository;
     private final UserRepository userRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final TransferService transferService;
     private final ReferralRevenueTierRepository referralRevenueTierRepository;
+    private final AirdropRepository airdropRepository;
+    private final NotificationService notificationService;
     
     public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository,
                            EmailVerificationRepository emailVerificationRepository, TransferService transferService,
-                           ReferralRevenueTierRepository referralRevenueTierRepository) {
+                           ReferralRevenueTierRepository referralRevenueTierRepository,
+                           AirdropRepository airdropRepository,
+                           NotificationService notificationService) {
         super(pool);
         this.referralRepository = referralRepository;
         this.userRepository = userRepository;
         this.emailVerificationRepository = emailVerificationRepository;
         this.transferService = transferService;
         this.referralRevenueTierRepository = referralRevenueTierRepository;
+        this.airdropRepository = airdropRepository;
+        this.notificationService = notificationService;
     }
     
     /**
@@ -97,7 +115,12 @@ public class ReferralService extends BaseService {
             .compose(relation -> {
                 // 3. 추천인 EXP +0.5 (초대 1명당 0.5 EXP)
                 return userRepository.addExp(pool, relation.getReferrerId(), new BigDecimal("0.5"))
-                    .compose(u -> updateReferrerStats(relation.getReferrerId()));
+                    .compose(u -> updateReferrerStats(relation.getReferrerId()))
+                    .compose(v -> grantRegisterAirdropIfFirstTime(userId))
+                    .compose(granted -> granted
+                        ? createReferralRegisterAirdropNotice(userId, relation.getId())
+                        : Future.succeededFuture()
+                    );
             })
             .mapEmpty();
     }
@@ -329,6 +352,59 @@ public class ReferralService extends BaseService {
             
             return referralRepository.updateStats(pool, referrerId, directCount, activeTeamCount);
         }).mapEmpty();
+    }
+
+    /**
+     * 추천인 등록 보상: 사용자당 최초 1회만 Phase 1 / Amount 2 / Unlock 7일 지급
+     */
+    private Future<Boolean> grantRegisterAirdropIfFirstTime(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null || Boolean.TRUE.equals(user.getReferralAirdropRewarded())) {
+                    return Future.succeededFuture(false);
+                }
+                LocalDateTime unlockDate = LocalDateTime.now().plusDays(REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS);
+                return airdropRepository.createPhaseIfAbsent(
+                        pool,
+                        userId,
+                        REFERRAL_REGISTER_AIRDROP_PHASE,
+                        REFERRAL_REGISTER_AIRDROP_AMOUNT,
+                        unlockDate,
+                        REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS
+                    )
+                    .compose(v -> userRepository.updateReferralAirdropRewarded(pool, userId, true))
+                    .map(v -> true);
+            });
+    }
+
+    /**
+     * 추천인 등록 에어드랍 지급 알림 생성 (중복 방지)
+     */
+    private Future<Void> createReferralRegisterAirdropNotice(Long userId, Long relationId) {
+        if (notificationService == null) {
+            return Future.succeededFuture();
+        }
+        Long relatedId = relationId != null ? relationId : userId;
+        String metadata = NotificationI18nUtils.buildMetadata(
+            REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE_KEY,
+            REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE_KEY,
+            new JsonObject()
+                .put("amount", REFERRAL_REGISTER_AIRDROP_AMOUNT.stripTrailingZeros().toPlainString())
+                .put("unlockDays", REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS)
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                userId,
+                NotificationType.NOTICE,
+                REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE,
+                REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE,
+                relatedId,
+                metadata
+            )
+            .recover(err -> {
+                log.warn("추천인 등록 에어드랍 알림 생성 실패(무시) - userId: {}", userId, err);
+                return Future.succeededFuture((Notification) null);
+            })
+            .mapEmpty();
     }
     
     /**

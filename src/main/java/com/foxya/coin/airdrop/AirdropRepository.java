@@ -12,6 +12,7 @@ import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -102,6 +103,43 @@ public class AirdropRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(phaseMapper, rows))
             .onFailure(throwable -> log.error("Phase claimed 갱신 실패 - phaseId: {}, userId: {}", phaseId, userId, throwable));
+    }
+
+    /**
+     * 추천인 등록 보상용 phase 생성 (동일 user+phase가 이미 있으면 생성하지 않음)
+     */
+    public Future<AirdropPhase> createPhaseIfAbsent(
+        SqlClient client,
+        Long userId,
+        Integer phase,
+        BigDecimal amount,
+        LocalDateTime unlockDate,
+        Integer daysRemaining
+    ) {
+        String sql = """
+            INSERT INTO airdrop_phases (user_id, phase, status, amount, unlock_date, days_remaining, claimed, created_at, updated_at)
+            SELECT #{user_id}, #{phase}, #{status}, #{amount}, #{unlock_date}, #{days_remaining}, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM airdrop_phases
+                WHERE user_id = #{user_id}
+                  AND phase = #{phase}
+                  AND deleted_at IS NULL
+            )
+            RETURNING *
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("phase", phase);
+        params.put("status", AirdropPhase.STATUS_PROCESSING);
+        params.put("amount", amount);
+        params.put("unlock_date", unlockDate);
+        params.put("days_remaining", daysRemaining);
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> fetchOne(phaseMapper, rows))
+            .onFailure(throwable -> log.error("추천인 등록 보상 Phase 생성 실패 - userId: {}, phase: {}", userId, phase, throwable));
     }
     
     /**
@@ -257,4 +295,3 @@ public class AirdropRepository extends BaseRepository {
             .onFailure(throwable -> log.error("에어드랍 전송 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-
