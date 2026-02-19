@@ -27,8 +27,17 @@ public class TokenDepositRepository extends BaseRepository {
         .amount(getBigDecimalColumnValue(row, "amount"))
         .network(getStringColumnValue(row, "network"))
         .senderAddress(getStringColumnValue(row, "sender_address"))
+        .toAddress(getStringColumnValue(row, "to_address"))
+        .logIndex(getIntegerColumnValue(row, "log_index"))
+        .blockNumber(getLongColumnValue(row, "block_number"))
         .txHash(getStringColumnValue(row, "tx_hash"))
         .status(getStringColumnValue(row, "status"))
+        .sweepStatus(getStringColumnValue(row, "sweep_status"))
+        .sweepTxHash(getStringColumnValue(row, "sweep_tx_hash"))
+        .sweepRequestedAt(getLocalDateTimeColumnValue(row, "sweep_requested_at"))
+        .sweepSubmittedAt(getLocalDateTimeColumnValue(row, "sweep_submitted_at"))
+        .sweepFailedAt(getLocalDateTimeColumnValue(row, "sweep_failed_at"))
+        .sweepErrorMessage(getStringColumnValue(row, "sweep_error_message"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .confirmedAt(getLocalDateTimeColumnValue(row, "confirmed_at"))
         .failedAt(getLocalDateTimeColumnValue(row, "failed_at"))
@@ -47,6 +56,9 @@ public class TokenDepositRepository extends BaseRepository {
         params.put("amount", deposit.getAmount());
         params.put("network", deposit.getNetwork());
         params.put("sender_address", deposit.getSenderAddress());
+        params.put("to_address", deposit.getToAddress());
+        params.put("log_index", deposit.getLogIndex());
+        params.put("block_number", deposit.getBlockNumber());
         params.put("tx_hash", deposit.getTxHash());
         params.put("status", deposit.getStatus());
         
@@ -170,5 +182,62 @@ public class TokenDepositRepository extends BaseRepository {
             })
             .onFailure(throwable -> log.error("토큰 입금 Soft Delete 실패 - userId: {}", userId, throwable));
     }
-}
+    /**
+     * Sweep 요청 상태로 업데이트
+     */
+    public Future<TokenDeposit> markSweepRequested(SqlClient client, String depositId) {
+        String sql = QueryBuilder
+            .update("token_deposits", "sweep_status", "sweep_requested_at")
+            .where("deposit_id", Op.Equal, "deposit_id")
+            .returning("*");
 
+        Map<String, Object> params = new HashMap<>();
+        params.put("deposit_id", depositId);
+        params.put("sweep_status", TokenDeposit.SWEEP_STATUS_REQUESTED);
+        params.put("sweep_requested_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(tokenDepositMapper, rows))
+            .onFailure(e -> log.error("Sweep requested update failed - depositId: {}", depositId));
+    }
+
+    /**
+     * Sweep 제출 상태로 업데이트
+     */
+    public Future<TokenDeposit> submitSweep(SqlClient client, String depositId, String txHash) {
+        String sql = QueryBuilder
+            .update("token_deposits", "sweep_status", "sweep_tx_hash", "sweep_submitted_at")
+            .where("deposit_id", Op.Equal, "deposit_id")
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("deposit_id", depositId);
+        params.put("sweep_status", TokenDeposit.SWEEP_STATUS_SUBMITTED);
+        params.put("sweep_tx_hash", txHash);
+        params.put("sweep_submitted_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(tokenDepositMapper, rows))
+            .onFailure(e -> log.error("Sweep submit update failed - depositId: {}", depositId));
+    }
+
+    /**
+     * Sweep 실패 상태로 업데이트
+     */
+    public Future<TokenDeposit> failSweep(SqlClient client, String depositId, String errorMessage) {
+        String sql = QueryBuilder
+            .update("token_deposits", "sweep_status", "sweep_failed_at", "sweep_error_message")
+            .where("deposit_id", Op.Equal, "deposit_id")
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("deposit_id", depositId);
+        params.put("sweep_status", TokenDeposit.SWEEP_STATUS_FAILED);
+        params.put("sweep_failed_at", com.foxya.coin.common.utils.DateUtils.now());
+        params.put("sweep_error_message", errorMessage);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(tokenDepositMapper, rows))
+            .onFailure(e -> log.error("Sweep fail update failed - depositId: {}", depositId));
+    }
+}

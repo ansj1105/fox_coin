@@ -36,6 +36,7 @@ import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
 import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.app.AppHandler;
+import com.foxya.coin.app.InternalConfigHandler;
 import com.foxya.coin.agency.AgencyHandler;
 import com.foxya.coin.agency.AgencyRepository;
 import com.foxya.coin.agency.AgencyService;
@@ -206,7 +207,8 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository);
+        AppConfigRepository appConfigRepository = new AppConfigRepository();
+        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
@@ -246,7 +248,7 @@ public class ApiVerticle extends AbstractVerticle {
             pool, paymentDepositRepository, currencyRepository, transferRepository, notificationService);
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
-            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService);
+            pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService, walletRepository, appConfigRepository);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");
@@ -255,6 +257,8 @@ public class ApiVerticle extends AbstractVerticle {
             vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
         InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
             vertx, transferService, depositScannerApiKey);
+        InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
+            vertx, pool, appConfigRepository, depositScannerApiKey);
         
         // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -268,7 +272,6 @@ public class ApiVerticle extends AbstractVerticle {
         if (minAppVersion == null || minAppVersion.isBlank()) {
             minAppVersion = config().getJsonObject("frontend", new JsonObject()).getString("minAppVersion");
         }
-        AppConfigRepository appConfigRepository = new AppConfigRepository();
         AuthService authService = new AuthService(
             pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
             redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
@@ -300,6 +303,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
+        startWaitingWithdrawalPromotionScheduler(transferService);
 
         // Normalized comment.
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -412,6 +416,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/config", internalConfigHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
@@ -729,6 +734,29 @@ public class ApiVerticle extends AbstractVerticle {
             .onFailure(t -> log.warn("Withdrawal redispatch scheduled run failed", t)));
 
         log.info("Withdrawal redispatch scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
+    }
+
+    private void startWaitingWithdrawalPromotionScheduler(TransferService transferService) {
+        long intervalMs = parseLongEnv("WAITING_WITHDRAWAL_PROMOTION_MS", 30_000L);
+        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("WAITING_WITHDRAWAL_PROMOTION_BATCH", 100L), 500L));
+
+        vertx.setTimer(2_500L, id -> transferService.promoteWaitingWithdrawals(batchSize)
+            .onSuccess(count -> {
+                if (count > 0) {
+                    log.info("Waiting withdrawal promotion startup run completed: {} withdrawals promoted", count);
+                }
+            })
+            .onFailure(t -> log.warn("Waiting withdrawal promotion startup run failed", t)));
+
+        vertx.setPeriodic(intervalMs, id -> transferService.promoteWaitingWithdrawals(batchSize)
+            .onSuccess(count -> {
+                if (count > 0) {
+                    log.info("Waiting withdrawal promotion scheduled run completed: {} withdrawals promoted", count);
+                }
+            })
+            .onFailure(t -> log.warn("Waiting withdrawal promotion scheduled run failed", t)));
+
+        log.info("Waiting withdrawal promotion scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
     }
 
     private static long parseLongEnv(String key, long defaultValue) {

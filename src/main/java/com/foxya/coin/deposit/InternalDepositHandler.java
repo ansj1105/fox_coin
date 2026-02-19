@@ -6,12 +6,15 @@ import com.foxya.coin.wallet.WalletRepository;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.JsonArray;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 입금 스캐너(coin_publish 등)용 내부 API.
@@ -42,7 +45,12 @@ public class InternalDepositHandler extends BaseHandler {
         router.route().handler(this::checkInternalApiKey);
         router.get("/watch-addresses").handler(this::getWatchAddresses);
         router.post("/register").handler(this::registerDeposit);
+        router.post("/register-batch").handler(this::registerDepositBatch);
         router.post("/:depositId/complete").handler(this::completeDeposit);
+        router.post("/complete-batch").handler(this::completeDepositBatch);
+        router.get("/:depositId").handler(this::getDeposit);
+        router.post("/:depositId/sweep/submit").handler(this::submitSweep);
+        router.post("/:depositId/sweep/fail").handler(this::failSweep);
         return router;
     }
 
@@ -79,6 +87,9 @@ public class InternalDepositHandler extends BaseHandler {
         String amountStr = body.getString("amount");
         String network = body.getString("network");
         String senderAddress = body.getString("senderAddress");
+        String toAddress = body.getString("toAddress");
+        Integer logIndex = body.getInteger("logIndex");
+        Long blockNumber = body.getLong("blockNumber");
         String txHash = body.getString("txHash");
         String orderNumber = body.getString("orderNumber");
 
@@ -101,6 +112,9 @@ public class InternalDepositHandler extends BaseHandler {
             .amount(amount)
             .network(network)
             .senderAddress(senderAddress)
+            .toAddress(toAddress)
+            .logIndex(logIndex)
+            .blockNumber(blockNumber)
             .txHash(txHash)
             .orderNumber(orderNumber)
             .status(TokenDeposit.STATUS_PENDING)
@@ -118,5 +132,138 @@ public class InternalDepositHandler extends BaseHandler {
         }
         log.info("Internal complete deposit: depositId={}", depositId);
         response(ctx, tokenDepositService.completeTokenDeposit(depositId));
+    }
+
+    private void registerDepositBatch(RoutingContext ctx) {
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new IllegalArgumentException("Body required"));
+            return;
+        }
+        JsonArray depositsArray = body.getJsonArray("deposits");
+        if (depositsArray == null || depositsArray.isEmpty()) {
+            ctx.fail(400, new IllegalArgumentException("deposits required"));
+            return;
+        }
+
+        List<io.vertx.core.Future<TokenDeposit>> futures = new ArrayList<>();
+        for (Object item : depositsArray) {
+            if (!(item instanceof JsonObject depositObj)) {
+                continue;
+            }
+            String depositId = depositObj.getString("depositId");
+            Long userId = depositObj.getLong("userId");
+            Integer currencyId = depositObj.getInteger("currencyId");
+            String amountStr = depositObj.getString("amount");
+            String network = depositObj.getString("network");
+            String txHash = depositObj.getString("txHash");
+            if (depositId == null || depositId.isBlank() || userId == null || currencyId == null
+                || amountStr == null || network == null || txHash == null) {
+                continue;
+            }
+            BigDecimal amount;
+            try {
+                amount = new BigDecimal(amountStr);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            TokenDeposit deposit = TokenDeposit.builder()
+                .depositId(depositId)
+                .userId(userId)
+                .currencyId(currencyId)
+                .amount(amount)
+                .network(network)
+                .senderAddress(depositObj.getString("senderAddress"))
+                .toAddress(depositObj.getString("toAddress"))
+                .logIndex(depositObj.getInteger("logIndex"))
+                .blockNumber(depositObj.getLong("blockNumber"))
+                .txHash(txHash)
+                .orderNumber(depositObj.getString("orderNumber"))
+                .status(TokenDeposit.STATUS_PENDING)
+                .build();
+            futures.add(tokenDepositService.registerTokenDeposit(deposit));
+        }
+
+        if (futures.isEmpty()) {
+            ctx.fail(400, new IllegalArgumentException("No valid deposits"));
+            return;
+        }
+
+        response(ctx, io.vertx.core.Future.all(futures).map(result -> new JsonObject()
+            .put("requested", depositsArray.size())
+            .put("processed", futures.size())
+            .put("results", new JsonArray(result.list()))));
+    }
+
+    private void completeDepositBatch(RoutingContext ctx) {
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new IllegalArgumentException("Body required"));
+            return;
+        }
+        JsonArray depositIds = body.getJsonArray("depositIds");
+        if (depositIds == null || depositIds.isEmpty()) {
+            ctx.fail(400, new IllegalArgumentException("depositIds required"));
+            return;
+        }
+
+        List<io.vertx.core.Future<TokenDeposit>> futures = new ArrayList<>();
+        for (Object item : depositIds) {
+            if (item instanceof String depositId && !depositId.isBlank()) {
+                futures.add(tokenDepositService.completeTokenDeposit(depositId));
+            }
+        }
+        if (futures.isEmpty()) {
+            ctx.fail(400, new IllegalArgumentException("No valid depositIds"));
+            return;
+        }
+
+        response(ctx, io.vertx.core.Future.all(futures).map(result -> new JsonObject()
+            .put("requested", depositIds.size())
+            .put("processed", futures.size())
+            .put("results", new JsonArray(result.list()))));
+    }
+
+    private void getDeposit(RoutingContext ctx) {
+        String depositId = ctx.pathParam("depositId");
+        if (depositId == null || depositId.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("depositId required"));
+            return;
+        }
+        response(ctx, tokenDepositService.getTokenDepositByDepositId(depositId));
+    }
+
+    private void submitSweep(RoutingContext ctx) {
+        String depositId = ctx.pathParam("depositId");
+        if (depositId == null || depositId.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("depositId required"));
+            return;
+        }
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new IllegalArgumentException("Body required"));
+            return;
+        }
+        String txHash = body.getString("txHash");
+        if (txHash == null || txHash.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("txHash required"));
+            return;
+        }
+        response(ctx, tokenDepositService.submitSweepStatus(depositId, txHash));
+    }
+
+    private void failSweep(RoutingContext ctx) {
+        String depositId = ctx.pathParam("depositId");
+        if (depositId == null || depositId.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("depositId required"));
+            return;
+        }
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new IllegalArgumentException("Body required"));
+            return;
+        }
+        String errorMessage = body.getString("errorMessage", "");
+        response(ctx, tokenDepositService.failSweepStatus(depositId, errorMessage));
     }
 }

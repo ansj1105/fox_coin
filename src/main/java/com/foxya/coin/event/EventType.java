@@ -22,6 +22,7 @@ public enum EventType {
     // 입금 이벤트
     DEPOSIT_DETECTED("deposit:detected"),
     DEPOSIT_CONFIRMED("deposit:confirmed"),
+    SWEEP_REQUESTED("sweep:requested"),
     
     // 레퍼럴 이벤트
     REFERRAL_REGISTERED("referral:registered"),
@@ -37,4 +38,3 @@ public enum EventType {
         return channel;
     }
 }
-

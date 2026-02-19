@@ -1,5 +1,6 @@
 package com.foxya.coin.transfer;
 
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
@@ -99,7 +100,8 @@ public class ExternalTransferMockTest {
             .thenReturn(Future.succeededFuture());
         
         // TransferService 초기화 (Mock EventPublisher 주입)
-        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, mockEventPublisher);
+        AppConfigRepository appConfigRepository = new AppConfigRepository();
+        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, mockEventPublisher, null, null, null, appConfigRepository);
         
         tc.completeNow();
     }

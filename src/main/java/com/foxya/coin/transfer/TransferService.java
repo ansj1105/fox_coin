@@ -2,6 +2,7 @@ package com.foxya.coin.transfer;
 
 import com.foxya.coin.airdrop.AirdropRepository;
 import com.foxya.coin.airdrop.entities.AirdropTransfer;
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.ChainType;
 import com.foxya.coin.common.exceptions.BadRequestException;
@@ -52,6 +53,7 @@ public class TransferService extends BaseService {
     private final TransferRepository transferRepository;
     private final UserRepository userRepository;
     private final CurrencyRepository currencyRepository;
+    private final AppConfigRepository appConfigRepository;
     private final WalletRepository walletRepository;
     private final EventPublisher eventPublisher;
     private final RedisAPI redisApi;
@@ -62,6 +64,8 @@ public class TransferService extends BaseService {
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
     // Normalized comment.
     private static final BigDecimal MIN_TRANSFER_AMOUNT = new BigDecimal("0.000001");
+    private static final String HOT_WALLET_MIN_PREFIX = "hot_wallet_min.";
+    private static final String HOT_WALLET_USER_ID_KEY = "hot_wallet_user_id";
 
     public TransferService(PgPool pool,
                           TransferRepository transferRepository,
@@ -69,7 +73,7 @@ public class TransferService extends BaseService {
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -79,7 +83,7 @@ public class TransferService extends BaseService {
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher,
                           RedisAPI redisApi) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -90,7 +94,7 @@ public class TransferService extends BaseService {
                           EventPublisher eventPublisher,
                           RedisAPI redisApi,
                           NotificationService notificationService) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -102,10 +106,24 @@ public class TransferService extends BaseService {
                           RedisAPI redisApi,
                           NotificationService notificationService,
                           AirdropRepository airdropRepository) {
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, null);
+    }
+
+    public TransferService(PgPool pool,
+                          TransferRepository transferRepository,
+                          UserRepository userRepository,
+                          CurrencyRepository currencyRepository,
+                          WalletRepository walletRepository,
+                          EventPublisher eventPublisher,
+                          RedisAPI redisApi,
+                          NotificationService notificationService,
+                          AirdropRepository airdropRepository,
+                          AppConfigRepository appConfigRepository) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
         this.currencyRepository = currencyRepository;
+        this.appConfigRepository = appConfigRepository;
         this.walletRepository = walletRepository;
         this.eventPublisher = eventPublisher;
         this.redisApi = redisApi;
@@ -246,30 +264,28 @@ public class TransferService extends BaseService {
     }
 
     /**
-     * Use INTERNAL wallet first when available; fallback to external-chain wallet.
+     * Use external-chain wallet first; fallback to INTERNAL wallet when external wallet is missing.
      */
     private Future<Wallet> resolvePreferredWalletForWithdrawal(Long userId, Currency externalCurrency) {
         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId())
-            .compose(externalWallet ->
-                currencyRepository.getCurrencyByCodeAndChain(pool, externalCurrency.getCode(), INTERNAL_CHAIN)
+            .compose(externalWallet -> {
+                if (externalWallet != null) {
+                    return Future.succeededFuture(externalWallet);
+                }
+                return currencyRepository.getCurrencyByCodeAndChain(pool, externalCurrency.getCode(), INTERNAL_CHAIN)
                     .compose(internalCurrency -> {
                         if (internalCurrency == null) {
-                            if (externalWallet == null) {
-                                return Future.failedFuture(new NotFoundException("Resource not found."));
-                            }
-                            return Future.succeededFuture(externalWallet);
+                            return Future.failedFuture(new NotFoundException("Resource not found."));
                         }
                         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, internalCurrency.getId())
                             .compose(internalWallet -> {
                                 if (internalWallet != null) {
                                     return Future.succeededFuture(internalWallet);
                                 }
-                                if (externalWallet != null) {
-                                    return Future.succeededFuture(externalWallet);
-                                }
                                 return Future.failedFuture(new NotFoundException("Resource not found."));
                             });
-                    }));
+                    });
+            });
     }
     
     /**
@@ -377,6 +393,66 @@ public class TransferService extends BaseService {
       * Normalized comment.
       * Normalized comment.
      */
+    private Future<Long> getHotWalletUserId() {
+        if (appConfigRepository == null) {
+            return Future.succeededFuture(null);
+        }
+        return appConfigRepository.getByKey(pool, HOT_WALLET_USER_ID_KEY)
+            .map(value -> {
+                if (value == null || value.isBlank()) return null;
+                try {
+                    return Long.parseLong(value.trim());
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+    }
+
+    private Future<java.math.BigDecimal> getHotWalletMin(String chain, String currencyCode) {
+        if (appConfigRepository == null) {
+            return Future.succeededFuture(null);
+        }
+        String key = HOT_WALLET_MIN_PREFIX + chain + "." + currencyCode;
+        return appConfigRepository.getByKey(pool, key)
+            .map(value -> {
+                if (value == null || value.isBlank()) return null;
+                try {
+                    return new java.math.BigDecimal(value.trim());
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+    }
+
+    private Future<Boolean> isHotWalletLiquiditySufficient(String chain, String currencyCode, java.math.BigDecimal amount) {
+        return getHotWalletUserId()
+            .compose(hotUserId -> {
+                if (hotUserId == null) {
+                    return Future.succeededFuture(true);
+                }
+                return getHotWalletMin(chain, currencyCode)
+                    .compose(min -> {
+                        if (min == null) {
+                            return Future.succeededFuture(true);
+                        }
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, chain)
+                            .compose(currency -> {
+                                if (currency == null) {
+                                    return Future.succeededFuture(true);
+                                }
+                                return walletRepository.getWalletByUserIdAndCurrencyId(pool, hotUserId, currency.getId())
+                                    .map(wallet -> {
+                                        if (wallet == null || wallet.getBalance() == null) {
+                                            return false;
+                                        }
+                                        java.math.BigDecimal needed = min.add(amount);
+                                        return wallet.getBalance().compareTo(needed) >= 0;
+                                    });
+                            });
+                    });
+            });
+    }
+
     public Future<TransferResponseDto> requestExternalTransfer(Long userId, ExternalTransferRequestDto request, String requestIp) {
         log.info("Normalized log message",
             userId, request.getToAddress(), request.getAmount(), request.getChain());
@@ -419,8 +495,12 @@ public class TransferService extends BaseService {
                             return Future.failedFuture(new BadRequestException("Invalid request." + totalDeduct + "Invalid request." + wallet.getBalance()));
                         }
 
-                        // Normalized comment.
-                        return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp);
+                        return isHotWalletLiquiditySufficient(request.getChain(), currency.getCode(), request.getAmount())
+                            .compose(hasLiquidity -> {
+                                String status = hasLiquidity ? ExternalTransfer.STATUS_PENDING : ExternalTransfer.STATUS_WAITING_LIQUIDITY;
+                                boolean dispatch = hasLiquidity;
+                                return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp, status, dispatch);
+                            });
                     });
             });
     }
@@ -431,7 +511,8 @@ public class TransferService extends BaseService {
      */
     private Future<TransferResponseDto> createExternalTransferRequest(
             Long userId, Wallet wallet, Currency currency,
-            ExternalTransferRequestDto request, BigDecimal serviceFee, String requestIp) {
+            ExternalTransferRequestDto request, BigDecimal serviceFee, String requestIp,
+            String status, boolean dispatchEvent) {
         
         String transferId = UUID.randomUUID().toString();
         BigDecimal totalDeduct = request.getAmount().add(serviceFee);
@@ -455,7 +536,7 @@ public class TransferService extends BaseService {
                         .amount(request.getAmount())
                         .fee(serviceFee)
                         .networkFee(BigDecimal.ZERO) // Network fee is filled by Node.js at submission
-                        .status(ExternalTransfer.STATUS_PENDING)
+                        .status(status)
                         .orderNumber(orderNumber)
                         .transactionType(TransactionType.WITHDRAW.getValue())
                         .chain(request.getChain())
@@ -471,7 +552,7 @@ public class TransferService extends BaseService {
             log.info("Normalized log message", transferId);
             
             // Normalized comment.
-            if (eventPublisher != null) {
+            if (dispatchEvent && eventPublisher != null) {
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("transferId", transferId);
                 payload.put("userId", userId);
@@ -492,7 +573,7 @@ public class TransferService extends BaseService {
                 .currencyCode(currency.getCode())
                 .amount(request.getAmount())
                 .fee(serviceFee)
-                .status(ExternalTransfer.STATUS_PENDING)
+                .status(status)
                 .memo(request.getMemo())
                 .createdAt(createdTransfer.getCreatedAt())
                 .build());
@@ -520,6 +601,54 @@ public class TransferService extends BaseService {
     /**
      * Periodically republishes pending withdrawals so external settlement is eventually executed.
      */
+    /**
+     * Promote waiting withdrawals when hot wallet liquidity is sufficient.
+     */
+    public Future<Integer> promoteWaitingWithdrawals(int limit) {
+        if (eventPublisher == null) {
+            return Future.succeededFuture(0);
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        return transferRepository.getWaitingExternalTransfers(pool, safeLimit)
+            .compose(waitingTransfers -> {
+                if (waitingTransfers == null || waitingTransfers.isEmpty()) {
+                    return Future.succeededFuture(0);
+                }
+                java.util.List<io.vertx.core.Future<Integer>> tasks = waitingTransfers.stream()
+                    .map(transfer -> currencyRepository.getCurrencyById(pool, transfer.getCurrencyId())
+                        .compose(currency -> {
+                            if (currency == null) return Future.succeededFuture(0);
+                            return isHotWalletLiquiditySufficient(transfer.getChain(), currency.getCode(), transfer.getAmount())
+                                .compose(ok -> {
+                                    if (!ok) return Future.succeededFuture(0);
+                                    return transferRepository.updateExternalTransferStatus(pool, transfer.getTransferId(), ExternalTransfer.STATUS_PENDING)
+                                        .compose(updated -> {
+                                            if (updated == null) return Future.succeededFuture(0);
+                                            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+                                            payload.put("transferId", transfer.getTransferId());
+                                            payload.put("userId", transfer.getUserId());
+                                            payload.put("toAddress", transfer.getToAddress());
+                                            payload.put("amount", transfer.getAmount() != null ? transfer.getAmount().toPlainString() : null);
+                                            payload.put("currencyCode", currency.getCode());
+                                            payload.put("chain", transfer.getChain());
+                                            return eventPublisher.publishToStream(EventType.WITHDRAWAL_REQUESTED, payload)
+                                                .map(v -> 1)
+                                                .recover(err -> {
+                                                    log.warn("Failed to promote waiting withdrawal - transferId: {}", transfer.getTransferId(), err);
+                                                    return Future.succeededFuture(0);
+                                                });
+                                        });
+                                });
+                        }))
+                    .collect(java.util.stream.Collectors.toList());
+
+                return io.vertx.core.Future.all(tasks)
+                    .map(result -> result.list().stream()
+                        .mapToInt(item -> item instanceof Integer ? (Integer) item : 0)
+                        .sum());
+            });
+    }
+
     public Future<Integer> redispatchPendingWithdrawals(int limit) {
         if (eventPublisher == null) {
             return Future.succeededFuture(0);
@@ -879,6 +1008,5 @@ public class TransferService extends BaseService {
             });
     }
 }
-
 
 

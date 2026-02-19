@@ -67,6 +67,22 @@ components:
       properties:
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           enum: [OK, ERROR]
         message:
           type: string
@@ -80,6 +96,22 @@ components:
       properties:
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           example: ERROR
         message:
           type: string
@@ -91,6 +123,22 @@ components:
       type: object
       properties:
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
           enum: [OK]
           example: OK
@@ -114,6 +162,22 @@ components:
       type: object
       properties:
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
           enum: [OK]
           example: OK
@@ -210,6 +274,22 @@ components:
       type: object
       properties:
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
           enum: [OK]
           example: OK
@@ -325,6 +405,22 @@ components:
       properties:
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           enum: [OK]
           example: OK
         data:
@@ -415,6 +511,22 @@ components:
       properties:
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           enum: [OK]
           example: OK
         data:
@@ -455,6 +567,22 @@ components:
           type: string
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           enum: [ACTIVE, INACTIVE, BLOCKED]
         role:
           type: string
@@ -482,6 +610,22 @@ components:
           type: number
           format: decimal
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
           enum: [ACTIVE, INACTIVE, FROZEN]
         createdAt:
@@ -628,7 +772,23 @@ components:
           description: 결제금액 (결제 입금 시)
         status:
           type: string
-          enum: [PENDING, COMPLETED, FAILED, CANCELLED, CONFIRMED, SUBMITTED]
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
+          enum: [WAITING_LIQUIDITY, PENDING, COMPLETED, FAILED, CANCELLED, CONFIRMED, SUBMITTED]
         memo:
           type: string
         createdAt:
@@ -700,6 +860,21 @@ components:
         status:
           type: string
           enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -882,6 +1057,21 @@ components:
         status:
           type: string
           enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -990,6 +1180,21 @@ components:
         status:
           type: string
           enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -1028,9 +1233,37 @@ components:
         senderAddress:
           type: string
           description: 송신 지갑 주소
+        toAddress:
+          type: string
+          description: 수신 지갑 주소
+        logIndex:
+          type: integer
+          description: 이벤트 로그 인덱스 (EVM 등)
+        blockNumber:
+          type: integer
+          format: int64
+          description: 블록 번호
+        txHash:
+          type: string
+          description: 블록체인 트랜잭션 해시
         status:
           type: string
-          enum: [PENDING, CONFIRMED, FAILED]
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -1224,6 +1457,22 @@ components:
           enum: [BROADCAST_PROGRESS, BROADCAST_WATCH]
           description: "채굴 유형 (BROADCAST_PROGRESS: 방송진행, BROADCAST_WATCH: 방송시청)"
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
           enum: [COMPLETED, FAILED, CANCELLED]
           description: 상태
@@ -1916,6 +2165,22 @@ components:
           type: integer
         status:
           type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
+          type: string
           enum: [RELEASED, PROCESSING]
         amount:
           type: number
@@ -1952,6 +2217,22 @@ components:
         currencyCode:
           type: string
         status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        sweepStatus:
+          type: string
+        sweepTxHash:
+          type: string
+        sweepRequestedAt:
+          type: string
+          format: date-time
+        sweepSubmittedAt:
+          type: string
+          format: date-time
+        sweepFailedAt:
+          type: string
+          format: date-time
+        sweepErrorMessage:
           type: string
         createdAt:
           type: string

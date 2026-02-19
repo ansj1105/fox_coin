@@ -119,6 +119,9 @@ public class TokenDepositServiceTest {
                     .amount(DEPOSIT_AMOUNT)
                     .network(CHAIN)
                     .senderAddress(senderAddress)
+                    .toAddress("TReceiverAddress12345678901234567890")
+                    .logIndex(1)
+                    .blockNumber(123456L)
                     .txHash(txHash)
                     .status(TokenDeposit.STATUS_PENDING)
                     .build();
@@ -176,6 +179,9 @@ public class TokenDepositServiceTest {
                     .amount(DEPOSIT_AMOUNT)
                     .network(CHAIN)
                     .senderAddress("TSender")
+                    .toAddress("TReceiver")
+                    .logIndex(0)
+                    .blockNumber(1L)
                     .txHash(null)
                     .status(TokenDeposit.STATUS_PENDING)
                     .build();
@@ -207,6 +213,9 @@ public class TokenDepositServiceTest {
                     .amount(DEPOSIT_AMOUNT)
                     .network(CHAIN)
                     .senderAddress("TSender2")
+                    .toAddress("TReceiver2")
+                    .logIndex(2)
+                    .blockNumber(999L)
                     .txHash("0x" + "b".repeat(64))
                     .status(TokenDeposit.STATUS_PENDING)
                     .build();

@@ -36,17 +36,17 @@ public class InquiryService extends BaseService {
 
     public Future<InquiryResponseDto> createInquiry(Long userId, CreateInquiryRequestDto dto) {
         if (dto.getSubject() == null || dto.getSubject().trim().isEmpty()) {
-            return Future.failedFuture(new BadRequestException("Please enter all required fields."));
+            return Future.failedFuture(new BadRequestException("필수 항목을 입력해 주세요."));
         }
         if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
-            return Future.failedFuture(new BadRequestException("Please enter all required fields."));
+            return Future.failedFuture(new BadRequestException("필수 항목을 입력해 주세요."));
         }
 
         if (dto.getSubject().length() > 20) {
-            return Future.failedFuture(new BadRequestException("Inquiry title can be up to 20 characters."));
+            return Future.failedFuture(new BadRequestException("문의 제목은 20자까지 입력할 수 있습니다."));
         }
         if (dto.getContent().length() > 200) {
-            return Future.failedFuture(new BadRequestException("Inquiry content can be up to 200 characters."));
+            return Future.failedFuture(new BadRequestException("문의 내용은 200자까지 입력할 수 있습니다."));
         }
 
         return userService.getEmailInfo(userId)
@@ -55,7 +55,7 @@ public class InquiryService extends BaseService {
                 if (email == null || email.trim().isEmpty()) {
                     email = dto.getEmail();
                     if (email == null || email.trim().isEmpty()) {
-                        return Future.failedFuture(new BadRequestException("Please set an email address."));
+                        return Future.failedFuture(new BadRequestException("이메일을 설정해 주세요."));
                     }
                 }
 

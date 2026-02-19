@@ -445,6 +445,22 @@ public class TransferRepository extends BaseRepository {
     /**
       * Normalized comment.
      */
+    /**
+      * Normalized comment.
+     */
+    public Future<List<ExternalTransfer>> getWaitingExternalTransfers(SqlClient client, int limit) {
+        String sql = QueryBuilder
+            .select("external_transfers")
+            .where("status", Op.Equal, "status")
+            .andWhere("deleted_at", Op.IsNull)
+            .orderBy("created_at", Sort.ASC)
+            .limit(limit)
+            .build();
+
+        return query(client, sql, Collections.singletonMap("status", ExternalTransfer.STATUS_WAITING_LIQUIDITY))
+            .map(rows -> fetchAll(externalTransferMapper, rows));
+    }
+
     public Future<List<ExternalTransfer>> getPendingExternalTransfers(SqlClient client, int limit) {
         String sql = QueryBuilder
             .select("external_transfers")
@@ -461,6 +477,24 @@ public class TransferRepository extends BaseRepository {
     /**
      * Increase retry_count for a transfer. This is used by a periodic redispatch scheduler.
      */
+    /**
+     * Update external transfer status.
+     */
+    public Future<ExternalTransfer> updateExternalTransferStatus(SqlClient client, String transferId, String status) {
+        String sql = QueryBuilder
+            .update("external_transfers", "status")
+            .where("transfer_id", Op.Equal, "transfer_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+
+        Map<String, Object> params = new java.util.HashMap<>();
+        params.put("transfer_id", transferId);
+        params.put("status", status);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(externalTransferMapper, rows));
+    }
+
     public Future<ExternalTransfer> incrementExternalTransferRetryCount(SqlClient client, String transferId) {
         String sql = QueryBuilder
             .update("external_transfers")

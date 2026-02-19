@@ -43,7 +43,7 @@ public class CurrencyHandlerTest extends HandlerTestBase {
                     assertThat(exchangeRates.getRates().get("USDT")).isNotNull();
                     assertThat(exchangeRates.getRates().get("BTC")).isNotNull();
                     assertThat(exchangeRates.getRates().get("TRX")).isNotNull();
-                    assertThat(exchangeRates.getRates().get("KRWT")).isEqualTo(java.math.BigDecimal.ONE);
+                    assertThat(exchangeRates.getRates().get("KRWT")).isEqualByComparingTo(java.math.BigDecimal.ONE);
                     assertThat(exchangeRates.getUpdatedAt()).isNotNull();
                     
                     tc.completeNow();

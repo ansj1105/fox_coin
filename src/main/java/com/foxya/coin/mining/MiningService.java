@@ -569,7 +569,7 @@ public class MiningService extends BaseService {
             .compose(activeSession -> {
                 // Normalized comment.
                 if (activeSession != null && activeSession.getEndsAt().isAfter(now)) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("Invalid request."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("1시간이 지난 후에 다음 영상을 시청할 수 있습니다."));
                 }
                 return userRepository.getUserById(pool, userId);
             })
@@ -587,7 +587,7 @@ public class MiningService extends BaseService {
                         return miningRepository.countSessionsStartedToday(pool, userId, today)
                             .compose(sessionsToday -> {
                                 if (sessionsToday >= dailyMaxVideos) {
-                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("Invalid request."));
+                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
                                 BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
@@ -634,7 +634,7 @@ public class MiningService extends BaseService {
                 
                 // Normalized comment.
                 if (currentCount >= maxCount) {
-                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("Invalid request."));
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("일일 최대 광고 시청 횟수를 초과했습니다."));
                 }
                 
                 // Normalized comment.

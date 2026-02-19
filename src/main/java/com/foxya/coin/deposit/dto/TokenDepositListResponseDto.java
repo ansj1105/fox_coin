@@ -55,8 +55,26 @@ public class TokenDepositListResponseDto {
         @JsonProperty("senderAddress")
         private String senderAddress;
         
+        @JsonProperty("toAddress")
+        private String toAddress;
+        
+        @JsonProperty("logIndex")
+        private Integer logIndex;
+        
+        @JsonProperty("blockNumber")
+        private Long blockNumber;
+        
+        @JsonProperty("txHash")
+        private String txHash;
+        
         @JsonProperty("status")
         private String status;
+    private String sweepStatus;
+    private String sweepTxHash;
+    private java.time.LocalDateTime sweepRequestedAt;
+    private java.time.LocalDateTime sweepSubmittedAt;
+    private java.time.LocalDateTime sweepFailedAt;
+    private String sweepErrorMessage;
         
         @JsonProperty("createdAt")
         private LocalDateTime createdAt;
