@@ -1568,11 +1568,20 @@ public class AuthService extends BaseService {
     public Future<AppleLoginResponseDto> appleLogin(AppleLoginRequestDto dto) {
         log.info("Apple login attempt with code");
 
-        String clientId = appleConfig.getString("serviceId");
+        boolean isIos = "IOS".equalsIgnoreCase(dto.getPlatform())
+            || "IOS".equalsIgnoreCase(dto.getDeviceOs());
+
+        String webClientId = appleConfig.getString("serviceId");
+        String iosClientId = appleConfig.getString("iosClientId");
+        String clientId = isIos
+            ? (iosClientId != null && !iosClientId.isBlank() ? iosClientId : webClientId)
+            : webClientId;
         String teamId = appleConfig.getString("teamId");
         String keyId = appleConfig.getString("keyId");
         String privateKeyPath = appleConfig.getString("privateKeyPath");
-        String redirectUri = appleConfig.getString("redirectUri");
+        String redirectUri = isIos
+            ? appleConfig.getString("iosRedirectUri")
+            : appleConfig.getString("redirectUri");
 
         if (clientId == null || clientId.isBlank() || teamId == null || teamId.isBlank()
             || keyId == null || keyId.isBlank() || privateKeyPath == null || privateKeyPath.isBlank()) {
@@ -1588,11 +1597,19 @@ public class AuthService extends BaseService {
             return Future.failedFuture(new BadRequestException("Apple OAuth configuration is missing"));
         }
 
-        return AppleOAuthUtil.exchangeToken(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
-            .compose(tokenResponse -> {
-                String idToken = tokenResponse.getString("id_token");
-                return AppleOAuthUtil.verifyIdToken(webClient, idToken, clientId);
-            })
+        // iOS 네이티브 Sign in with Apple은 idToken을 직접 전달하므로 토큰 교환 없이 검증 가능.
+        Future<JsonObject> userInfoFuture;
+        if (isIos && dto.getIdToken() != null && !dto.getIdToken().isBlank()) {
+            userInfoFuture = AppleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), clientId);
+        } else {
+            userInfoFuture = AppleOAuthUtil.exchangeToken(webClient, dto.getCode(), clientId, clientSecret, redirectUri)
+                .compose(tokenResponse -> {
+                    String idToken = tokenResponse.getString("id_token");
+                    return AppleOAuthUtil.verifyIdToken(webClient, idToken, clientId);
+                });
+        }
+
+        return userInfoFuture
             .compose(userInfo -> {
                 String appleId = userInfo.getString("sub");
                 String email = userInfo.getString("email");

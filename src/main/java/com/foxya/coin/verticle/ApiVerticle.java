@@ -861,8 +861,10 @@ public class ApiVerticle extends AbstractVerticle {
         putIfEnvSet(config, "teamId", "APPLE_TEAM_ID");
         putIfEnvSet(config, "keyId", "APPLE_KEY_ID");
         putIfEnvSet(config, "serviceId", "APPLE_SERVICE_ID");
+        putIfEnvSet(config, "iosClientId", "APPLE_IOS_CLIENT_ID");
         putIfEnvSet(config, "privateKeyPath", "APPLE_PRIVATE_KEY_PATH");
         putIfEnvSet(config, "redirectUri", "APPLE_REDIRECT_URI");
+        putIfEnvSet(config, "iosRedirectUri", "APPLE_IOS_REDIRECT_URI");
         return config;
     }
 
@@ -873,4 +875,3 @@ public class ApiVerticle extends AbstractVerticle {
         }
     }
 }
-
