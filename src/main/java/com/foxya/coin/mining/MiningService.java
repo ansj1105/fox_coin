@@ -591,11 +591,7 @@ public class MiningService extends BaseService {
                                 }
                                 BigDecimal dailyMax = miningLevel.getDailyMaxMining();
                                 BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
-<<<<<<< HEAD
-                                // Normalized comment.
-=======
                                 // 채굴 rate: (초대 효율 + 미션 효율) 합산 후 perVideoBase에 적용
->>>>>>> 1249974 ([ADD] ㅋㅋㅋ)
                                 // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
                                 return referralService.getInviteMiningBonusMultiplier(userId)
                                     .compose(multiplier -> bonusService.getMissionEfficiency(userId)
