@@ -36,6 +36,7 @@ public class ProfileImageModerationService {
             return Future.succeededFuture();
         }
         if (webClient == null || visionApiKey == null || visionApiKey.isBlank()) {
+            log.warn("Profile image moderation is enabled but Google Vision API key/webClient is missing.");
             return Future.failedFuture(new BadRequestException(MODERATION_FAIL_MESSAGE));
         }
 
@@ -49,6 +50,7 @@ public class ProfileImageModerationService {
             })
             .recover(throwable -> {
                 if (throwable instanceof BadRequestException) {
+                    log.warn("Profile image moderation rejected upload: {}", throwable.getMessage());
                     return Future.<Void>failedFuture(throwable);
                 }
                 log.warn("Profile image moderation failed", throwable);

@@ -211,7 +211,18 @@ public class ApiVerticle extends AbstractVerticle {
         }
         String googleCloudVisionApiKey = System.getenv("GOOGLE_CLOUD_VISION_API_KEY");
         if (googleCloudVisionApiKey == null || googleCloudVisionApiKey.isBlank()) {
+            // Backward-compat for accidental typo in env var key.
+            googleCloudVisionApiKey = System.getenv("OOGLE_CLOUD_VISION_API_KEY");
+        }
+        if (googleCloudVisionApiKey == null || googleCloudVisionApiKey.isBlank()) {
             googleCloudVisionApiKey = config().getString("googleCloudVisionApiKey", "");
+        }
+        if (profileImageModerationEnabled) {
+            if (googleCloudVisionApiKey == null || googleCloudVisionApiKey.isBlank()) {
+                log.warn("Profile image moderation is enabled, but GOOGLE_CLOUD_VISION_API_KEY is not configured.");
+            } else {
+                log.info("Profile image moderation is enabled.");
+            }
         }
         ProfileImageModerationService profileImageModerationService = new ProfileImageModerationService(
             webClient,
