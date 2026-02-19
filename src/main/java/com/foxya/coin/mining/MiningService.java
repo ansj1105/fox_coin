@@ -258,7 +258,7 @@ public class MiningService extends BaseService {
                         return target != null && target.getBalance() != null ? target.getBalance() : BigDecimal.ZERO;
                     });
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
-                Future<Integer> missionEfficiencyFuture = bonusService.getMissionEfficiency(userId);
+                Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
                 // Normalized comment.
                 Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
@@ -594,7 +594,7 @@ public class MiningService extends BaseService {
                                 // 채굴 rate: (초대 효율 + 미션 효율) 합산 후 perVideoBase에 적용
                                 // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
                                 return referralService.getInviteMiningBonusMultiplier(userId)
-                                    .compose(multiplier -> bonusService.getMissionEfficiency(userId)
+                                    .compose(multiplier -> Future.succeededFuture(0)
                                         .map(missionEfficiency -> {
                                             int inviteEfficiency = multiplier != null
                                                 ? multiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
