@@ -144,9 +144,12 @@ services:
     environment:
       TZ: Asia/Seoul
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH:-/var/secrets/firebase-service-account.json}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/var/secrets/firebase-service-account.json}
     volumes:
       - ./src/main/resources/config.json:/app/config.json
       - ./logs:/app/logs
+      - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
       - postgres
       - redis-cluster-init

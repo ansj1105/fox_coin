@@ -85,12 +85,15 @@ services:
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH:-/var/secrets/firebase-service-account.json}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/var/secrets/firebase-service-account.json}
     ports:
       - "8080:8080"
     volumes:
       - ./logs:/app/logs
       - ./storage/profile-images:/app/storage/profile-images
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
+      - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,11 +150,14 @@ services:
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH:-/var/secrets/firebase-service-account.json}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/var/secrets/firebase-service-account.json}
     # 포트 미노출 (Nginx가 내부 네트워크로만 접근)
     volumes:
       - ./logs:/app/logs
       - ./storage/profile-images:/app/storage/profile-images
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
+      - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
