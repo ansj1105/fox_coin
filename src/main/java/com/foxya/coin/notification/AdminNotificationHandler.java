@@ -37,7 +37,7 @@ public class AdminNotificationHandler extends BaseHandler {
 
         router.post("/test")
             .handler(JWTAuthHandler.create(jwtAuth))
-            .handler(AuthUtils.hasRole(UserRole.ADMIN))
+            .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
             .handler(this::createTestNotification);
 
         return router;
@@ -98,4 +98,3 @@ public class AdminNotificationHandler extends BaseHandler {
         return Json.encode(metadataValue);
     }
 }
-
