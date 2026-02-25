@@ -70,6 +70,7 @@ import com.foxya.coin.mining.MiningService;
 import com.foxya.coin.notice.NoticeHandler;
 import com.foxya.coin.notice.NoticeRepository;
 import com.foxya.coin.notice.NoticeService;
+import com.foxya.coin.notification.AdminNotificationHandler;
 import com.foxya.coin.notification.NotificationHandler;
 import com.foxya.coin.notification.FcmService;
 import com.foxya.coin.notification.NotificationRepository;
@@ -362,6 +363,7 @@ public class ApiVerticle extends AbstractVerticle {
         LevelHandler levelHandler = new LevelHandler(vertx, levelService, jwtAuth);
         NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
         NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
+        AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, jwtAuth);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -425,6 +427,9 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/notifications", notificationHandler.getRouter());
+
+        // Admin test notification API (DB insert + FCM send via NotificationService)
+        mainRouter.mountSubRouter("/api/v1/admin/notifications", adminNotificationHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());
