@@ -135,6 +135,18 @@ public class UserHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(fcmTokenValidation(parser))
             .handler(this::updateFcmToken);
+
+        // 디바이스별 알림 설정 조회/수정
+        router.get("/notification-settings")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getNotificationSettings);
+
+        router.patch("/notification-settings")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(notificationSettingsValidation(parser))
+            .handler(this::updateNotificationSettings);
         
         router.post("/generate/referral-code")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -194,6 +206,17 @@ public class UserHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> notificationSettingsValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("pushEnabled", booleanSchema())
+                    .optionalProperty("deviceId", stringSchema().with(minLength(1), maxLength(128)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     private void updateFcmToken(RoutingContext ctx) {
         if (deviceRepository == null || pool == null) {
             ctx.fail(503, new IllegalStateException("FCM token API not configured"));
@@ -201,10 +224,71 @@ public class UserHandler extends BaseHandler {
         }
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         io.vertx.core.json.JsonObject body = ctx.body().asJsonObject();
-        String deviceId = body.getString("deviceId");
+        String deviceId = resolveDeviceId(ctx, body);
+        if (deviceId == null || deviceId.isBlank()) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("deviceId가 필요합니다."));
+            return;
+        }
         String fcmToken = body.getString("fcmToken");
         response(ctx, deviceRepository.updateFcmToken(pool, userId, deviceId, fcmToken)
             .map(updated -> io.vertx.core.json.JsonObject.of("success", updated)));
+    }
+
+    private void getNotificationSettings(RoutingContext ctx) {
+        if (deviceRepository == null || pool == null) {
+            ctx.fail(503, new IllegalStateException("Notification settings API not configured"));
+            return;
+        }
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String deviceId = resolveDeviceId(ctx, null);
+        if (deviceId == null || deviceId.isBlank()) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("deviceId가 필요합니다."));
+            return;
+        }
+
+        response(ctx, deviceRepository.getPushEnabledByUserAndDeviceId(pool, userId, deviceId)
+            .map(pushEnabled -> io.vertx.core.json.JsonObject.of(
+                "deviceId", deviceId,
+                "pushEnabled", pushEnabled == null ? Boolean.TRUE : pushEnabled
+            )));
+    }
+
+    private void updateNotificationSettings(RoutingContext ctx) {
+        if (deviceRepository == null || pool == null) {
+            ctx.fail(503, new IllegalStateException("Notification settings API not configured"));
+            return;
+        }
+
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        io.vertx.core.json.JsonObject body = ctx.body().asJsonObject();
+        String deviceId = resolveDeviceId(ctx, body);
+        if (deviceId == null || deviceId.isBlank()) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("deviceId가 필요합니다."));
+            return;
+        }
+        Boolean pushEnabled = body.getBoolean("pushEnabled");
+        if (pushEnabled == null) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("pushEnabled 값이 필요합니다."));
+            return;
+        }
+
+        response(ctx, deviceRepository.updatePushEnabledByUserAndDeviceId(pool, userId, deviceId, pushEnabled)
+            .map(updated -> io.vertx.core.json.JsonObject.of(
+                "success", updated,
+                "deviceId", deviceId,
+                "pushEnabled", pushEnabled
+            )));
+    }
+
+    private String resolveDeviceId(RoutingContext ctx, io.vertx.core.json.JsonObject body) {
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        if ((deviceId == null || deviceId.isBlank()) && body != null) {
+            deviceId = body.getString("deviceId");
+        }
+        if (deviceId == null || deviceId.isBlank()) {
+            deviceId = ctx.request().getParam("deviceId");
+        }
+        return deviceId;
     }
 
     private void getMe(RoutingContext ctx) {

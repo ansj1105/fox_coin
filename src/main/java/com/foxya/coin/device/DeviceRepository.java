@@ -25,6 +25,7 @@ public class DeviceRepository extends BaseRepository {
         .deviceType(getStringColumnValue(row, "device_type"))
         .deviceOs(getStringColumnValue(row, "device_os"))
         .fcmToken(getStringColumnValue(row, "fcm_token"))
+        .pushEnabled(getBooleanColumnValue(row, "push_enabled"))
         .appVersion(getStringColumnValue(row, "app_version"))
         .userAgent(getStringColumnValue(row, "user_agent"))
         .lastIp(getStringColumnValue(row, "last_ip"))
@@ -83,7 +84,7 @@ public class DeviceRepository extends BaseRepository {
      * 사용자의 활성 디바이스 FCM 토큰 목록 (푸시 발송용)
      */
     public Future<List<String>> getFcmTokensByUserId(SqlClient client, Long userId) {
-        String sql = "SELECT fcm_token FROM devices WHERE user_id = #{userId} AND deleted_at IS NULL AND fcm_token IS NOT NULL AND fcm_token != ''";
+        String sql = "SELECT fcm_token FROM devices WHERE user_id = #{userId} AND deleted_at IS NULL AND fcm_token IS NOT NULL AND fcm_token != '' AND push_enabled = TRUE";
         Map<String, Object> params = new HashMap<>();
         params.put("userId", userId);
         return query(client, sql, params)
@@ -115,6 +116,37 @@ public class DeviceRepository extends BaseRepository {
             .map(rows -> rows.rowCount() > 0);
     }
 
+    public Future<Boolean> getPushEnabledByUserAndDeviceId(SqlClient client, Long userId, String deviceId) {
+        String sql = "SELECT push_enabled FROM devices WHERE user_id = #{userId} AND device_id = #{deviceId} AND deleted_at IS NULL";
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("deviceId", deviceId);
+
+        return query(client, sql, params)
+            .map(rows -> {
+                if (rows == null || !rows.iterator().hasNext()) return null;
+                Boolean value = getBooleanColumnValue(rows.iterator().next(), "push_enabled");
+                return value == null ? Boolean.TRUE : value;
+            });
+    }
+
+    public Future<Boolean> updatePushEnabledByUserAndDeviceId(SqlClient client, Long userId, String deviceId, boolean pushEnabled) {
+        String sql = QueryBuilder.update("devices", "push_enabled", "updated_at")
+            .where("user_id", Op.Equal, "userId")
+            .andWhere("device_id", Op.Equal, "deviceId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("push_enabled", pushEnabled);
+        params.put("updated_at", LocalDateTime.now());
+        params.put("userId", userId);
+        params.put("deviceId", deviceId);
+
+        return query(client, sql, params)
+            .map(rows -> rows.rowCount() > 0);
+    }
+
     public Future<Device> createDevice(SqlClient client, Device device) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", device.getUserId());
@@ -122,6 +154,7 @@ public class DeviceRepository extends BaseRepository {
         params.put("device_type", device.getDeviceType());
         params.put("device_os", device.getDeviceOs());
         params.put("fcm_token", device.getFcmToken());
+        params.put("push_enabled", device.getPushEnabled() != null ? device.getPushEnabled() : Boolean.TRUE);
         params.put("app_version", device.getAppVersion());
         params.put("user_agent", device.getUserAgent());
         params.put("last_ip", device.getLastIp());
