@@ -324,6 +324,7 @@ public class UserService extends BaseService {
                     .phone(user.getPhone())
                     .gender(user.getGender())
                     .country(user.getCountryCode())
+                    .appReviewRewarded(Boolean.TRUE.equals(user.getAppReviewRewarded()))
                     .build());
             });
     }

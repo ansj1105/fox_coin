@@ -43,6 +43,7 @@ public class UserRepository extends BaseRepository {
         .phone(getStringColumnValue(row, "phone"))
         .isTest(getIntegerColumnValue(row, "is_test"))
         .referralAirdropRewarded(getBooleanColumnValue(row, "referral_airdrop_rewarded"))
+        .appReviewRewarded(getBooleanColumnValue(row, "app_review_rewarded"))
         .isWarning(getIntegerColumnValue(row, "is_warning"))
         .isMiningSuspended(getIntegerColumnValue(row, "is_mining_suspended"))
         .isAccountBlocked(getIntegerColumnValue(row, "is_account_blocked"))

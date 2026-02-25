@@ -19,4 +19,5 @@ public class MeResponseDto {
     private String phone;
     private String gender;
     private String country;
+    private Boolean appReviewRewarded;
 }

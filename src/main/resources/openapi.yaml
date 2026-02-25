@@ -3573,6 +3573,9 @@ paths:
                           country:
                             type: string
                             description: 국가 코드 (KR, US 등)
+                          appReviewRewarded:
+                            type: boolean
+                            description: 앱 리뷰 보상 지급 완료 여부 (false=미완료, true=완료)
         '401':
           description: 인증 실패
     patch:

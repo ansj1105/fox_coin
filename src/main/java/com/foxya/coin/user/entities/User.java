@@ -32,6 +32,8 @@ public class User {
     private Integer isTest;
     /** 추천인 등록 에어드랍 1회 지급 여부 (false=미지급, true=지급완료) */
     private Boolean referralAirdropRewarded;
+    /** 앱 리뷰 보상 지급 완료 여부 (false=미완료, true=완료) */
+    private Boolean appReviewRewarded;
     /** 경고 여부 (0=해제, 1=경고). V41/coin_system V46 */
     private Integer isWarning;
     /** 채굴정지 여부 (0=해제, 1=정지). V41/coin_system V46 */
