@@ -5,7 +5,9 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -13,8 +15,11 @@ import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.FileInputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * FCM 푸시 알림 발송.
@@ -84,9 +89,10 @@ public class FcmService {
                 if (tokens == null || tokens.isEmpty()) {
                     return Future.succeededFuture((Void) null);
                 }
-                return vertx.executeBlocking(promise -> {
+                return vertx.<Set<String>>executeBlocking(promise -> {
                     try {
                         FirebaseMessaging fcm = FirebaseMessaging.getInstance();
+                        Set<String> invalidTokens = new LinkedHashSet<>();
                         for (String token : tokens) {
                             try {
                                 Message.Builder msgBuilder = Message.builder()
@@ -104,19 +110,69 @@ public class FcmService {
                                 }
                                 fcm.send(msgBuilder.build());
                             } catch (Exception e) {
+                                if (isInvalidTokenError(e)) {
+                                    invalidTokens.add(token);
+                                }
                                 log.warn("FCM send failed for token {}: {}", token.substring(0, Math.min(20, token.length())) + "...", e.getMessage());
                             }
                         }
-                        promise.complete();
+                        promise.complete(invalidTokens);
                     } catch (Exception e) {
                         log.warn("FCM sendToUser failed: {}", e.getMessage());
                         promise.fail(e);
                     }
-                }).mapEmpty();
+                }).compose(invalidTokens -> invalidateTokens(userId, invalidTokens))
+                    .mapEmpty();
             })
             .recover(err -> {
                 log.warn("FCM sendToUser recover: {}", err.getMessage());
                 return Future.succeededFuture((Void) null);
             });
+    }
+
+    private Future<Void> invalidateTokens(Long userId, Set<String> invalidTokens) {
+        if (invalidTokens == null || invalidTokens.isEmpty()) {
+            return Future.succeededFuture((Void) null);
+        }
+
+        List<Future<?>> futures = new ArrayList<>();
+        for (String token : invalidTokens) {
+            Future<Integer> future = deviceRepository.clearFcmTokenByValue(pool, token)
+                .map(rows -> {
+                    if (rows > 0) {
+                        log.info("FCM invalid token cleared: userId={}, tokenPrefix={}", userId, tokenPrefix(token));
+                    }
+                    return rows;
+                });
+            futures.add(future);
+        }
+
+        return Future.all(futures)
+            .onFailure(err -> log.warn("Failed to clear invalid FCM tokens for userId={}: {}", userId, err.getMessage()))
+            .mapEmpty();
+    }
+
+    private boolean isInvalidTokenError(Exception e) {
+        if (e instanceof FirebaseMessagingException firebaseMessagingException) {
+            MessagingErrorCode code = firebaseMessagingException.getMessagingErrorCode();
+            if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
+                return true;
+            }
+            String msg = firebaseMessagingException.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase();
+                return lower.contains("requested entity was not found")
+                    || lower.contains("not registered")
+                    || lower.contains("invalid registration token");
+            }
+        }
+        return false;
+    }
+
+    private String tokenPrefix(String token) {
+        if (token == null || token.isBlank()) {
+            return "(blank)";
+        }
+        return token.substring(0, Math.min(20, token.length())) + "...";
     }
 }

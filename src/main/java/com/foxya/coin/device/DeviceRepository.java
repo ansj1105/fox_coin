@@ -116,6 +116,19 @@ public class DeviceRepository extends BaseRepository {
             .map(rows -> rows.rowCount() > 0);
     }
 
+    /**
+     * 무효화된 FCM 토큰 제거 (FCM UNREGISTERED 등 대응)
+     */
+    public Future<Integer> clearFcmTokenByValue(SqlClient client, String fcmToken) {
+        String sql = "UPDATE devices SET fcm_token = NULL, updated_at = #{updatedAt} " +
+            "WHERE fcm_token = #{token} AND deleted_at IS NULL";
+        Map<String, Object> params = new HashMap<>();
+        params.put("updatedAt", LocalDateTime.now());
+        params.put("token", fcmToken);
+        return query(client, sql, params)
+            .map(rows -> rows.rowCount());
+    }
+
     public Future<Boolean> getPushEnabledByUserAndDeviceId(SqlClient client, Long userId, String deviceId) {
         String sql = "SELECT push_enabled FROM devices WHERE user_id = #{userId} AND device_id = #{deviceId} AND deleted_at IS NULL";
         Map<String, Object> params = new HashMap<>();
