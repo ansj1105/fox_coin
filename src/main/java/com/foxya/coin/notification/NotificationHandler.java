@@ -50,6 +50,12 @@ public class NotificationHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::markAllAsRead);
 
+        // 특정 알림 삭제 (soft delete)
+        router.delete("/:id")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::deleteNotification);
+
         // 알림 전체 삭제 (알림센터 목록 비우기)
         router.delete("/")
             .handler(JWTAuthHandler.create(jwtAuth))
@@ -94,11 +100,17 @@ public class NotificationHandler extends BaseHandler {
         response(ctx, notificationService.markAllAsRead(userId));
     }
 
+    private void deleteNotification(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        Long notificationId = Long.parseLong(ctx.pathParam("id"));
+        log.info("Deleting notification {} for user: {}", notificationId, userId);
+        response(ctx, notificationService.deleteNotification(notificationId, userId));
+    }
+
     private void deleteAllNotifications(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         log.info("Deleting all notifications for user: {}", userId);
         response(ctx, notificationService.deleteAllForUser(userId), v -> new io.vertx.core.json.JsonObject().put("status", "OK"));
     }
 }
-
 

@@ -226,6 +226,27 @@ public class NotificationRepository extends BaseRepository {
     }
     
     /**
+     * 특정 알림 Soft Delete
+     */
+    public Future<Boolean> softDeleteNotificationById(SqlClient client, Long userId, Long notificationId) {
+        String sql = QueryBuilder
+            .update("notifications", "deleted_at", "updated_at")
+            .where("id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "id")
+            .andWhere("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
+            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", notificationId);
+        params.put("user_id", userId);
+        params.put("deleted_at", java.time.LocalDateTime.now());
+        params.put("updated_at", java.time.LocalDateTime.now());
+
+        return query(client, sql, params)
+            .map(this::success);
+    }
+
+    /**
      * 사용자의 모든 알림 Soft Delete
      */
     public Future<Void> softDeleteNotificationsByUserId(SqlClient client, Long userId) {
@@ -248,4 +269,3 @@ public class NotificationRepository extends BaseRepository {
             .onFailure(throwable -> log.error("알림 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

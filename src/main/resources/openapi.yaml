@@ -5962,6 +5962,33 @@ paths:
         '404':
           description: 알림을 찾을 수 없음
 
+  /api/v1/notifications/{id}:
+    delete:
+      summary: 특정 알림 삭제
+      description: 특정 알림을 soft delete 처리합니다.
+      tags: [Notification]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 알림 ID
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 인증 실패
+        '404':
+          description: 알림을 찾을 수 없음
+
   /api/v1/notifications/read-all:
     patch:
       summary: 모든 알림을 읽음 처리

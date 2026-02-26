@@ -176,6 +176,20 @@ public class NotificationService extends BaseService {
     }
 
     /**
+     * 특정 알림 삭제 (soft delete)
+     */
+    public Future<Void> deleteNotification(Long notificationId, Long userId) {
+        return notificationRepository.softDeleteNotificationById(pool, userId, notificationId)
+            .compose(success -> {
+                if (!success) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("알림을 찾을 수 없습니다."));
+                }
+                return Future.succeededFuture();
+            })
+            .mapEmpty();
+    }
+
+    /**
      * 현재 사용자의 알림 전체 삭제 (알림센터 목록 비우기, soft delete)
      */
     public Future<Void> deleteAllForUser(Long userId) {
@@ -253,4 +267,3 @@ public class NotificationService extends BaseService {
         }
     }
 }
-
