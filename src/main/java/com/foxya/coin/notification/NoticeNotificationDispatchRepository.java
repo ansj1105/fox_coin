@@ -126,8 +126,8 @@ public class NoticeNotificationDispatchRepository extends BaseRepository {
         params.put("after_user_id", afterUserId);
         params.put("user_batch_size", Math.max(1, Math.min(userBatchSize, 5000)));
         params.put("type", NotificationType.NOTICE.name());
-        params.put("title", job.getTitle());
-        params.put("message", job.getContent());
+        params.put("title", "NOTICE");
+        params.put("message", job.getTitle());
         params.put("notice_id", job.getNoticeId());
         params.put("metadata", "{\"noticeId\":" + job.getNoticeId() + ",\"important\":true,\"source\":\"important-notice-scheduler\"}");
 
