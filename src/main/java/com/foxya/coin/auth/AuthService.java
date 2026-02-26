@@ -936,6 +936,11 @@ public class AuthService extends BaseService {
                 if (userId == null || role == null) {
                     return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
                 }
+                String tokenType = AuthUtils.getTokenTypeOf(user);
+                boolean typedToken = tokenType != null && !tokenType.isBlank();
+                if (typedToken && !AuthUtils.isRefreshToken(user)) {
+                    return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+                }
                 return isTokenBlacklisted(refreshToken)
                     .compose(blacklisted -> {
                         if (Boolean.TRUE.equals(blacklisted)) {
@@ -949,8 +954,12 @@ public class AuthService extends BaseService {
                                     .accessToken(accessToken)
                                     .refreshToken(newRefresh)
                                     .build();
-                                // 로테이션: 사용한 refreshToken 블랙리스트에 추가(재사용 방지)
-                                return addToBlacklist(refreshToken, getRefreshTokenExpireSeconds())
+                                // 로테이션: tokenType이 명시된 REFRESH 토큰만 블랙리스트 처리.
+                                // 레거시(타입 미포함) 토큰은 access/refresh 구분이 불가해 오탐 차단을 피한다.
+                                Future<Void> blacklistFuture = typedToken
+                                    ? addToBlacklist(refreshToken, getRefreshTokenExpireSeconds())
+                                    : Future.succeededFuture();
+                                return blacklistFuture
                                     .map(v -> dto);
                             });
                     });

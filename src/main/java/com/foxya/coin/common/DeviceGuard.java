@@ -59,6 +59,10 @@ public class DeviceGuard implements Handler<RoutingContext> {
         if (userId == null) {
             return Future.failedFuture(new UnauthorizedException("인증이 필요합니다."));
         }
+        String tokenType = AuthUtils.getTokenTypeOf(ctx.user());
+        if (tokenType != null && !tokenType.isBlank() && !AuthUtils.isAccessToken(ctx.user())) {
+            return Future.failedFuture(new UnauthorizedException("인증이 필요합니다."));
+        }
         if (AuthUtils.isAdmin(ctx.user())) {
             return Future.succeededFuture();
         }

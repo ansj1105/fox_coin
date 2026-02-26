@@ -18,6 +18,9 @@ public abstract class AuthUtils {
     
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_TOKEN_TYPE = "tokenType";
+    private static final String TOKEN_TYPE_ACCESS = "ACCESS";
+    private static final String TOKEN_TYPE_REFRESH = "REFRESH";
     private static volatile DeviceGuard deviceGuard;
 
     public static void configureDeviceGuard(DeviceGuard guard) {
@@ -81,6 +84,32 @@ public abstract class AuthUtils {
             return null;
         }
     }
+
+    /**
+     * 클라이언트 토큰 타입(access/refresh) 반환
+     */
+    public static String getTokenTypeOf(User user) {
+        try {
+            return user.principal().getString(CLAIM_TOKEN_TYPE);
+        } catch (Exception e) {
+            log.error("Failed to get token type from token", e);
+            return null;
+        }
+    }
+
+    /**
+     * Access 토큰 여부
+     */
+    public static boolean isAccessToken(User user) {
+        return TOKEN_TYPE_ACCESS.equalsIgnoreCase(getTokenTypeOf(user));
+    }
+
+    /**
+     * Refresh 토큰 여부
+     */
+    public static boolean isRefreshToken(User user) {
+        return TOKEN_TYPE_REFRESH.equalsIgnoreCase(getTokenTypeOf(user));
+    }
     
     /**
      * 관리자 권한 확인
@@ -93,9 +122,19 @@ public abstract class AuthUtils {
      * JWT 토큰 생성
      */
     public static String generateToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds) {
+        return generateToken(jwtAuth, userId, role, expiresInSeconds, null);
+    }
+
+    /**
+     * JWT 토큰 생성 (tokenType 포함)
+     */
+    public static String generateToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds, String tokenType) {
         JsonObject payload = new JsonObject()
             .put(CLAIM_USER_ID, userId.toString())
             .put(CLAIM_ROLE, role.name());
+        if (tokenType != null && !tokenType.isBlank()) {
+            payload.put(CLAIM_TOKEN_TYPE, tokenType);
+        }
         
         return jwtAuth.generateToken(payload, new JWTOptions().setExpiresInSeconds(expiresInSeconds));
     }
@@ -109,27 +148,27 @@ public abstract class AuthUtils {
      * Access Token 생성 (만료 시간 지정)
      */
     public static String generateAccessToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds) {
-        return generateToken(jwtAuth, userId, role, expiresInSeconds);
+        return generateToken(jwtAuth, userId, role, expiresInSeconds, TOKEN_TYPE_ACCESS);
     }
 
     /**
      * Access Token 생성 (기본 1시간). config를 쓰지 않는 호출자용
      */
     public static String generateAccessToken(JWTAuth jwtAuth, Long userId, UserRole role) {
-        return generateToken(jwtAuth, userId, role, DEFAULT_ACCESS_TOKEN_EXPIRE_SECONDS);
+        return generateToken(jwtAuth, userId, role, DEFAULT_ACCESS_TOKEN_EXPIRE_SECONDS, TOKEN_TYPE_ACCESS);
     }
 
     /**
      * Refresh Token 생성 (만료 시간 지정)
      */
     public static String generateRefreshToken(JWTAuth jwtAuth, Long userId, UserRole role, int expiresInSeconds) {
-        return generateToken(jwtAuth, userId, role, expiresInSeconds);
+        return generateToken(jwtAuth, userId, role, expiresInSeconds, TOKEN_TYPE_REFRESH);
     }
 
     /**
      * Refresh Token 생성 (기본 10일). config를 쓰지 않는 호출자용
      */
     public static String generateRefreshToken(JWTAuth jwtAuth, Long userId, UserRole role) {
-        return generateToken(jwtAuth, userId, role, DEFAULT_REFRESH_TOKEN_EXPIRE_SECONDS);
+        return generateToken(jwtAuth, userId, role, DEFAULT_REFRESH_TOKEN_EXPIRE_SECONDS, TOKEN_TYPE_REFRESH);
     }
 }

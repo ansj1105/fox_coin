@@ -622,6 +622,7 @@ public class AuthHandlerTest extends HandlerTestBase {
                             assertThat(json.getString("status")).isEqualTo("OK");
                             assertThat(json.getString("accessToken")).isNotNull();
                             assertThat(json.getString("refreshToken")).isNotNull();
+                            assertThat(json.getString("accessToken")).isNotEqualTo(json.getString("refreshToken"));
                             tc.completeNow();
                         })));
                 })));
@@ -636,6 +637,32 @@ public class AuthHandlerTest extends HandlerTestBase {
                 .sendJson(body, tc.succeeding(res -> tc.verify(() -> {
                     expectError(res, 401);
                     tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(26)
+        @DisplayName("실패 - accessToken을 refreshToken으로 전달하면 401")
+        void failAccessTokenUsedAsRefreshToken(VertxTestContext tc) {
+            JsonObject login = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("refresh-device-web-2", "WEB", "WEB"));
+            reqPost(getUrl("/login"))
+                .sendJson(login, tc.succeeding(loginRes -> tc.verify(() -> {
+                    LoginResponseDto loginDto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                    String accessToken = loginDto.getAccessToken();
+                    assertThat(accessToken).isNotNull();
+
+                    JsonObject body = new JsonObject().put("refreshToken", accessToken);
+                    webClient.post(port, "localhost", getUrl("/refresh"))
+                        .putHeader("X-Device-Id", "refresh-device-web-2")
+                        .putHeader("X-Device-Type", "WEB")
+                        .putHeader("X-Device-Os", "WEB")
+                        .sendJson(body, tc.succeeding(refreshRes -> tc.verify(() -> {
+                            expectError(refreshRes, 401);
+                            tc.completeNow();
+                        })));
                 })));
         }
     }

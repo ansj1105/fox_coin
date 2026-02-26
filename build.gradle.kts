@@ -202,7 +202,6 @@ jib {
 val verifyNoBom by tasks.registering {
     group = "verification"
     description = "Fails build when UTF-8 BOM exists in source/config files."
-
     doLast {
         val patterns = listOf(
             "**/*.java", "**/*.kt", "**/*.kts", "**/*.gradle", "**/*.properties",
