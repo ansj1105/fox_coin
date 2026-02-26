@@ -73,6 +73,8 @@ import com.foxya.coin.notice.NoticeService;
 import com.foxya.coin.notification.AdminNotificationHandler;
 import com.foxya.coin.notification.NotificationHandler;
 import com.foxya.coin.notification.FcmService;
+import com.foxya.coin.notification.NoticeNotificationDispatchRepository;
+import com.foxya.coin.notification.NoticeNotificationDispatchService;
 import com.foxya.coin.notification.NotificationRepository;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.payment.PaymentDepositHandler;
@@ -265,6 +267,8 @@ public class ApiVerticle extends AbstractVerticle {
             referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService, notificationService);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
+        NoticeNotificationDispatchRepository noticeNotificationDispatchRepository = new NoticeNotificationDispatchRepository();
+        NoticeNotificationDispatchService noticeNotificationDispatchService = new NoticeNotificationDispatchService(pool, noticeNotificationDispatchRepository);
         SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
         ReviewService reviewService = new ReviewService(
@@ -350,6 +354,7 @@ public class ApiVerticle extends AbstractVerticle {
         startWithdrawalRedispatchScheduler(transferService);
         startWaitingWithdrawalPromotionScheduler(transferService);
         startLevelSyncScheduler(levelService);
+        startImportantNoticeDispatchScheduler(noticeNotificationDispatchService);
 
         // Normalized comment.
         AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
@@ -836,6 +841,33 @@ public class ApiVerticle extends AbstractVerticle {
         vertx.setTimer(3_000L, id -> runTask.run());
         vertx.setPeriodic(intervalMs, id -> runTask.run());
         log.info("Level sync scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
+    }
+
+    private void startImportantNoticeDispatchScheduler(NoticeNotificationDispatchService noticeDispatchService) {
+        long intervalMs = parseLongEnv("IMPORTANT_NOTICE_DISPATCH_MS", 30_000L);
+        int noticeBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("IMPORTANT_NOTICE_DISPATCH_NOTICE_BATCH", 3L), 20L));
+        int userBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("IMPORTANT_NOTICE_DISPATCH_USER_BATCH", 500L), 5000L));
+        AtomicBoolean running = new AtomicBoolean(false);
+
+        Runnable runTask = () -> {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            noticeDispatchService.runImportantNoticeDispatchBatch(noticeBatchSize, userBatchSize)
+                .onSuccess(result -> {
+                    if (result.getInsertedNotificationCount() > 0 || result.getScannedUserCount() > 0) {
+                        log.info("Important notice dispatch run completed: jobs={}, scannedUsers={}, insertedNotifications={}",
+                            result.getJobCount(), result.getScannedUserCount(), result.getInsertedNotificationCount());
+                    }
+                })
+                .onFailure(t -> log.warn("Important notice dispatch run failed", t))
+                .onComplete(ar -> running.set(false));
+        };
+
+        vertx.setTimer(4_000L, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("Important notice dispatch scheduler started (interval {} ms, noticeBatch {}, userBatch {})",
+            intervalMs, noticeBatchSize, userBatchSize);
     }
 
     private static long parseLongEnv(String key, long defaultValue) {
