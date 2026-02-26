@@ -56,8 +56,10 @@ import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.mining.MiningRepository;
 import com.foxya.coin.mission.MissionRepository;
+import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.NotificationRepository;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.subscription.SubscriptionRepository;
 import com.foxya.coin.review.ReviewRepository;
 import com.foxya.coin.agency.AgencyRepository;
@@ -93,6 +95,7 @@ public class AuthService extends BaseService {
     private final BonusRepository bonusRepository;
     private final MiningRepository miningRepository;
     private final MissionRepository missionRepository;
+    private final NotificationService notificationService;
     private final NotificationRepository notificationRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final ReviewRepository reviewRepository;
@@ -129,12 +132,24 @@ public class AuthService extends BaseService {
     private static final int REFERRAL_REGISTER_AIRDROP_PHASE = 1;
     private static final java.math.BigDecimal REFERRAL_REGISTER_AIRDROP_AMOUNT = new java.math.BigDecimal("2");
     private static final int REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS = 7;
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE = "Referral Registration Completed";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE = "Airdrop granted for referral registration.";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE_KEY = "notifications.referralAirdrop.title";
+    private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE_KEY = "notifications.referralAirdrop.message";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_TITLE = "팀원 증가";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_MESSAGE = "추천인 등록으로 팀원이 추가되었습니다.";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_TITLE_KEY = "notifications.teamMemberJoined.title";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_MESSAGE_KEY = "notifications.teamMemberJoined.message";
+    private static final String NEW_DEVICE_LOGIN_NOTICE_TITLE = "새 기기 로그인 감지";
+    private static final String NEW_DEVICE_LOGIN_NOTICE_MESSAGE = "새로운 기기에서 계정 로그인이 감지되었습니다.";
+    private static final String NEW_DEVICE_LOGIN_NOTICE_TITLE_KEY = "notifications.newDeviceLogin.title";
+    private static final String NEW_DEVICE_LOGIN_NOTICE_MESSAGE_KEY = "notifications.newDeviceLogin.message";
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
                       RedisAPI redisApi, WalletRepository walletRepository, TransferRepository transferRepository,
                       BonusRepository bonusRepository, MiningRepository miningRepository, MissionRepository missionRepository,
-                      NotificationRepository notificationRepository, SubscriptionRepository subscriptionRepository,
+                      NotificationService notificationService, NotificationRepository notificationRepository, SubscriptionRepository subscriptionRepository,
                       ReviewRepository reviewRepository, AgencyRepository agencyRepository, SwapRepository swapRepository,
                       ExchangeRepository exchangeRepository, PaymentDepositRepository paymentDepositRepository,
                       TokenDepositRepository tokenDepositRepository, AirdropRepository airdropRepository,
@@ -158,6 +173,7 @@ public class AuthService extends BaseService {
         this.bonusRepository = bonusRepository;
         this.miningRepository = miningRepository;
         this.missionRepository = missionRepository;
+        this.notificationService = notificationService;
         this.notificationRepository = notificationRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.reviewRepository = reviewRepository;
@@ -293,7 +309,8 @@ public class AuthService extends BaseService {
                                 .updatedAt(now)
                                 .build();
                             return deviceRepository.createDevice(pool, device).mapEmpty();
-                        });
+                        })
+                        .compose(v -> createNewDeviceLoginNotice(userId, existing.getDeviceId(), deviceId, slotType));
                 }
                 return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
             });
@@ -796,7 +813,16 @@ public class AuthService extends BaseService {
                                                                 return Future.succeededFuture(loginDto); // 동일 IP/기기 중복 초대 무효: 관계 생성 안 함
                                                             }
                                                             return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                                .compose(r -> grantRegisterAirdropIfFirstTime(user.getId()).map(loginDto))
+                                                                .compose(r -> grantRegisterAirdropIfFirstTime(user.getId())
+                                                                    .compose(granted -> {
+                                                                        Future<Void> airdropNoticeFuture = granted
+                                                                            ? createReferralRegisterAirdropNotice(user.getId(), r.getId())
+                                                                            : Future.succeededFuture();
+                                                                        return airdropNoticeFuture.compose(x ->
+                                                                            createTeamMemberJoinedNotice(r.getReferrerId(), r.getReferredId(), r.getId())
+                                                                        );
+                                                                    })
+                                                                    .map(loginDto))
                                                                 .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
                                                         });
                                                 }
@@ -815,11 +841,11 @@ public class AuthService extends BaseService {
     /**
      * 추천인 등록 보상: 사용자당 최초 1회만 Phase 1 / Amount 2 / Unlock 7일 지급
      */
-    private Future<Void> grantRegisterAirdropIfFirstTime(Long userId) {
+    private Future<Boolean> grantRegisterAirdropIfFirstTime(Long userId) {
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null || Boolean.TRUE.equals(user.getReferralAirdropRewarded())) {
-                    return Future.succeededFuture();
+                    return Future.succeededFuture(false);
                 }
                 LocalDateTime unlockDate = LocalDateTime.now().plusDays(REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS);
                 return airdropRepository.createPhaseIfAbsent(
@@ -830,7 +856,87 @@ public class AuthService extends BaseService {
                         unlockDate,
                         REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS
                     )
-                    .compose(v -> userRepository.updateReferralAirdropRewarded(pool, userId, true));
+                    .compose(v -> userRepository.updateReferralAirdropRewarded(pool, userId, true))
+                    .map(v -> true);
+            });
+    }
+
+    private Future<Void> createReferralRegisterAirdropNotice(Long userId, Long relationId) {
+        if (notificationService == null || userId == null) {
+            return Future.succeededFuture();
+        }
+        Long relatedId = relationId != null ? relationId : userId;
+        String metadata = NotificationI18nUtils.buildMetadata(
+            REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE_KEY,
+            REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE_KEY,
+            new JsonObject()
+                .put("amount", REFERRAL_REGISTER_AIRDROP_AMOUNT.stripTrailingZeros().toPlainString())
+                .put("unlockDays", REFERRAL_REGISTER_AIRDROP_UNLOCK_DAYS)
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                userId,
+                NotificationType.AIRDROP_RECEIVED,
+                REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE,
+                REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE,
+                relatedId,
+                metadata
+            )
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("추천인 등록 에어드랍 알림 생성 실패(무시) - userId: {}", userId, err);
+                return Future.succeededFuture((Void) null);
+            });
+    }
+
+    private Future<Void> createTeamMemberJoinedNotice(Long referrerId, Long referredId, Long relationId) {
+        if (notificationService == null || referrerId == null) {
+            return Future.succeededFuture();
+        }
+        Long relatedId = relationId != null ? relationId : referrerId;
+        String metadata = NotificationI18nUtils.buildMetadata(
+            TEAM_MEMBER_JOINED_NOTICE_TITLE_KEY,
+            TEAM_MEMBER_JOINED_NOTICE_MESSAGE_KEY,
+            new JsonObject().put("referredUserId", referredId)
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                referrerId,
+                NotificationType.TEAM_MEMBER_JOINED,
+                TEAM_MEMBER_JOINED_NOTICE_TITLE,
+                TEAM_MEMBER_JOINED_NOTICE_MESSAGE,
+                relatedId,
+                metadata
+            )
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("팀원 증가 알림 생성 실패(무시) - referrerId: {}", referrerId, err);
+                return Future.succeededFuture((Void) null);
+            });
+    }
+
+    private Future<Void> createNewDeviceLoginNotice(Long userId, String previousDeviceId, String currentDeviceId, String slotType) {
+        if (notificationService == null || userId == null) {
+            return Future.succeededFuture();
+        }
+        String metadata = NotificationI18nUtils.buildMetadata(
+            NEW_DEVICE_LOGIN_NOTICE_TITLE_KEY,
+            NEW_DEVICE_LOGIN_NOTICE_MESSAGE_KEY,
+            new JsonObject()
+                .put("previousDeviceId", previousDeviceId)
+                .put("currentDeviceId", currentDeviceId)
+                .put("slotType", slotType)
+        );
+        return notificationService.createNotification(
+                userId,
+                NotificationType.NEW_DEVICE_LOGIN,
+                NEW_DEVICE_LOGIN_NOTICE_TITLE,
+                NEW_DEVICE_LOGIN_NOTICE_MESSAGE,
+                null,
+                metadata
+            )
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("새 기기 로그인 알림 생성 실패(무시) - userId: {}", userId, err);
+                return Future.succeededFuture((Void) null);
             });
     }
     

@@ -8,6 +8,7 @@ import com.foxya.coin.mission.entities.Mission;
 import com.foxya.coin.mission.entities.UserMission;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
@@ -21,6 +22,11 @@ import java.util.stream.Collectors;
 
 @Slf4j
 public class MissionService extends BaseService {
+
+    private static final String MINING_EFFICIENCY_ACHIEVED_TITLE = "채굴 효율 조건 달성";
+    private static final String MINING_EFFICIENCY_ACHIEVED_MESSAGE = "오늘의 채굴 효율 조건을 모두 달성했습니다.";
+    private static final String MINING_EFFICIENCY_ACHIEVED_TITLE_KEY = "notifications.miningEfficiencyAchieved.title";
+    private static final String MINING_EFFICIENCY_ACHIEVED_MESSAGE_KEY = "notifications.miningEfficiencyAchieved.message";
 
     private final MissionRepository missionRepository;
     private final NotificationService notificationService;
@@ -134,17 +140,22 @@ public class MissionService extends BaseService {
                 }
 
                 long dailyKey = today.toEpochDay();
-                JsonObject metadata = new JsonObject()
+                JsonObject metadataVariables = new JsonObject()
                     .put("missionDate", today.toString())
                     .put("completedMissionCount", missions.size());
+                String metadata = NotificationI18nUtils.buildMetadata(
+                    MINING_EFFICIENCY_ACHIEVED_TITLE_KEY,
+                    MINING_EFFICIENCY_ACHIEVED_MESSAGE_KEY,
+                    metadataVariables
+                );
 
                 return notificationService.createNotificationIfAbsentByRelatedId(
                         userId,
                         NotificationType.MISSION_COMPLETED,
-                        "Daily Missions Completed",
-                        "You have completed all daily missions.",
+                        MINING_EFFICIENCY_ACHIEVED_TITLE,
+                        MINING_EFFICIENCY_ACHIEVED_MESSAGE,
                         dailyKey,
-                        metadata.encode())
+                        metadata)
                     .compose(v -> Future.<Void>succeededFuture());
             })
             .recover(err -> {

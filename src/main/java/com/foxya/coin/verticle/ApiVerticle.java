@@ -320,7 +320,7 @@ public class ApiVerticle extends AbstractVerticle {
         AuthService authService = new AuthService(
             pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
             redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
-            notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
+            notificationService, notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,
             signupEmailCodeRepository, deviceRepository, referralRepository, emailService, webClient, googleConfig, kakaoConfig, appleConfig,
@@ -331,7 +331,7 @@ public class ApiVerticle extends AbstractVerticle {
         MissionService missionService = new MissionService(
             pool, missionRepository, notificationService);
         AirdropService airdropService = new AirdropService(
-            pool, airdropRepository, currencyRepository, transferRepository, walletRepository);
+            pool, airdropRepository, currencyRepository, transferRepository, walletRepository, notificationService);
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         

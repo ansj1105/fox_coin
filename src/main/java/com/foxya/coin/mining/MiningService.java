@@ -10,6 +10,7 @@ import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.level.LevelService;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.mining.dto.DailyLimitResponseDto;
 import com.foxya.coin.mining.dto.LevelInfoResponseDto;
 import com.foxya.coin.mining.dto.MiningHistoryResponseDto;
@@ -60,6 +61,10 @@ public class MiningService extends BaseService {
     private static final int MAX_AD_WATCH_COUNT = 5;
     /** Normalized comment. */
     private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
+    private static final String MINING_SESSION_ENDED_TITLE = "부스트 적용 종료";
+    private static final String MINING_SESSION_ENDED_MESSAGE = "부스트 적용이 끝났습니다. 채굴이 다시 가능합니다.";
+    private static final String MINING_SESSION_ENDED_TITLE_KEY = "notifications.miningSessionEnded.title";
+    private static final String MINING_SESSION_ENDED_MESSAGE_KEY = "notifications.miningSessionEnded.message";
     
     public MiningService(PgPool pool, MiningRepository miningRepository, UserRepository userRepository,
                          BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
@@ -458,7 +463,35 @@ public class MiningService extends BaseService {
             })
             .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
             .compose(x -> levelService.syncLevelFromExp(userId))
+            .compose(x -> createMiningSessionEndedNotification(userId, session))
             .map(x -> (Void) null);
+    }
+
+    private Future<Void> createMiningSessionEndedNotification(Long userId, MiningSession session) {
+        if (notificationService == null || userId == null || session == null || session.getId() == null) {
+            return Future.succeededFuture();
+        }
+        JsonObject variables = new JsonObject()
+            .put("sessionId", session.getId())
+            .put("endedAt", session.getEndsAt() != null ? session.getEndsAt().toString() : null);
+        String metadata = NotificationI18nUtils.buildMetadata(
+            MINING_SESSION_ENDED_TITLE_KEY,
+            MINING_SESSION_ENDED_MESSAGE_KEY,
+            variables
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                userId,
+                NotificationType.MINING_SESSION_ENDED,
+                MINING_SESSION_ENDED_TITLE,
+                MINING_SESSION_ENDED_MESSAGE,
+                session.getId(),
+                metadata
+            )
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("Mining session ended notification failed (ignored): userId={}, sessionId={}", userId, session.getId(), err);
+                return Future.succeededFuture((Void) null);
+            });
     }
 
     /**
@@ -661,4 +694,3 @@ public class MiningService extends BaseService {
             });
     }
 }
-

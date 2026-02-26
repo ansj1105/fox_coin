@@ -47,6 +47,10 @@ public class ReferralService extends BaseService {
     private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE = "Airdrop granted for referral registration.";
     private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE_KEY = "notifications.referralAirdrop.title";
     private static final String REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE_KEY = "notifications.referralAirdrop.message";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_TITLE = "팀원 증가";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_MESSAGE = "추천인 등록으로 팀원이 추가되었습니다.";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_TITLE_KEY = "notifications.teamMemberJoined.title";
+    private static final String TEAM_MEMBER_JOINED_NOTICE_MESSAGE_KEY = "notifications.teamMemberJoined.message";
     
     private final ReferralRepository referralRepository;
     private final UserRepository userRepository;
@@ -116,11 +120,15 @@ public class ReferralService extends BaseService {
                 // 3. 추천인 EXP +0.5 (초대 1명당 0.5 EXP)
                 return userRepository.addExp(pool, relation.getReferrerId(), new BigDecimal("0.5"))
                     .compose(u -> updateReferrerStats(relation.getReferrerId()))
-                    .compose(v -> grantRegisterAirdropIfFirstTime(userId))
-                    .compose(granted -> granted
-                        ? createReferralRegisterAirdropNotice(userId, relation.getId())
-                        : Future.succeededFuture()
-                    );
+                    .compose(v -> grantRegisterAirdropIfFirstTime(userId)
+                        .compose(granted -> {
+                            Future<Void> airdropNoticeFuture = granted
+                                ? createReferralRegisterAirdropNotice(userId, relation.getId())
+                                : Future.succeededFuture();
+                            return airdropNoticeFuture.compose(x ->
+                                createTeamMemberJoinedNotice(relation.getReferrerId(), relation.getReferredId(), relation.getId())
+                            );
+                        }));
             })
             .mapEmpty();
     }
@@ -394,7 +402,7 @@ public class ReferralService extends BaseService {
         );
         return notificationService.createNotificationIfAbsentByRelatedId(
                 userId,
-                NotificationType.NOTICE,
+                NotificationType.AIRDROP_RECEIVED,
                 REFERRAL_REGISTER_AIRDROP_NOTICE_TITLE,
                 REFERRAL_REGISTER_AIRDROP_NOTICE_MESSAGE,
                 relatedId,
@@ -402,6 +410,31 @@ public class ReferralService extends BaseService {
             )
             .recover(err -> {
                 log.warn("추천인 등록 에어드랍 알림 생성 실패(무시) - userId: {}", userId, err);
+                return Future.succeededFuture((Notification) null);
+            })
+            .mapEmpty();
+    }
+
+    private Future<Void> createTeamMemberJoinedNotice(Long referrerId, Long referredId, Long relationId) {
+        if (notificationService == null || referrerId == null) {
+            return Future.succeededFuture();
+        }
+        Long relatedId = relationId != null ? relationId : referrerId;
+        String metadata = NotificationI18nUtils.buildMetadata(
+            TEAM_MEMBER_JOINED_NOTICE_TITLE_KEY,
+            TEAM_MEMBER_JOINED_NOTICE_MESSAGE_KEY,
+            new JsonObject().put("referredUserId", referredId)
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                referrerId,
+                NotificationType.TEAM_MEMBER_JOINED,
+                TEAM_MEMBER_JOINED_NOTICE_TITLE,
+                TEAM_MEMBER_JOINED_NOTICE_MESSAGE,
+                relatedId,
+                metadata
+            )
+            .recover(err -> {
+                log.warn("팀원 증가 알림 생성 실패(무시) - referrerId: {}", referrerId, err);
                 return Future.succeededFuture((Notification) null);
             })
             .mapEmpty();

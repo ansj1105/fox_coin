@@ -15,11 +15,15 @@ import com.foxya.coin.common.exceptions.ForbiddenException;
 import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
+import com.foxya.coin.notification.NotificationService;
+import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
@@ -38,6 +42,7 @@ public class AirdropService extends BaseService {
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
     private final WalletRepository walletRepository;
+    private final NotificationService notificationService;
     
     // KORI 통화 코드
     private static final String KORI_CURRENCY_CODE = "KORI";
@@ -45,17 +50,23 @@ public class AirdropService extends BaseService {
     
     // 최소 전송 금액
     private static final BigDecimal MIN_TRANSFER_AMOUNT = new BigDecimal("0.000001");
+    private static final String AIRDROP_UNLOCKED_NOTICE_TITLE = "에어드랍 락 해제";
+    private static final String AIRDROP_UNLOCKED_NOTICE_MESSAGE = "에어드랍 락이 해제되었습니다. 이제 수령할 수 있습니다.";
+    private static final String AIRDROP_UNLOCKED_NOTICE_TITLE_KEY = "notifications.airdropUnlocked.title";
+    private static final String AIRDROP_UNLOCKED_NOTICE_MESSAGE_KEY = "notifications.airdropUnlocked.message";
     
     public AirdropService(PgPool pool,
                           AirdropRepository airdropRepository,
                           CurrencyRepository currencyRepository,
                           TransferRepository transferRepository,
-                          WalletRepository walletRepository) {
+                          WalletRepository walletRepository,
+                          NotificationService notificationService) {
         super(pool);
         this.airdropRepository = airdropRepository;
         this.currencyRepository = currencyRepository;
         this.transferRepository = transferRepository;
         this.walletRepository = walletRepository;
+        this.notificationService = notificationService;
     }
     
     /**
@@ -173,15 +184,43 @@ public class AirdropService extends BaseService {
                     return Future.failedFuture(new BadRequestException("이미 Release 완료된 Phase입니다."));
                 }
                 return airdropRepository.updatePhaseClaimed(pool, phaseId, userId)
-                    .map(updated -> {
+                    .compose(updated -> {
                         if (updated == null) {
-                            throw new ForbiddenException("Release 처리에 실패했습니다.");
+                            return Future.failedFuture(new ForbiddenException("Release 처리에 실패했습니다."));
                         }
-                        return AirdropPhaseReleaseResponseDto.builder()
+                        return createAirdropUnlockedNotification(userId, updated)
+                            .map(v -> AirdropPhaseReleaseResponseDto.builder()
                             .phaseId(updated.getId())
                             .amount(updated.getAmount())
-                            .build();
+                            .build());
                     });
+            });
+    }
+
+    private Future<Void> createAirdropUnlockedNotification(Long userId, AirdropPhase phase) {
+        if (notificationService == null || userId == null || phase == null || phase.getId() == null) {
+            return Future.succeededFuture();
+        }
+        String metadata = NotificationI18nUtils.buildMetadata(
+            AIRDROP_UNLOCKED_NOTICE_TITLE_KEY,
+            AIRDROP_UNLOCKED_NOTICE_MESSAGE_KEY,
+            new JsonObject()
+                .put("phaseId", phase.getId())
+                .put("amount", phase.getAmount() != null ? phase.getAmount().stripTrailingZeros().toPlainString() : null)
+                .put("unlockDate", phase.getUnlockDate() != null ? phase.getUnlockDate().toString() : null)
+        );
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                userId,
+                NotificationType.AIRDROP_UNLOCKED,
+                AIRDROP_UNLOCKED_NOTICE_TITLE,
+                AIRDROP_UNLOCKED_NOTICE_MESSAGE,
+                phase.getId(),
+                metadata
+            )
+            .map(v -> (Void) null)
+            .recover(err -> {
+                log.warn("에어드랍 락 해제 알림 생성 실패(무시) - userId: {}, phaseId: {}", userId, phase.getId(), err);
+                return Future.succeededFuture((Void) null);
             });
     }
     
@@ -348,4 +387,3 @@ public class AirdropService extends BaseService {
         });
     }
 }
-
