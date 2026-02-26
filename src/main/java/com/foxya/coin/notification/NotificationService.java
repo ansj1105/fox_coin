@@ -7,6 +7,8 @@ import com.foxya.coin.notification.dto.NotificationListResponseDto;
 import com.foxya.coin.notification.dto.UnreadCountResponseDto;
 import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationMessageLocalizer;
+import com.foxya.coin.user.UserRepository;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
@@ -24,15 +26,21 @@ public class NotificationService extends BaseService {
     
     private final NotificationRepository notificationRepository;
     private final FcmService fcmService;
+    private final UserRepository userRepository;
 
     public NotificationService(PgPool pool, NotificationRepository notificationRepository) {
-        this(pool, notificationRepository, null);
+        this(pool, notificationRepository, null, null);
     }
 
     public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService) {
+        this(pool, notificationRepository, fcmService, null);
+    }
+
+    public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService, UserRepository userRepository) {
         super(pool);
         this.notificationRepository = notificationRepository;
         this.fcmService = fcmService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -41,29 +49,25 @@ public class NotificationService extends BaseService {
      */
     public Future<Notification> createNotification(Long userId, NotificationType type, String title, String message,
                                                    Long relatedId, String metadata) {
-        return notificationRepository.insert(pool, userId, type, title, message, relatedId, metadata)
-            .recover(err -> {
-                log.warn("알림 생성 실패(무시) - userId: {}, type: {}", userId, type, err);
-                return Future.succeededFuture((Notification) null);
-            })
-            .compose(notification -> {
-                if (notification != null && fcmService != null && fcmService.isEnabled()) {
-                    Map<String, String> data = new HashMap<>();
-                    if (metadata != null && !metadata.isBlank()) {
-                        try {
-                            JsonNode node = objectMapper.readTree(metadata);
-                            node.fields().forEachRemaining(e -> data.put(e.getKey(), e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString()));
-                        } catch (Exception ignored) { }
+        JsonNode metadataNode = parseMetadata(metadata);
+        return resolveLocalizedText(userId, title, message, metadataNode)
+            .compose(resolved -> notificationRepository.insert(pool, userId, type, resolved.getTitle(), resolved.getMessage(), relatedId, metadata)
+                .recover(err -> {
+                    log.warn("알림 생성 실패(무시) - userId: {}, type: {}", userId, type, err);
+                    return Future.succeededFuture((Notification) null);
+                })
+                .compose(notification -> {
+                    if (notification != null && fcmService != null && fcmService.isEnabled()) {
+                        Map<String, String> data = toFcmData(metadataNode);
+                        data.put("type", type.name());
+                        fcmService.sendToUser(userId, resolved.getTitle(), resolved.getMessage(), data).onComplete(ar -> {
+                            if (ar.failed()) {
+                                log.warn("FCM 푸시 실패(무시): userId={}", userId, ar.cause());
+                            }
+                        });
                     }
-                    data.put("type", type.name());
-                    fcmService.sendToUser(userId, title, message, data).onComplete(ar -> {
-                        if (ar.failed()) {
-                            log.warn("FCM 푸시 실패(무시): userId={}", userId, ar.cause());
-                        }
-                    });
-                }
-                return Future.succeededFuture(notification);
-            });
+                    return Future.succeededFuture(notification);
+                }));
     }
 
     /**
@@ -177,6 +181,76 @@ public class NotificationService extends BaseService {
     public Future<Void> deleteAllForUser(Long userId) {
         return notificationRepository.softDeleteNotificationsByUserId(pool, userId);
     }
-}
 
+    private JsonNode parseMetadata(String metadata) {
+        if (metadata == null || metadata.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(metadata);
+        } catch (Exception e) {
+            log.warn("Failed to parse notification metadata: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, String> toFcmData(JsonNode metadataNode) {
+        Map<String, String> data = new HashMap<>();
+        if (metadataNode != null && metadataNode.isObject()) {
+            metadataNode.fields().forEachRemaining(e ->
+                data.put(e.getKey(), e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString())
+            );
+        }
+        return data;
+    }
+
+    private Future<ResolvedText> resolveLocalizedText(Long userId, String fallbackTitle, String fallbackMessage, JsonNode metadataNode) {
+        String titleKey = getTextValue(metadataNode, "titleKey");
+        String messageKey = getTextValue(metadataNode, "messageKey");
+        boolean hasI18nKeys = (titleKey != null && !titleKey.isBlank()) || (messageKey != null && !messageKey.isBlank());
+
+        if (!hasI18nKeys || userRepository == null || userId == null) {
+            return Future.succeededFuture(new ResolvedText(fallbackTitle, fallbackMessage));
+        }
+
+        return userRepository.getUserById(pool, userId)
+            .map(user -> {
+                String countryCode = user != null ? user.getCountryCode() : null;
+                java.util.Locale locale = NotificationMessageLocalizer.resolveLocale(countryCode);
+                String localizedTitle = NotificationMessageLocalizer.resolve(titleKey, locale, metadataNode, fallbackTitle);
+                String localizedMessage = NotificationMessageLocalizer.resolve(messageKey, locale, metadataNode, fallbackMessage);
+                return new ResolvedText(localizedTitle, localizedMessage);
+            })
+            .recover(err -> {
+                log.warn("Failed to resolve localized notification text (fallback): userId={}", userId, err);
+                return Future.succeededFuture(new ResolvedText(fallbackTitle, fallbackMessage));
+            });
+    }
+
+    private String getTextValue(JsonNode metadataNode, String fieldName) {
+        if (metadataNode == null || !metadataNode.isObject()) {
+            return null;
+        }
+        JsonNode value = metadataNode.get(fieldName);
+        return (value != null && value.isTextual()) ? value.asText() : null;
+    }
+
+    private static final class ResolvedText {
+        private final String title;
+        private final String message;
+
+        private ResolvedText(String title, String message) {
+            this.title = title;
+            this.message = message;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+}
 

@@ -182,7 +182,7 @@ public class ApiVerticle extends AbstractVerticle {
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
 
         FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
-        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService);
+        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository);
         
         // Normalized comment.
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
