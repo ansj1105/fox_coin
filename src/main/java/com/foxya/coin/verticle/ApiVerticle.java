@@ -3,6 +3,7 @@ package com.foxya.coin.verticle;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerOptions;
@@ -95,6 +96,7 @@ import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.retry.EmailRetryJob;
+import com.foxya.coin.retry.FcmRetryJob;
 import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
@@ -115,6 +117,7 @@ import com.foxya.coin.client.ClientRepository;
 import com.foxya.coin.client.ClientService;
 import com.foxya.coin.monitoring.MonitoringHandler;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.ext.web.handler.JWTAuthHandler;
 import com.foxya.coin.common.metrics.MetricsCollector;
 import io.vertx.redis.client.Redis;
@@ -125,6 +128,8 @@ import io.vertx.redis.client.RedisReplicas;
 import io.vertx.core.json.JsonArray;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -183,14 +188,14 @@ public class ApiVerticle extends AbstractVerticle {
         ClientRepository clientRepository = new ClientRepository();
         UserExternalIdRepository userExternalIdRepository = new UserExternalIdRepository();
 
-        FcmService fcmService = new FcmService(vertx, pool, deviceRepository);
-        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository);
-        
         // Normalized comment.
         JsonObject redisConfig = config().getJsonObject("redis", new JsonObject());
         RedisAPI redisApi = initializeRedis(redisConfig);
         RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
         EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
+
+        FcmService fcmService = new FcmService(vertx, pool, deviceRepository, retryQueuePublisher);
+        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository);
 
         // Normalized comment.
         EmailService emailService = new EmailService(
@@ -201,7 +206,13 @@ public class ApiVerticle extends AbstractVerticle {
         );
 
         // Normalized comment.
-        WebClient webClient = WebClient.create(vertx);
+        int externalConnectTimeoutMs = (int) Math.max(1000L, Math.min(parseLongEnv("EXTERNAL_HTTP_CONNECT_TIMEOUT_MS", 5000L), 60000L));
+        int externalIdleTimeoutSec = (int) Math.max(1L, Math.min(parseLongEnv("EXTERNAL_HTTP_IDLE_TIMEOUT_SECONDS", 15L), 300L));
+        WebClientOptions webClientOptions = new WebClientOptions()
+            .setConnectTimeout(externalConnectTimeoutMs)
+            .setIdleTimeout(externalIdleTimeoutSec);
+        WebClient webClient = WebClient.create(vertx, webClientOptions);
+        log.info("External WebClient configured (connectTimeout={}ms, idleTimeout={}s)", externalConnectTimeoutMs, externalIdleTimeoutSec);
 
         String profileImageUploadDir = System.getenv("PROFILE_IMAGE_UPLOAD_DIR");
         if (profileImageUploadDir == null || profileImageUploadDir.isBlank()) {
@@ -342,6 +353,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         if (redisApi != null && retryQueuePublisher != null) {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
+            startFcmRetryProcessor(fcmService, retryQueuePublisher);
         }
 
         // Normalized comment.
@@ -725,6 +737,85 @@ public class ApiVerticle extends AbstractVerticle {
                 });
         });
         log.info("Email retry processor started (interval {} ms)", intervalMs);
+    }
+
+    private void startFcmRetryProcessor(FcmService fcmService, RetryQueuePublisher retryQueuePublisher) {
+        if (fcmService == null || retryQueuePublisher == null) {
+            return;
+        }
+        if (!fcmService.isEnabled()) {
+            log.info("FCM retry processor skipped because FCM is disabled.");
+            return;
+        }
+
+        long intervalMs = Math.max(1_000L, Math.min(parseLongEnv("FCM_RETRY_PROCESSOR_MS", 5_000L), 60_000L));
+        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("FCM_RETRY_BATCH", 20L), 100L));
+        int blockMs = (int) Math.max(100L, Math.min(parseLongEnv("FCM_RETRY_BLOCK_MS", 700L), 5000L));
+
+        String consumerGroup = System.getenv("FCM_RETRY_CONSUMER_GROUP");
+        if (consumerGroup == null || consumerGroup.isBlank()) {
+            consumerGroup = "fcm-retry-group";
+        }
+        String consumerName = System.getenv("FCM_RETRY_CONSUMER_NAME");
+        if (consumerName == null || consumerName.isBlank()) {
+            consumerName = "api-" + UUID.randomUUID();
+        }
+
+        String finalConsumerGroup = consumerGroup;
+        String finalConsumerName = consumerName;
+        retryQueuePublisher.ensureFcmRetryConsumerGroup(finalConsumerGroup)
+            .onSuccess(v -> log.info("FCM retry consumer group ready. group={}", finalConsumerGroup))
+            .onFailure(t -> log.warn("Failed to initialize FCM retry consumer group. group={}", finalConsumerGroup, t));
+
+        AtomicBoolean running = new AtomicBoolean(false);
+
+        Runnable runTask = () -> {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            retryQueuePublisher.readFcmRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                .compose(messages -> processFcmRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, fcmService))
+                .onFailure(t -> log.warn("FCM retry batch processing failed", t))
+                .onComplete(ar -> running.set(false));
+        };
+
+        vertx.setTimer(3_000L, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("FCM retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
+            intervalMs, batchSize, blockMs, consumerGroup, consumerName);
+    }
+
+    private Future<Void> processFcmRetryMessages(List<RetryQueuePublisher.FcmRetryMessage> messages,
+                                                 int index,
+                                                 String consumerGroup,
+                                                 RetryQueuePublisher retryQueuePublisher,
+                                                 FcmService fcmService) {
+        if (messages == null || index >= messages.size()) {
+            return Future.succeededFuture();
+        }
+        RetryQueuePublisher.FcmRetryMessage message = messages.get(index);
+        if (message == null || message.job() == null || message.messageId() == null || message.messageId().isBlank()) {
+            return processFcmRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, fcmService);
+        }
+
+        return fcmService.processRetryJob(message.job())
+            .compose(v -> retryQueuePublisher.ackFcmRetry(consumerGroup, message.messageId()))
+            .recover(throwable -> {
+                log.warn("FCM retry failed. userId={}, retryCount={}, maxRetries={}, token={}",
+                    message.job().getUserId(),
+                    message.job().getRetryCount(),
+                    message.job().getMaxRetries(),
+                    message.job().getToken() == null ? "(blank)" : message.job().getToken().substring(0, Math.min(20, message.job().getToken().length())) + "...",
+                    throwable);
+
+                FcmRetryJob next = message.job().withIncrementedRetry();
+                Future<Void> nextAction = next.getRetryCount() >= message.job().getMaxRetries()
+                    ? retryQueuePublisher.enqueueFcmDlq(message.job(), throwable.getMessage())
+                    : retryQueuePublisher.enqueueFcmRetry(next);
+
+                return nextAction.compose(v -> retryQueuePublisher.ackFcmRetry(consumerGroup, message.messageId()));
+            })
+            .compose(v -> processFcmRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, fcmService));
     }
 
     /**

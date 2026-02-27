@@ -1,6 +1,8 @@
 package com.foxya.coin.notification;
 
 import com.foxya.coin.device.DeviceRepository;
+import com.foxya.coin.retry.FcmRetryJob;
+import com.foxya.coin.retry.RetryQueuePublisher;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -11,6 +13,7 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.LocalDateTime;
 
 /**
  * FCM 푸시 알림 발송.
@@ -35,14 +39,24 @@ public class FcmService {
     private final Vertx vertx;
     private final PgPool pool;
     private final DeviceRepository deviceRepository;
+    private final RetryQueuePublisher retryQueuePublisher;
+    private final int maxRetries;
     private final boolean enabled;
 
     public FcmService(Vertx vertx, PgPool pool, DeviceRepository deviceRepository) {
+        this(vertx, pool, deviceRepository, null);
+    }
+
+    public FcmService(Vertx vertx, PgPool pool, DeviceRepository deviceRepository, RetryQueuePublisher retryQueuePublisher) {
         this.vertx = vertx;
         this.pool = pool;
         this.deviceRepository = deviceRepository;
+        this.retryQueuePublisher = retryQueuePublisher;
+        this.maxRetries = parseIntEnv("FCM_RETRY_MAX_RETRIES", FcmRetryJob.DEFAULT_MAX_RETRIES, 1, 20);
         this.enabled = initFirebase();
     }
+
+    private record FcmSendResult(Set<String> invalidTokens, List<String> retryTokens) { }
 
     private static boolean initFirebase() {
         try {
@@ -89,45 +103,71 @@ public class FcmService {
                 if (tokens == null || tokens.isEmpty()) {
                     return Future.succeededFuture((Void) null);
                 }
-                return vertx.<Set<String>>executeBlocking(promise -> {
+                return vertx.<FcmSendResult>executeBlocking(promise -> {
                     try {
                         FirebaseMessaging fcm = FirebaseMessaging.getInstance();
                         Set<String> invalidTokens = new LinkedHashSet<>();
+                        List<String> retryTokens = new ArrayList<>();
                         for (String token : tokens) {
                             try {
-                                Message.Builder msgBuilder = Message.builder()
-                                    .setToken(token)
-                                    .setNotification(Notification.builder()
-                                        .setTitle(title)
-                                        .setBody(body)
-                                        .build());
-                                if (data != null && !data.isEmpty()) {
-                                    for (Map.Entry<String, String> e : data.entrySet()) {
-                                        if (e.getKey() != null && e.getValue() != null) {
-                                            msgBuilder.putData(e.getKey(), e.getValue());
-                                        }
-                                    }
-                                }
-                                fcm.send(msgBuilder.build());
+                                fcm.send(buildMessage(token, title, body, data));
                             } catch (Exception e) {
                                 if (isInvalidTokenError(e)) {
                                     invalidTokens.add(token);
+                                } else {
+                                    retryTokens.add(token);
                                 }
-                                log.warn("FCM send failed for token {}: {}", token.substring(0, Math.min(20, token.length())) + "...", e.getMessage());
+                                log.warn("FCM send failed for token {}: {}", tokenPrefix(token), e.getMessage());
                             }
                         }
-                        promise.complete(invalidTokens);
+                        promise.complete(new FcmSendResult(invalidTokens, retryTokens));
                     } catch (Exception e) {
                         log.warn("FCM sendToUser failed: {}", e.getMessage());
                         promise.fail(e);
                     }
-                }).compose(invalidTokens -> invalidateTokens(userId, invalidTokens))
+                }).compose(result -> invalidateTokens(userId, result.invalidTokens())
+                    .compose(v -> enqueueRetryJobs(userId, title, body, data, result.retryTokens())))
                     .mapEmpty();
             })
             .recover(err -> {
                 log.warn("FCM sendToUser recover: {}", err.getMessage());
                 return Future.succeededFuture((Void) null);
             });
+    }
+
+    /**
+     * Redis Stream 재시도 작업에서 꺼낸 FCM 발송 처리.
+     * - 무효 토큰 오류는 토큰 제거 후 성공 처리(재시도 중단)
+     * - 그 외 오류는 실패 반환(상위에서 재큐잉/DLQ 처리)
+     */
+    public Future<Void> processRetryJob(FcmRetryJob job) {
+        if (job == null) {
+            return Future.succeededFuture();
+        }
+        if (!enabled) {
+            return Future.failedFuture("FCM disabled");
+        }
+        if (job.getToken() == null || job.getToken().isBlank()) {
+            return Future.failedFuture("FCM retry token is empty");
+        }
+        return vertx.<Exception>executeBlocking(promise -> {
+            try {
+                FirebaseMessaging fcm = FirebaseMessaging.getInstance();
+                Map<String, String> data = jsonToStringMap(job.getData());
+                fcm.send(buildMessage(job.getToken(), job.getTitle(), job.getBody(), data));
+                promise.complete(null);
+            } catch (Exception e) {
+                promise.complete(e);
+            }
+        }).compose(sendError -> {
+            if (sendError == null) {
+                return Future.succeededFuture();
+            }
+            if (isInvalidTokenError(sendError)) {
+                return clearInvalidToken(job.getUserId(), job.getToken());
+            }
+            return Future.failedFuture(sendError);
+        });
     }
 
     private Future<Void> invalidateTokens(Long userId, Set<String> invalidTokens) {
@@ -152,6 +192,95 @@ public class FcmService {
             .mapEmpty();
     }
 
+    private Future<Void> clearInvalidToken(Long userId, String token) {
+        if (token == null || token.isBlank()) {
+            return Future.succeededFuture();
+        }
+        return deviceRepository.clearFcmTokenByValue(pool, token)
+            .map(rows -> {
+                if (rows > 0) {
+                    log.info("FCM invalid token cleared on retry. userId={}, tokenPrefix={}", userId, tokenPrefix(token));
+                }
+                return rows;
+            })
+            .recover(err -> {
+                log.warn("Failed to clear invalid FCM token on retry. userId={}, tokenPrefix={}: {}",
+                    userId, tokenPrefix(token), err.getMessage());
+                return Future.succeededFuture(0);
+            })
+            .mapEmpty();
+    }
+
+    private Future<Void> enqueueRetryJobs(Long userId, String title, String body, Map<String, String> data, List<String> retryTokens) {
+        if (retryQueuePublisher == null || retryTokens == null || retryTokens.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        JsonObject dataJson = new JsonObject();
+        if (data != null && !data.isEmpty()) {
+            for (Map.Entry<String, String> e : data.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null) {
+                    dataJson.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+
+        List<Future<?>> enqueueFutures = new ArrayList<>();
+        for (String token : retryTokens) {
+            if (token == null || token.isBlank()) {
+                continue;
+            }
+            FcmRetryJob job = FcmRetryJob.builder()
+                .userId(userId)
+                .token(token)
+                .title(title)
+                .body(body)
+                .data(dataJson.copy())
+                .retryCount(0)
+                .maxRetries(maxRetries)
+                .createdAt(LocalDateTime.now())
+                .build();
+            enqueueFutures.add(retryQueuePublisher.enqueueFcmRetry(job));
+        }
+        if (enqueueFutures.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        return Future.all(enqueueFutures)
+            .onSuccess(v -> log.info("FCM retry jobs enqueued. userId={}, count={}", userId, enqueueFutures.size()))
+            .onFailure(err -> log.error("Failed to enqueue FCM retry jobs. userId={}", userId, err))
+            .mapEmpty();
+    }
+
+    private Message buildMessage(String token, String title, String body, Map<String, String> data) {
+        Message.Builder msgBuilder = Message.builder()
+            .setToken(token)
+            .setNotification(Notification.builder()
+                .setTitle(title)
+                .setBody(body)
+                .build());
+        if (data != null && !data.isEmpty()) {
+            for (Map.Entry<String, String> e : data.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null) {
+                    msgBuilder.putData(e.getKey(), e.getValue());
+                }
+            }
+        }
+        return msgBuilder.build();
+    }
+
+    private Map<String, String> jsonToStringMap(JsonObject json) {
+        if (json == null || json.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> map = new java.util.HashMap<>();
+        for (String key : json.fieldNames()) {
+            Object value = json.getValue(key);
+            if (value != null) {
+                map.put(key, String.valueOf(value));
+            }
+        }
+        return map;
+    }
+
     private boolean isInvalidTokenError(Exception e) {
         if (e instanceof FirebaseMessagingException firebaseMessagingException) {
             MessagingErrorCode code = firebaseMessagingException.getMessagingErrorCode();
@@ -174,5 +303,18 @@ public class FcmService {
             return "(blank)";
         }
         return token.substring(0, Math.min(20, token.length())) + "...";
+    }
+
+    private static int parseIntEnv(String key, int defaultValue, int min, int max) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return Math.max(min, Math.min(max, parsed));
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
     }
 }
