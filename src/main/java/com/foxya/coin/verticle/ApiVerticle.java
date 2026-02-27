@@ -96,6 +96,7 @@ import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.retry.EmailRetryJob;
+import com.foxya.coin.retry.ExchangeRateRetryJob;
 import com.foxya.coin.retry.FcmRetryJob;
 import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.common.DeviceGuard;
@@ -128,6 +129,7 @@ import io.vertx.redis.client.RedisReplicas;
 import io.vertx.core.json.JsonArray;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -354,13 +356,14 @@ public class ApiVerticle extends AbstractVerticle {
         if (redisApi != null && retryQueuePublisher != null) {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
             startFcmRetryProcessor(fcmService, retryQueuePublisher);
+            startExchangeRateRetryProcessor(currencyService, retryQueuePublisher);
         }
 
         // Normalized comment.
         startMiningSettlementBatch(miningService);
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
-        startExchangeRateRefreshScheduler(currencyService);
+        startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher);
 
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
@@ -818,6 +821,89 @@ public class ApiVerticle extends AbstractVerticle {
             .compose(v -> processFcmRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, fcmService));
     }
 
+    private void startExchangeRateRetryProcessor(CurrencyService currencyService, RetryQueuePublisher retryQueuePublisher) {
+        if (currencyService == null || retryQueuePublisher == null) {
+            return;
+        }
+
+        long intervalMs = Math.max(1_000L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_PROCESSOR_MS", 10_000L), 60_000L));
+        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BATCH", 5L), 50L));
+        int blockMs = (int) Math.max(100L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BLOCK_MS", 1000L), 5000L));
+
+        String consumerGroup = System.getenv("EXCHANGE_RATE_RETRY_CONSUMER_GROUP");
+        if (consumerGroup == null || consumerGroup.isBlank()) {
+            consumerGroup = "exchange-rate-retry-group";
+        }
+        String consumerName = System.getenv("EXCHANGE_RATE_RETRY_CONSUMER_NAME");
+        if (consumerName == null || consumerName.isBlank()) {
+            consumerName = "api-" + UUID.randomUUID();
+        }
+
+        String finalConsumerGroup = consumerGroup;
+        String finalConsumerName = consumerName;
+        retryQueuePublisher.ensureExchangeRateRetryConsumerGroup(finalConsumerGroup)
+            .onSuccess(v -> log.info("Exchange-rate retry consumer group ready. group={}", finalConsumerGroup))
+            .onFailure(t -> log.warn("Failed to initialize exchange-rate retry consumer group. group={}", finalConsumerGroup, t));
+
+        AtomicBoolean running = new AtomicBoolean(false);
+        Runnable runTask = () -> {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            retryQueuePublisher.readExchangeRateRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                .compose(messages -> processExchangeRateRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, currencyService))
+                .onFailure(t -> log.warn("Exchange-rate retry batch processing failed", t))
+                .onComplete(ar -> running.set(false));
+        };
+
+        vertx.setTimer(4_000L, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("Exchange-rate retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
+            intervalMs, batchSize, blockMs, consumerGroup, consumerName);
+    }
+
+    private Future<Void> processExchangeRateRetryMessages(List<RetryQueuePublisher.ExchangeRateRetryMessage> messages,
+                                                          int index,
+                                                          String consumerGroup,
+                                                          RetryQueuePublisher retryQueuePublisher,
+                                                          CurrencyService currencyService) {
+        if (messages == null || index >= messages.size()) {
+            return Future.succeededFuture();
+        }
+
+        RetryQueuePublisher.ExchangeRateRetryMessage message = messages.get(index);
+        if (message == null || message.job() == null || message.messageId() == null || message.messageId().isBlank()) {
+            return processExchangeRateRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, currencyService);
+        }
+
+        return currencyService.refreshExchangeRates()
+            .compose(v -> retryQueuePublisher.ackExchangeRateRetry(consumerGroup, message.messageId()))
+            .recover(throwable -> {
+                ExchangeRateRetryJob next = message.job().withIncrementedRetry();
+                Future<Void> nextAction = next.getRetryCount() >= message.job().getMaxRetries()
+                    ? retryQueuePublisher.enqueueExchangeRateDlq(message.job(), throwable.getMessage())
+                    : retryQueuePublisher.enqueueExchangeRateRetry(next);
+                return nextAction.compose(v -> retryQueuePublisher.ackExchangeRateRetry(consumerGroup, message.messageId()));
+            })
+            .compose(v -> processExchangeRateRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, currencyService));
+    }
+
+    private void enqueueExchangeRateRetryIfPossible(RetryQueuePublisher retryQueuePublisher, String source, Throwable error) {
+        if (retryQueuePublisher == null) {
+            return;
+        }
+        int maxRetries = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_MAX_RETRIES", ExchangeRateRetryJob.DEFAULT_MAX_RETRIES), 20L));
+        ExchangeRateRetryJob job = ExchangeRateRetryJob.builder()
+            .source(source)
+            .retryCount(0)
+            .maxRetries(maxRetries)
+            .createdAt(LocalDateTime.now())
+            .build();
+        retryQueuePublisher.enqueueExchangeRateRetry(job)
+            .onFailure(t -> log.warn("Failed to enqueue exchange-rate retry. source={}, cause={}",
+                source, error != null ? error.getMessage() : "unknown", t));
+    }
+
     /**
       * Normalized comment.
       * Normalized comment.
@@ -841,16 +927,22 @@ public class ApiVerticle extends AbstractVerticle {
      * - Refreshes rates from external providers and upserts into DB.
      * - Clients read rates from DB only (no per-user external calls).
      */
-    private void startExchangeRateRefreshScheduler(CurrencyService currencyService) {
+    private void startExchangeRateRefreshScheduler(CurrencyService currencyService, RetryQueuePublisher retryQueuePublisher) {
         long intervalMs = parseLongEnv("EXCHANGE_RATE_REFRESH_MS", 300_000L); // 5 minutes default
 
         // Kick once shortly after startup.
         vertx.setTimer(1500, id -> currencyService.refreshExchangeRates()
             .onSuccess(v -> log.info("Exchange rates refreshed on startup"))
-            .onFailure(t -> log.warn("Exchange rate startup refresh failed", t)));
+            .onFailure(t -> {
+                log.warn("Exchange rate startup refresh failed", t);
+                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, "startup-refresh", t);
+            }));
 
         vertx.setPeriodic(intervalMs, id -> currencyService.refreshExchangeRates()
-            .onFailure(t -> log.warn("Exchange rate scheduled refresh failed", t)));
+            .onFailure(t -> {
+                log.warn("Exchange rate scheduled refresh failed", t);
+                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, "scheduled-refresh", t);
+            }));
 
         log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
     }
