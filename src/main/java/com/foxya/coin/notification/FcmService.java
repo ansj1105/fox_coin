@@ -1,5 +1,6 @@
 package com.foxya.coin.notification;
 
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.retry.FcmRetryJob;
 import com.foxya.coin.retry.RetryQueuePublisher;
@@ -35,24 +36,27 @@ public class FcmService {
 
     private static final String ENV_CREDENTIALS = "GOOGLE_APPLICATION_CREDENTIALS";
     private static final String ENV_CREDENTIALS_PATH = "FCM_CREDENTIALS_PATH";
+    private static final String CFG_KEY_FCM_RETRY_MAX_RETRIES = "fcm_retry_max_retries";
 
     private final Vertx vertx;
     private final PgPool pool;
     private final DeviceRepository deviceRepository;
+    private final AppConfigRepository appConfigRepository;
     private final RetryQueuePublisher retryQueuePublisher;
-    private final int maxRetries;
+    private final int fallbackMaxRetries;
     private final boolean enabled;
 
     public FcmService(Vertx vertx, PgPool pool, DeviceRepository deviceRepository) {
-        this(vertx, pool, deviceRepository, null);
+        this(vertx, pool, deviceRepository, null, null);
     }
 
-    public FcmService(Vertx vertx, PgPool pool, DeviceRepository deviceRepository, RetryQueuePublisher retryQueuePublisher) {
+    public FcmService(Vertx vertx, PgPool pool, DeviceRepository deviceRepository, RetryQueuePublisher retryQueuePublisher, AppConfigRepository appConfigRepository) {
         this.vertx = vertx;
         this.pool = pool;
         this.deviceRepository = deviceRepository;
         this.retryQueuePublisher = retryQueuePublisher;
-        this.maxRetries = parseIntEnv("FCM_RETRY_MAX_RETRIES", FcmRetryJob.DEFAULT_MAX_RETRIES, 1, 20);
+        this.appConfigRepository = appConfigRepository;
+        this.fallbackMaxRetries = parseIntEnv("FCM_RETRY_MAX_RETRIES", FcmRetryJob.DEFAULT_MAX_RETRIES, 1, 20);
         this.enabled = initFirebase();
     }
 
@@ -215,39 +219,43 @@ public class FcmService {
         if (retryQueuePublisher == null || retryTokens == null || retryTokens.isEmpty()) {
             return Future.succeededFuture();
         }
-        JsonObject dataJson = new JsonObject();
-        if (data != null && !data.isEmpty()) {
-            for (Map.Entry<String, String> e : data.entrySet()) {
-                if (e.getKey() != null && e.getValue() != null) {
-                    dataJson.put(e.getKey(), e.getValue());
+
+        return resolveRetryMaxRetries().compose(maxRetries -> {
+            JsonObject dataJson = new JsonObject();
+            if (data != null && !data.isEmpty()) {
+                for (Map.Entry<String, String> e : data.entrySet()) {
+                    if (e.getKey() != null && e.getValue() != null) {
+                        dataJson.put(e.getKey(), e.getValue());
+                    }
                 }
             }
-        }
 
-        List<Future<?>> enqueueFutures = new ArrayList<>();
-        for (String token : retryTokens) {
-            if (token == null || token.isBlank()) {
-                continue;
+            List<Future<?>> enqueueFutures = new ArrayList<>();
+            for (String token : retryTokens) {
+                if (token == null || token.isBlank()) {
+                    continue;
+                }
+                FcmRetryJob job = FcmRetryJob.builder()
+                    .userId(userId)
+                    .token(token)
+                    .title(title)
+                    .body(body)
+                    .data(dataJson.copy())
+                    .retryCount(0)
+                    .maxRetries(maxRetries)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+                enqueueFutures.add(retryQueuePublisher.enqueueFcmRetry(job));
             }
-            FcmRetryJob job = FcmRetryJob.builder()
-                .userId(userId)
-                .token(token)
-                .title(title)
-                .body(body)
-                .data(dataJson.copy())
-                .retryCount(0)
-                .maxRetries(maxRetries)
-                .createdAt(LocalDateTime.now())
-                .build();
-            enqueueFutures.add(retryQueuePublisher.enqueueFcmRetry(job));
-        }
-        if (enqueueFutures.isEmpty()) {
-            return Future.succeededFuture();
-        }
-        return Future.all(enqueueFutures)
-            .onSuccess(v -> log.info("FCM retry jobs enqueued. userId={}, count={}", userId, enqueueFutures.size()))
-            .onFailure(err -> log.error("Failed to enqueue FCM retry jobs. userId={}", userId, err))
-            .mapEmpty();
+            if (enqueueFutures.isEmpty()) {
+                return Future.succeededFuture();
+            }
+            return Future.all(enqueueFutures)
+                .onSuccess(v -> log.info("FCM retry jobs enqueued. userId={}, count={}, maxRetries={}",
+                    userId, enqueueFutures.size(), maxRetries))
+                .onFailure(err -> log.error("Failed to enqueue FCM retry jobs. userId={}", userId, err))
+                .mapEmpty();
+        });
     }
 
     private Message buildMessage(String token, String title, String body, Map<String, String> data) {
@@ -316,5 +324,28 @@ public class FcmService {
         } catch (Exception ignored) {
             return defaultValue;
         }
+    }
+
+    private Future<Integer> resolveRetryMaxRetries() {
+        if (appConfigRepository == null) {
+            return Future.succeededFuture(fallbackMaxRetries);
+        }
+        return appConfigRepository.getByKey(pool, CFG_KEY_FCM_RETRY_MAX_RETRIES)
+            .map(value -> {
+                if (value == null || value.isBlank()) {
+                    return fallbackMaxRetries;
+                }
+                try {
+                    int parsed = Integer.parseInt(value.trim());
+                    return Math.max(1, Math.min(20, parsed));
+                } catch (Exception ignored) {
+                    return fallbackMaxRetries;
+                }
+            })
+            .recover(err -> {
+                log.warn("Failed to read app_config({}), fallback to env/default. cause={}",
+                    CFG_KEY_FCM_RETRY_MAX_RETRIES, err.getMessage());
+                return Future.succeededFuture(fallbackMaxRetries);
+            });
     }
 }

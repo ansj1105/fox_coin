@@ -136,6 +136,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class ApiVerticle extends AbstractVerticle {
+
+    private static final String CFG_FCM_RETRY_PROCESSOR_MS = "fcm_retry_processor_ms";
+    private static final String CFG_FCM_RETRY_BATCH = "fcm_retry_batch";
+    private static final String CFG_FCM_RETRY_BLOCK_MS = "fcm_retry_block_ms";
+    private static final String CFG_FCM_RETRY_CONSUMER_GROUP = "fcm_retry_consumer_group";
+    private static final String CFG_EXCHANGE_RATE_RETRY_MAX_RETRIES = "exchange_rate_retry_max_retries";
+    private static final String CFG_EXCHANGE_RATE_RETRY_PROCESSOR_MS = "exchange_rate_retry_processor_ms";
+    private static final String CFG_EXCHANGE_RATE_RETRY_BATCH = "exchange_rate_retry_batch";
+    private static final String CFG_EXCHANGE_RATE_RETRY_BLOCK_MS = "exchange_rate_retry_block_ms";
+    private static final String CFG_EXCHANGE_RATE_RETRY_CONSUMER_GROUP = "exchange_rate_retry_consumer_group";
     
     static {
         DatabindCodec.mapper()
@@ -195,8 +205,9 @@ public class ApiVerticle extends AbstractVerticle {
         RedisAPI redisApi = initializeRedis(redisConfig);
         RetryQueuePublisher retryQueuePublisher = redisApi != null ? new RetryQueuePublisher(redisApi) : null;
         EventPublisher eventPublisher = redisApi != null ? new EventPublisher(redisApi) : null;
+        AppConfigRepository appConfigRepository = new AppConfigRepository();
 
-        FcmService fcmService = new FcmService(vertx, pool, deviceRepository, retryQueuePublisher);
+        FcmService fcmService = new FcmService(vertx, pool, deviceRepository, retryQueuePublisher, appConfigRepository);
         NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository);
 
         // Normalized comment.
@@ -267,7 +278,6 @@ public class ApiVerticle extends AbstractVerticle {
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
-        AppConfigRepository appConfigRepository = new AppConfigRepository();
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository, airdropRepository, notificationService);
         BonusService bonusService = new BonusService(
@@ -355,15 +365,15 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         if (redisApi != null && retryQueuePublisher != null) {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
-            startFcmRetryProcessor(fcmService, retryQueuePublisher);
-            startExchangeRateRetryProcessor(currencyService, retryQueuePublisher);
+            startFcmRetryProcessor(fcmService, retryQueuePublisher, appConfigRepository, pool);
+            startExchangeRateRetryProcessor(currencyService, retryQueuePublisher, appConfigRepository, pool);
         }
 
         // Normalized comment.
         startMiningSettlementBatch(miningService);
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
-        startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher);
+        startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
 
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
@@ -742,7 +752,10 @@ public class ApiVerticle extends AbstractVerticle {
         log.info("Email retry processor started (interval {} ms)", intervalMs);
     }
 
-    private void startFcmRetryProcessor(FcmService fcmService, RetryQueuePublisher retryQueuePublisher) {
+    private void startFcmRetryProcessor(FcmService fcmService,
+                                        RetryQueuePublisher retryQueuePublisher,
+                                        AppConfigRepository appConfigRepository,
+                                        PgPool pool) {
         if (fcmService == null || retryQueuePublisher == null) {
             return;
         }
@@ -751,41 +764,54 @@ public class ApiVerticle extends AbstractVerticle {
             return;
         }
 
-        long intervalMs = Math.max(1_000L, Math.min(parseLongEnv("FCM_RETRY_PROCESSOR_MS", 5_000L), 60_000L));
-        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("FCM_RETRY_BATCH", 20L), 100L));
-        int blockMs = (int) Math.max(100L, Math.min(parseLongEnv("FCM_RETRY_BLOCK_MS", 700L), 5000L));
-
-        String consumerGroup = System.getenv("FCM_RETRY_CONSUMER_GROUP");
-        if (consumerGroup == null || consumerGroup.isBlank()) {
-            consumerGroup = "fcm-retry-group";
+        int defaultIntervalMs = (int) Math.max(1_000L, Math.min(parseLongEnv("FCM_RETRY_PROCESSOR_MS", 5_000L), 60_000L));
+        int defaultBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("FCM_RETRY_BATCH", 20L), 100L));
+        int defaultBlockMs = (int) Math.max(100L, Math.min(parseLongEnv("FCM_RETRY_BLOCK_MS", 700L), 5000L));
+        String defaultConsumerGroup = System.getenv("FCM_RETRY_CONSUMER_GROUP");
+        if (defaultConsumerGroup == null || defaultConsumerGroup.isBlank()) {
+            defaultConsumerGroup = "fcm-retry-group";
         }
         String consumerName = System.getenv("FCM_RETRY_CONSUMER_NAME");
         if (consumerName == null || consumerName.isBlank()) {
             consumerName = "api-" + UUID.randomUUID();
         }
+        String configuredConsumerName = consumerName;
 
-        String finalConsumerGroup = consumerGroup;
-        String finalConsumerName = consumerName;
-        retryQueuePublisher.ensureFcmRetryConsumerGroup(finalConsumerGroup)
-            .onSuccess(v -> log.info("FCM retry consumer group ready. group={}", finalConsumerGroup))
-            .onFailure(t -> log.warn("Failed to initialize FCM retry consumer group. group={}", finalConsumerGroup, t));
+        Future<Integer> intervalFuture = resolveIntConfig(appConfigRepository, pool, CFG_FCM_RETRY_PROCESSOR_MS, defaultIntervalMs, 1000, 60000);
+        Future<Integer> batchFuture = resolveIntConfig(appConfigRepository, pool, CFG_FCM_RETRY_BATCH, defaultBatchSize, 1, 100);
+        Future<Integer> blockFuture = resolveIntConfig(appConfigRepository, pool, CFG_FCM_RETRY_BLOCK_MS, defaultBlockMs, 100, 5000);
+        Future<String> groupFuture = resolveStringConfig(appConfigRepository, pool, CFG_FCM_RETRY_CONSUMER_GROUP, defaultConsumerGroup);
 
-        AtomicBoolean running = new AtomicBoolean(false);
+        Future.all(intervalFuture, batchFuture, blockFuture, groupFuture)
+            .onSuccess(result -> {
+                int intervalMs = (Integer) result.resultAt(0);
+                int batchSize = (Integer) result.resultAt(1);
+                int blockMs = (Integer) result.resultAt(2);
+                String consumerGroup = (String) result.resultAt(3);
 
-        Runnable runTask = () -> {
-            if (!running.compareAndSet(false, true)) {
-                return;
-            }
-            retryQueuePublisher.readFcmRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
-                .compose(messages -> processFcmRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, fcmService))
-                .onFailure(t -> log.warn("FCM retry batch processing failed", t))
-                .onComplete(ar -> running.set(false));
-        };
+                String finalConsumerGroup = consumerGroup;
+                String finalConsumerName = configuredConsumerName;
+                retryQueuePublisher.ensureFcmRetryConsumerGroup(finalConsumerGroup)
+                    .onSuccess(v -> log.info("FCM retry consumer group ready. group={}", finalConsumerGroup))
+                    .onFailure(t -> log.warn("Failed to initialize FCM retry consumer group. group={}", finalConsumerGroup, t));
 
-        vertx.setTimer(3_000L, id -> runTask.run());
-        vertx.setPeriodic(intervalMs, id -> runTask.run());
-        log.info("FCM retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
-            intervalMs, batchSize, blockMs, consumerGroup, consumerName);
+                AtomicBoolean running = new AtomicBoolean(false);
+                Runnable runTask = () -> {
+                    if (!running.compareAndSet(false, true)) {
+                        return;
+                    }
+                    retryQueuePublisher.readFcmRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                        .compose(messages -> processFcmRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, fcmService))
+                        .onFailure(t -> log.warn("FCM retry batch processing failed", t))
+                        .onComplete(ar -> running.set(false));
+                };
+
+                vertx.setTimer(3_000L, id -> runTask.run());
+                vertx.setPeriodic(intervalMs, id -> runTask.run());
+                log.info("FCM retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
+                    intervalMs, batchSize, blockMs, consumerGroup, configuredConsumerName);
+            })
+            .onFailure(t -> log.warn("Failed to initialize FCM retry processor config", t));
     }
 
     private Future<Void> processFcmRetryMessages(List<RetryQueuePublisher.FcmRetryMessage> messages,
@@ -821,45 +847,62 @@ public class ApiVerticle extends AbstractVerticle {
             .compose(v -> processFcmRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, fcmService));
     }
 
-    private void startExchangeRateRetryProcessor(CurrencyService currencyService, RetryQueuePublisher retryQueuePublisher) {
+    private void startExchangeRateRetryProcessor(CurrencyService currencyService,
+                                                 RetryQueuePublisher retryQueuePublisher,
+                                                 AppConfigRepository appConfigRepository,
+                                                 PgPool pool) {
         if (currencyService == null || retryQueuePublisher == null) {
             return;
         }
 
-        long intervalMs = Math.max(1_000L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_PROCESSOR_MS", 10_000L), 60_000L));
-        int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BATCH", 5L), 50L));
-        int blockMs = (int) Math.max(100L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BLOCK_MS", 1000L), 5000L));
-
-        String consumerGroup = System.getenv("EXCHANGE_RATE_RETRY_CONSUMER_GROUP");
-        if (consumerGroup == null || consumerGroup.isBlank()) {
-            consumerGroup = "exchange-rate-retry-group";
+        int defaultIntervalMs = (int) Math.max(1_000L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_PROCESSOR_MS", 10_000L), 60_000L));
+        int defaultBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BATCH", 5L), 50L));
+        int defaultBlockMs = (int) Math.max(100L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_BLOCK_MS", 1000L), 5000L));
+        String defaultConsumerGroup = System.getenv("EXCHANGE_RATE_RETRY_CONSUMER_GROUP");
+        if (defaultConsumerGroup == null || defaultConsumerGroup.isBlank()) {
+            defaultConsumerGroup = "exchange-rate-retry-group";
         }
         String consumerName = System.getenv("EXCHANGE_RATE_RETRY_CONSUMER_NAME");
         if (consumerName == null || consumerName.isBlank()) {
             consumerName = "api-" + UUID.randomUUID();
         }
+        String configuredConsumerName = consumerName;
 
-        String finalConsumerGroup = consumerGroup;
-        String finalConsumerName = consumerName;
-        retryQueuePublisher.ensureExchangeRateRetryConsumerGroup(finalConsumerGroup)
-            .onSuccess(v -> log.info("Exchange-rate retry consumer group ready. group={}", finalConsumerGroup))
-            .onFailure(t -> log.warn("Failed to initialize exchange-rate retry consumer group. group={}", finalConsumerGroup, t));
+        Future<Integer> intervalFuture = resolveIntConfig(appConfigRepository, pool, CFG_EXCHANGE_RATE_RETRY_PROCESSOR_MS, defaultIntervalMs, 1000, 60000);
+        Future<Integer> batchFuture = resolveIntConfig(appConfigRepository, pool, CFG_EXCHANGE_RATE_RETRY_BATCH, defaultBatchSize, 1, 50);
+        Future<Integer> blockFuture = resolveIntConfig(appConfigRepository, pool, CFG_EXCHANGE_RATE_RETRY_BLOCK_MS, defaultBlockMs, 100, 5000);
+        Future<String> groupFuture = resolveStringConfig(appConfigRepository, pool, CFG_EXCHANGE_RATE_RETRY_CONSUMER_GROUP, defaultConsumerGroup);
 
-        AtomicBoolean running = new AtomicBoolean(false);
-        Runnable runTask = () -> {
-            if (!running.compareAndSet(false, true)) {
-                return;
-            }
-            retryQueuePublisher.readExchangeRateRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
-                .compose(messages -> processExchangeRateRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, currencyService))
-                .onFailure(t -> log.warn("Exchange-rate retry batch processing failed", t))
-                .onComplete(ar -> running.set(false));
-        };
+        Future.all(intervalFuture, batchFuture, blockFuture, groupFuture)
+            .onSuccess(result -> {
+                int intervalMs = (Integer) result.resultAt(0);
+                int batchSize = (Integer) result.resultAt(1);
+                int blockMs = (Integer) result.resultAt(2);
+                String consumerGroup = (String) result.resultAt(3);
 
-        vertx.setTimer(4_000L, id -> runTask.run());
-        vertx.setPeriodic(intervalMs, id -> runTask.run());
-        log.info("Exchange-rate retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
-            intervalMs, batchSize, blockMs, consumerGroup, consumerName);
+                String finalConsumerGroup = consumerGroup;
+                String finalConsumerName = configuredConsumerName;
+                retryQueuePublisher.ensureExchangeRateRetryConsumerGroup(finalConsumerGroup)
+                    .onSuccess(v -> log.info("Exchange-rate retry consumer group ready. group={}", finalConsumerGroup))
+                    .onFailure(t -> log.warn("Failed to initialize exchange-rate retry consumer group. group={}", finalConsumerGroup, t));
+
+                AtomicBoolean running = new AtomicBoolean(false);
+                Runnable runTask = () -> {
+                    if (!running.compareAndSet(false, true)) {
+                        return;
+                    }
+                    retryQueuePublisher.readExchangeRateRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                        .compose(messages -> processExchangeRateRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, currencyService))
+                        .onFailure(t -> log.warn("Exchange-rate retry batch processing failed", t))
+                        .onComplete(ar -> running.set(false));
+                };
+
+                vertx.setTimer(4_000L, id -> runTask.run());
+                vertx.setPeriodic(intervalMs, id -> runTask.run());
+                log.info("Exchange-rate retry processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
+                    intervalMs, batchSize, blockMs, consumerGroup, configuredConsumerName);
+            })
+            .onFailure(t -> log.warn("Failed to initialize exchange-rate retry processor config", t));
     }
 
     private Future<Void> processExchangeRateRetryMessages(List<RetryQueuePublisher.ExchangeRateRetryMessage> messages,
@@ -888,18 +931,25 @@ public class ApiVerticle extends AbstractVerticle {
             .compose(v -> processExchangeRateRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, currencyService));
     }
 
-    private void enqueueExchangeRateRetryIfPossible(RetryQueuePublisher retryQueuePublisher, String source, Throwable error) {
+    private void enqueueExchangeRateRetryIfPossible(RetryQueuePublisher retryQueuePublisher,
+                                                    AppConfigRepository appConfigRepository,
+                                                    PgPool pool,
+                                                    String source,
+                                                    Throwable error) {
         if (retryQueuePublisher == null) {
             return;
         }
-        int maxRetries = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_MAX_RETRIES", ExchangeRateRetryJob.DEFAULT_MAX_RETRIES), 20L));
-        ExchangeRateRetryJob job = ExchangeRateRetryJob.builder()
-            .source(source)
-            .retryCount(0)
-            .maxRetries(maxRetries)
-            .createdAt(LocalDateTime.now())
-            .build();
-        retryQueuePublisher.enqueueExchangeRateRetry(job)
+        int defaultMaxRetries = (int) Math.max(1L, Math.min(parseLongEnv("EXCHANGE_RATE_RETRY_MAX_RETRIES", ExchangeRateRetryJob.DEFAULT_MAX_RETRIES), 20L));
+        resolveIntConfig(appConfigRepository, pool, CFG_EXCHANGE_RATE_RETRY_MAX_RETRIES, defaultMaxRetries, 1, 20)
+            .compose(maxRetries -> {
+                ExchangeRateRetryJob job = ExchangeRateRetryJob.builder()
+                    .source(source)
+                    .retryCount(0)
+                    .maxRetries(maxRetries)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+                return retryQueuePublisher.enqueueExchangeRateRetry(job);
+            })
             .onFailure(t -> log.warn("Failed to enqueue exchange-rate retry. source={}, cause={}",
                 source, error != null ? error.getMessage() : "unknown", t));
     }
@@ -927,7 +977,10 @@ public class ApiVerticle extends AbstractVerticle {
      * - Refreshes rates from external providers and upserts into DB.
      * - Clients read rates from DB only (no per-user external calls).
      */
-    private void startExchangeRateRefreshScheduler(CurrencyService currencyService, RetryQueuePublisher retryQueuePublisher) {
+    private void startExchangeRateRefreshScheduler(CurrencyService currencyService,
+                                                   RetryQueuePublisher retryQueuePublisher,
+                                                   AppConfigRepository appConfigRepository,
+                                                   PgPool pool) {
         long intervalMs = parseLongEnv("EXCHANGE_RATE_REFRESH_MS", 300_000L); // 5 minutes default
 
         // Kick once shortly after startup.
@@ -935,13 +988,13 @@ public class ApiVerticle extends AbstractVerticle {
             .onSuccess(v -> log.info("Exchange rates refreshed on startup"))
             .onFailure(t -> {
                 log.warn("Exchange rate startup refresh failed", t);
-                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, "startup-refresh", t);
+                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "startup-refresh", t);
             }));
 
         vertx.setPeriodic(intervalMs, id -> currencyService.refreshExchangeRates()
             .onFailure(t -> {
                 log.warn("Exchange rate scheduled refresh failed", t);
-                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, "scheduled-refresh", t);
+                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "scheduled-refresh", t);
             }));
 
         log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
@@ -1051,6 +1104,48 @@ public class ApiVerticle extends AbstractVerticle {
         vertx.setPeriodic(intervalMs, id -> runTask.run());
         log.info("Important notice dispatch scheduler started (interval {} ms, noticeBatch {}, userBatch {})",
             intervalMs, noticeBatchSize, userBatchSize);
+    }
+
+    private Future<Integer> resolveIntConfig(AppConfigRepository appConfigRepository,
+                                             PgPool pool,
+                                             String key,
+                                             int fallback,
+                                             int min,
+                                             int max) {
+        if (appConfigRepository == null || pool == null || key == null || key.isBlank()) {
+            return Future.succeededFuture(fallback);
+        }
+        return appConfigRepository.getByKey(pool, key)
+            .map(value -> {
+                if (value == null || value.isBlank()) {
+                    return fallback;
+                }
+                try {
+                    int parsed = Integer.parseInt(value.trim());
+                    return Math.max(min, Math.min(max, parsed));
+                } catch (Exception ignored) {
+                    return fallback;
+                }
+            })
+            .recover(err -> {
+                log.warn("Failed to resolve app_config int. key={}, fallback={}, cause={}", key, fallback, err.getMessage());
+                return Future.succeededFuture(fallback);
+            });
+    }
+
+    private Future<String> resolveStringConfig(AppConfigRepository appConfigRepository,
+                                               PgPool pool,
+                                               String key,
+                                               String fallback) {
+        if (appConfigRepository == null || pool == null || key == null || key.isBlank()) {
+            return Future.succeededFuture(fallback);
+        }
+        return appConfigRepository.getByKey(pool, key)
+            .map(value -> (value == null || value.isBlank()) ? fallback : value.trim())
+            .recover(err -> {
+                log.warn("Failed to resolve app_config string. key={}, fallback={}, cause={}", key, fallback, err.getMessage());
+                return Future.succeededFuture(fallback);
+            });
     }
 
     private static long parseLongEnv(String key, long defaultValue) {
