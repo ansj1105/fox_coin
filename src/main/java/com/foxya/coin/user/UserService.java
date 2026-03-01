@@ -13,7 +13,7 @@ import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
-import com.foxya.coin.common.enums.CountryCode;
+import com.foxya.coin.common.utils.CountryCodeUtils;
 import com.foxya.coin.user.dto.ExternalLinkCodeResponseDto;
 import com.foxya.coin.user.dto.ExternalLinkStatusResponseDto;
 import com.foxya.coin.user.dto.CreateUserDto;
@@ -381,8 +381,8 @@ public class UserService extends BaseService {
         if (body.containsKey("country")) {
             String country = body.getString("country");
             if (country != null && !country.isBlank()) {
-                String normalizedCountry = country.trim().toUpperCase();
-                if (CountryCode.fromCode(normalizedCountry) == CountryCode.UNKNOWN) {
+                String normalizedCountry = CountryCodeUtils.normalizeCountryCode(country);
+                if (!CountryCodeUtils.isValidSignupCountryCode(normalizedCountry)) {
                     return Future.failedFuture(new BadRequestException("유효하지 않은 국가 코드입니다."));
                 }
                 updates.put("country_code", normalizedCountry);

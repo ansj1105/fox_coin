@@ -1,7 +1,7 @@
 package com.foxya.coin.ranking;
 
 import com.foxya.coin.common.BaseService;
-import com.foxya.coin.common.enums.CountryCode;
+import com.foxya.coin.common.utils.CountryCodeUtils;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.RankingScope;
 import com.foxya.coin.ranking.dto.CountryRankingResponseDto;
@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -135,13 +136,12 @@ public class RankingService extends BaseService {
     }
     
     private String getCountryName(String countryCode) {
-        CountryCode code = CountryCode.fromCode(countryCode);
-        return code.getName();
+        String resolved = CountryCodeUtils.resolveCountryName(countryCode, Locale.KOREAN);
+        return resolved != null ? resolved : "알 수 없음";
     }
     
     private String getCountryFlag(String countryCode) {
-        CountryCode code = CountryCode.fromCode(countryCode);
-        return code.getFlag();
+        return CountryCodeUtils.resolveFlagEmoji(countryCode);
     }
     
     /**

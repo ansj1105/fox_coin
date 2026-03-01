@@ -11,7 +11,7 @@ import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
-import com.foxya.coin.common.enums.CountryCode;
+import com.foxya.coin.common.utils.CountryCodeUtils;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.ConflictException;
@@ -653,10 +653,11 @@ public class AuthService extends BaseService {
             return Future.failedFuture(new BadRequestException("시드 구문 확인 후 계속 진행해주세요."));
         }
         String country = (dto.getCountry() != null && !dto.getCountry().isBlank()) ? dto.getCountry() : dto.getCountryCode();
-        if (country == null || country.isBlank()) {
+        String normalizedCountry = CountryCodeUtils.normalizeCountryCode(country);
+        if (normalizedCountry == null) {
             return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
         }
-        if (CountryCode.fromCode(country.trim().toUpperCase()) == CountryCode.UNKNOWN) {
+        if (!CountryCodeUtils.isValidSignupCountryCode(normalizedCountry)) {
             return Future.failedFuture(new BadRequestException("올바른 국가 코드를 입력해주세요."));
         }
         String g = dto.getGender();
@@ -721,7 +722,7 @@ public class AuthService extends BaseService {
                                                     java.util.Map<String, Object> updates = new java.util.HashMap<>();
                                                     updates.put("nickname", nickname);
                                                     updates.put("name", dto.getName());
-                                                    updates.put("country_code", country);
+                                                    updates.put("country_code", normalizedCountry);
                                                     if (g != null && !g.isEmpty()) {
                                                         updates.put("gender", g.toUpperCase());
                                                     }
@@ -742,7 +743,7 @@ public class AuthService extends BaseService {
                                             .password(dto.getPassword())
                                             .nickname(nickname)
                                             .name(dto.getName())
-                                            .countryCode(country)
+                                            .countryCode(normalizedCountry)
                                             .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
                                             .build();
                                         return userService.createUser(create)

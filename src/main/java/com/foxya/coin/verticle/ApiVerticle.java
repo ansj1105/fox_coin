@@ -103,6 +103,8 @@ import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.currency.ExchangeRateRepository;
+import com.foxya.coin.country.CountryCodeRepository;
+import com.foxya.coin.country.CountryCodeService;
 import com.foxya.coin.security.SecurityHandler;
 import com.foxya.coin.inquiry.InquiryHandler;
 import com.foxya.coin.inquiry.InquiryRepository;
@@ -308,6 +310,8 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
         CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, webClient);
+        CountryCodeRepository countryCodeRepository = new CountryCodeRepository();
+        CountryCodeService countryCodeService = new CountryCodeService(pool, countryCodeRepository);
         
         SwapRepository swapRepository = new SwapRepository();
         SwapService swapService = new SwapService(
@@ -374,6 +378,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
         startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
+        startCountryCodeSyncScheduler(countryCodeService);
 
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
@@ -382,7 +387,7 @@ public class ApiVerticle extends AbstractVerticle {
         startImportantNoticeDispatchScheduler(noticeNotificationDispatchService);
 
         // Normalized comment.
-        AuthHandler authHandler = new AuthHandler(vertx, authService, jwtAuth);
+        AuthHandler authHandler = new AuthHandler(vertx, authService, countryCodeService, jwtAuth);
         AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
@@ -970,6 +975,20 @@ public class ApiVerticle extends AbstractVerticle {
                 .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable));
         });
         log.info("Mining settlement batch started (interval {} ms)", intervalMs);
+    }
+
+    private void startCountryCodeSyncScheduler(CountryCodeService countryCodeService) {
+        long intervalMs = parseLongEnv("COUNTRY_CODE_SYNC_MS", 86_400_000L); // 24h
+
+        vertx.setTimer(2_000L, id -> countryCodeService.syncCountryCodesFromLocale()
+            .onSuccess(count -> log.info("Country code sync completed on startup: {} rows", count))
+            .onFailure(t -> log.warn("Country code startup sync failed", t)));
+
+        vertx.setPeriodic(intervalMs, id -> countryCodeService.syncCountryCodesFromLocale()
+            .onSuccess(count -> log.info("Country code scheduled sync completed: {} rows", count))
+            .onFailure(t -> log.warn("Country code scheduled sync failed", t)));
+
+        log.info("Country code sync scheduler started (interval {} ms)", intervalMs);
     }
 
     /**

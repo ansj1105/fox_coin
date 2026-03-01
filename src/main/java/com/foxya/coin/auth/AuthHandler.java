@@ -27,6 +27,7 @@ import com.foxya.coin.auth.dto.RecoveryChallengeRequestDto;
 import com.foxya.coin.auth.dto.RecoveryResetRequestDto;
 import com.foxya.coin.auth.dto.LoginWithSeedRequestDto;
 import com.foxya.coin.auth.dto.LogoutRequestDto;
+import com.foxya.coin.country.CountryCodeService;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -40,13 +41,15 @@ import java.nio.charset.StandardCharsets;
 public class AuthHandler extends BaseHandler {
     
     private final AuthService authService;
+    private final CountryCodeService countryCodeService;
     private final JWTAuth jwtAuth;
     private static final String REFRESH_COOKIE_NAME = "refreshToken";
     private static final long REFRESH_COOKIE_MAX_AGE = 864000L; // 10일
     
-    public AuthHandler(Vertx vertx, AuthService authService, JWTAuth jwtAuth) {
+    public AuthHandler(Vertx vertx, AuthService authService, CountryCodeService countryCodeService, JWTAuth jwtAuth) {
         super(vertx);
         this.authService = authService;
+        this.countryCodeService = countryCodeService;
         this.jwtAuth = jwtAuth;
     }
     
@@ -60,6 +63,7 @@ public class AuthHandler extends BaseHandler {
         router.post("/check-email").handler(this.checkEmailValidation(parser)).handler(this::checkEmail);
         router.post("/email/send-code").handler(this.sendSignupCodeValidation(parser)).handler(this::sendSignupCode);
         router.post("/email/verify").handler(this.verifySignupEmailValidation(parser)).handler(this::verifySignupEmail);
+        router.get("/countries").handler(this::getSignupCountries);
         router.post("/register").handler(this.registerValidation(parser)).handler(this::register);
         router.post("/login").handler(this.loginValidation(parser)).handler(this::login);
         router.post("/login-with-seed").handler(this.loginWithSeedValidation(parser)).handler(this::loginWithSeed);
@@ -194,6 +198,11 @@ public class AuthHandler extends BaseHandler {
                     .allowAdditionalProperties(false)
             ))
             .build();
+    }
+
+    private void getSignupCountries(RoutingContext ctx) {
+        log.info("회원가입 국가코드 목록 조회 요청");
+        response(ctx, countryCodeService.getSignupCountries());
     }
 
     private Handler<RoutingContext> verifySignupEmailValidation(SchemaParser parser) {

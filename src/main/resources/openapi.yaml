@@ -1811,6 +1811,28 @@ components:
           minLength: 4
           maxLength: 10
 
+    CountryOption:
+      type: object
+      required: [code, name, flag]
+      properties:
+        code:
+          type: string
+          description: ISO 3166-1 alpha-2 또는 ETC
+          example: KR
+        name:
+          type: string
+          description: 표시용 국가명
+          example: 대한민국
+        flag:
+          type: string
+          description: 국기 이모지
+          example: "🇰🇷"
+
+    CountryOptionListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/CountryOption'
+
     # User 확장 스키마
     ReferralCodeResponse:
       type: object
@@ -2375,6 +2397,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/auth/countries:
+    get:
+      summary: 회원가입 국가코드 목록 조회
+      description: |
+        회원가입/프로필에서 사용할 국가코드 목록을 조회합니다.
+        기본적으로 ISO 3166-1 alpha-2 전체 + ETC를 반환합니다.
+      tags: [Auth]
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CountryOptionListResponse'
+
   /api/v1/auth/register:
     post:
       summary: 회원가입 (이메일 인증 완료 후)
@@ -2432,7 +2474,7 @@ paths:
                   description: 실제 사용자 이름
                 country:
                   type: string
-                  description: KR, US, JP, CN, VN, TH, ETC
+                  description: ISO 3166-1 alpha-2 또는 ETC
                 gender:
                   type: string
                   description: M / F / O 또는 빈 문자열(미선택)
