@@ -9,6 +9,7 @@ import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.currency.entities.Currency;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.swap.dto.SwapCurrenciesDto;
 import com.foxya.coin.swap.dto.SwapInfoDto;
 import com.foxya.coin.swap.dto.SwapQuoteDto;
@@ -49,6 +50,10 @@ public class SwapService extends BaseService {
     private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
 
     private static final String INTERNAL_CHAIN = "INTERNAL";
+    private static final String SWAP_COMPLETED_TITLE = "스왑 완료";
+    private static final String SWAP_COMPLETED_MESSAGE = "스왑이 완료되었습니다.";
+    private static final String SWAP_COMPLETED_TITLE_KEY = "notifications.swapCompleted.title";
+    private static final String SWAP_COMPLETED_MESSAGE_KEY = "notifications.swapCompleted.message";
 
     private record ResolvedSwapWallet(Currency currency, Wallet wallet) {}
 
@@ -225,8 +230,6 @@ public class SwapService extends BaseService {
                     return Future.succeededFuture();
                 }
 
-                String title = "\uC2A4\uC649 \uC644\uB8CC";
-                String message = responseDto.getFromAmount() + " " + responseDto.getFromCurrencyCode() + " \uC2A4\uC649\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject metadata = new JsonObject()
                     .put("swapId", responseDto.getSwapId())
                     .put("orderNumber", responseDto.getOrderNumber())
@@ -234,16 +237,23 @@ public class SwapService extends BaseService {
                     .put("toCurrencyCode", responseDto.getToCurrencyCode())
                     .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
                     .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+                    .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+                    .put("currencyCode", responseDto.getFromCurrencyCode())
                     .put("network", responseDto.getNetwork())
                     .put("status", responseDto.getStatus());
+                String encodedMetadata = NotificationI18nUtils.buildMetadata(
+                    SWAP_COMPLETED_TITLE_KEY,
+                    SWAP_COMPLETED_MESSAGE_KEY,
+                    metadata
+                );
 
                 return notificationService.createNotificationIfAbsentByRelatedId(
                     swap.getUserId(),
                     NotificationType.SWAP_SUCCESS,
-                    title,
-                    message,
+                    SWAP_COMPLETED_TITLE,
+                    SWAP_COMPLETED_MESSAGE,
                     swap.getId(),
-                    metadata.encode()
+                    encodedMetadata
                 ).mapEmpty();
             })
             .map(v -> responseDto)

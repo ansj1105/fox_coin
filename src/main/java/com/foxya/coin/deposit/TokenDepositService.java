@@ -13,6 +13,7 @@ import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.event.EventType;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import io.vertx.core.Future;
@@ -36,6 +37,10 @@ public class TokenDepositService extends BaseService {
     private static final String SWEEP_MIN_PREFIX = "sweep_min_amount.";
     private static final String SWEEP_GAS_PAYER_KEY = "sweep_gas_payer";
     private static final String HOT_WALLET_USER_ID_KEY = "hot_wallet_user_id";
+    private static final String DEPOSIT_COMPLETED_TITLE = "입금 완료";
+    private static final String DEPOSIT_COMPLETED_MESSAGE = "입금이 완료되었습니다.";
+    private static final String DEPOSIT_COMPLETED_TITLE_KEY = "notifications.depositCompleted.title";
+    private static final String DEPOSIT_COMPLETED_MESSAGE_KEY = "notifications.depositCompleted.message";
 
     private final TokenDepositRepository tokenDepositRepository;
     private final CurrencyRepository currencyRepository;
@@ -363,15 +368,24 @@ public class TokenDepositService extends BaseService {
             .compose(currency -> {
                 String currencyCode = currency != null ? currency.getCode() : "";
                 String amountStr = deposit.getAmount() != null ? deposit.getAmount().toPlainString() : "";
-                String title = "\uC785\uAE08 \uC644\uB8CC";
-                String message = amountStr + " " + currencyCode + " \uC785\uAE08\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject meta = new JsonObject()
                     .put("depositId", deposit.getDepositId())
                     .put("amount", amountStr)
                     .put("currencyCode", currencyCode)
                     .put("txHash", deposit.getTxHash());
+                String encodedMetadata = NotificationI18nUtils.buildMetadata(
+                    DEPOSIT_COMPLETED_TITLE_KEY,
+                    DEPOSIT_COMPLETED_MESSAGE_KEY,
+                    meta
+                );
                 return notificationService.createNotificationIfAbsentByRelatedId(
-                    deposit.getUserId(), NotificationType.DEPOSIT_SUCCESS, title, message, deposit.getId(), meta.encode()).mapEmpty();
+                    deposit.getUserId(),
+                    NotificationType.DEPOSIT_SUCCESS,
+                    DEPOSIT_COMPLETED_TITLE,
+                    DEPOSIT_COMPLETED_MESSAGE,
+                    deposit.getId(),
+                    encodedMetadata
+                ).mapEmpty();
             })
             .map(v -> deposit)
             .recover(err -> {

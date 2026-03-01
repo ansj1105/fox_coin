@@ -15,6 +15,7 @@ import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.event.EventType;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.InternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.TransferHistoryResponseDto;
@@ -66,6 +67,10 @@ public class TransferService extends BaseService {
     private static final BigDecimal MIN_TRANSFER_AMOUNT = new BigDecimal("0.000001");
     private static final String HOT_WALLET_MIN_PREFIX = "hot_wallet_min.";
     private static final String HOT_WALLET_USER_ID_KEY = "hot_wallet_user_id";
+    private static final String WITHDRAW_COMPLETED_TITLE = "출금 완료";
+    private static final String WITHDRAW_COMPLETED_MESSAGE = "출금이 완료되었습니다.";
+    private static final String WITHDRAW_COMPLETED_TITLE_KEY = "notifications.withdrawCompleted.title";
+    private static final String WITHDRAW_COMPLETED_MESSAGE_KEY = "notifications.withdrawCompleted.message";
 
     public TransferService(PgPool pool,
                           TransferRepository transferRepository,
@@ -748,16 +753,25 @@ public class TransferService extends BaseService {
             .compose(currency -> {
                 String currencyCode = currency != null ? currency.getCode() : "";
                 String amountStr = confirmed.getAmount() != null ? confirmed.getAmount().toPlainString() : "";
-                String title = "\uCD9C\uAE08 \uC644\uB8CC";
-                String message = amountStr + " " + currencyCode + " \uCD9C\uAE08\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject meta = new JsonObject()
                     .put("transferId", confirmed.getTransferId())
                     .put("amount", amountStr)
                     .put("currencyCode", currencyCode)
                     .put("txHash", confirmed.getTxHash())
                     .put("toAddress", confirmed.getToAddress());
+                String encodedMetadata = NotificationI18nUtils.buildMetadata(
+                    WITHDRAW_COMPLETED_TITLE_KEY,
+                    WITHDRAW_COMPLETED_MESSAGE_KEY,
+                    meta
+                );
                 return notificationService.createNotificationIfAbsentByRelatedId(
-                    confirmed.getUserId(), NotificationType.WITHDRAW_SUCCESS, title, message, confirmed.getId(), meta.encode());
+                    confirmed.getUserId(),
+                    NotificationType.WITHDRAW_SUCCESS,
+                    WITHDRAW_COMPLETED_TITLE,
+                    WITHDRAW_COMPLETED_MESSAGE,
+                    confirmed.getId(),
+                    encodedMetadata
+                );
             })
             .map(v -> confirmed)
             .recover(err -> {
@@ -1008,5 +1022,4 @@ public class TransferService extends BaseService {
             });
     }
 }
-
 

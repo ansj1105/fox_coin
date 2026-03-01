@@ -14,6 +14,7 @@ import com.foxya.coin.exchange.entities.Exchange;
 import com.foxya.coin.exchange.entities.ExchangeSetting;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.entities.Wallet;
@@ -37,6 +38,10 @@ public class ExchangeService extends BaseService {
     private final NotificationService notificationService;
 
     private static final String EXCHANGE_CHAIN = "INTERNAL";
+    private static final String EXCHANGE_COMPLETED_TITLE = "환전 완료";
+    private static final String EXCHANGE_COMPLETED_MESSAGE = "환전이 완료되었습니다.";
+    private static final String EXCHANGE_COMPLETED_TITLE_KEY = "notifications.exchangeCompleted.title";
+    private static final String EXCHANGE_COMPLETED_MESSAGE_KEY = "notifications.exchangeCompleted.message";
 
     public ExchangeService(PgPool pool, ExchangeRepository exchangeRepository,
                           CurrencyRepository currencyRepository,
@@ -192,8 +197,6 @@ public class ExchangeService extends BaseService {
                     return Future.succeededFuture();
                 }
 
-                String title = "\uD658\uC804 \uC644\uB8CC";
-                String message = responseDto.getFromAmount() + " " + responseDto.getFromCurrencyCode() + " \uD658\uC804\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject metadata = new JsonObject()
                     .put("exchangeId", responseDto.getExchangeId())
                     .put("orderNumber", responseDto.getOrderNumber())
@@ -201,15 +204,23 @@ public class ExchangeService extends BaseService {
                     .put("toCurrencyCode", responseDto.getToCurrencyCode())
                     .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
                     .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+                    .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+                    .put("currencyCode", responseDto.getFromCurrencyCode())
                     .put("status", responseDto.getStatus());
+
+                String encodedMetadata = NotificationI18nUtils.buildMetadata(
+                    EXCHANGE_COMPLETED_TITLE_KEY,
+                    EXCHANGE_COMPLETED_MESSAGE_KEY,
+                    metadata
+                );
 
                 return notificationService.createNotificationIfAbsentByRelatedId(
                     exchange.getUserId(),
                     NotificationType.EXCHANGE_SUCCESS,
-                    title,
-                    message,
+                    EXCHANGE_COMPLETED_TITLE,
+                    EXCHANGE_COMPLETED_MESSAGE,
                     exchange.getId(),
-                    metadata.encode()
+                    encodedMetadata
                 ).mapEmpty();
             })
             .map(v -> responseDto)

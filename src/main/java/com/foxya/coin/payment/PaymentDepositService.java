@@ -7,6 +7,7 @@ import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.payment.dto.PaymentDepositRequestDto;
 import com.foxya.coin.payment.dto.PaymentDepositResponseDto;
 import com.foxya.coin.payment.entities.PaymentDeposit;
@@ -28,6 +29,10 @@ public class PaymentDepositService extends BaseService {
     private final NotificationService notificationService;
 
     private static final BigDecimal MIN_DEPOSIT_AMOUNT = new BigDecimal("0.000001");
+    private static final String DEPOSIT_COMPLETED_TITLE = "입금 완료";
+    private static final String DEPOSIT_COMPLETED_MESSAGE = "입금이 완료되었습니다.";
+    private static final String DEPOSIT_COMPLETED_TITLE_KEY = "notifications.depositCompleted.title";
+    private static final String DEPOSIT_COMPLETED_MESSAGE_KEY = "notifications.depositCompleted.message";
 
     public PaymentDepositService(PgPool pool, PaymentDepositRepository paymentDepositRepository,
                                 CurrencyRepository currencyRepository,
@@ -141,22 +146,25 @@ public class PaymentDepositService extends BaseService {
                     return Future.succeededFuture();
                 }
 
-                String title = "\uC785\uAE08 \uC644\uB8CC";
-                String message = responseDto.getAmount() + " " + responseDto.getCurrencyCode() + " \uC785\uAE08\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
                 JsonObject metadata = new JsonObject()
                     .put("depositId", responseDto.getDepositId())
                     .put("orderNumber", responseDto.getOrderNumber())
                     .put("currencyCode", responseDto.getCurrencyCode())
                     .put("amount", responseDto.getAmount() != null ? responseDto.getAmount().toPlainString() : null)
                     .put("status", responseDto.getStatus());
+                String encodedMetadata = NotificationI18nUtils.buildMetadata(
+                    DEPOSIT_COMPLETED_TITLE_KEY,
+                    DEPOSIT_COMPLETED_MESSAGE_KEY,
+                    metadata
+                );
 
                 return notificationService.createNotificationIfAbsentByRelatedId(
                     deposit.getUserId(),
                     NotificationType.DEPOSIT_SUCCESS,
-                    title,
-                    message,
+                    DEPOSIT_COMPLETED_TITLE,
+                    DEPOSIT_COMPLETED_MESSAGE,
                     deposit.getId(),
-                    metadata.encode()
+                    encodedMetadata
                 ).mapEmpty();
             })
             .map(v -> responseDto)

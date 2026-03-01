@@ -9,6 +9,7 @@ import com.foxya.coin.inquiry.entities.Inquiry;
 import com.foxya.coin.inquiry.enums.InquiryStatus;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
+import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.user.UserService;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -17,6 +18,14 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InquiryService extends BaseService {
+    private static final String INQUIRY_SUBMITTED_TITLE = "문의 접수 완료";
+    private static final String INQUIRY_SUBMITTED_MESSAGE = "문의가 정상적으로 접수되었습니다.";
+    private static final String INQUIRY_SUBMITTED_TITLE_KEY = "notifications.inquirySubmitted.title";
+    private static final String INQUIRY_SUBMITTED_MESSAGE_KEY = "notifications.inquirySubmitted.message";
+    private static final String INQUIRY_ANSWERED_TITLE = "문의 답변 완료";
+    private static final String INQUIRY_ANSWERED_MESSAGE = "문의에 대한 답변이 등록되었습니다.";
+    private static final String INQUIRY_ANSWERED_TITLE_KEY = "notifications.inquiryAnswered.title";
+    private static final String INQUIRY_ANSWERED_MESSAGE_KEY = "notifications.inquiryAnswered.message";
 
     private final InquiryRepository inquiryRepository;
     private final UserService userService;
@@ -103,14 +112,19 @@ public class InquiryService extends BaseService {
             .put("inquiryId", inquiry.getId())
             .put("status", inquiry.getStatus() != null ? inquiry.getStatus().name() : null)
             .put("createdAt", inquiry.getCreatedAt() != null ? inquiry.getCreatedAt().toString() : null);
+        String encodedMetadata = NotificationI18nUtils.buildMetadata(
+            INQUIRY_SUBMITTED_TITLE_KEY,
+            INQUIRY_SUBMITTED_MESSAGE_KEY,
+            metadata
+        );
 
         return notificationService.createNotificationIfAbsentByRelatedId(
                 inquiry.getUserId(),
                 NotificationType.INQUIRY_SUCCESS,
-                "Inquiry Submitted",
-                "Your inquiry has been received.",
+                INQUIRY_SUBMITTED_TITLE,
+                INQUIRY_SUBMITTED_MESSAGE,
                 inquiry.getId(),
-                metadata.encode())
+                encodedMetadata)
             .compose(v -> Future.<Void>succeededFuture())
             .recover(err -> {
                 log.warn("Inquiry submit notification failed (ignored): inquiryId={}", inquiry.getId(), err);
@@ -126,14 +140,19 @@ public class InquiryService extends BaseService {
         JsonObject metadata = new JsonObject()
             .put("inquiryId", inquiry.getId())
             .put("status", inquiry.getStatus() != null ? inquiry.getStatus().name() : null);
+        String encodedMetadata = NotificationI18nUtils.buildMetadata(
+            INQUIRY_ANSWERED_TITLE_KEY,
+            INQUIRY_ANSWERED_MESSAGE_KEY,
+            metadata
+        );
 
         return notificationService.createNotificationIfAbsentByRelatedId(
                 inquiry.getUserId(),
                 NotificationType.INQUIRY_ANSWERED,
-                "Inquiry Answered",
-                "Your inquiry has been answered.",
+                INQUIRY_ANSWERED_TITLE,
+                INQUIRY_ANSWERED_MESSAGE,
                 inquiry.getId(),
-                metadata.encode())
+                encodedMetadata)
             .compose(v -> Future.<Void>succeededFuture())
             .recover(err -> {
                 log.warn("Inquiry answered notification failed (ignored): inquiryId={}", inquiry.getId(), err);
