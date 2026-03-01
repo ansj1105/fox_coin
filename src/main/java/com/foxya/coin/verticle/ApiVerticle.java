@@ -378,7 +378,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
         startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
-        startCountryCodeSyncScheduler(countryCodeService);
+        startCountryCodeSyncOnce(countryCodeService);
 
         // Re-dispatch pending withdrawals so external settlement is eventually processed.
         startWithdrawalRedispatchScheduler(transferService);
@@ -977,18 +977,12 @@ public class ApiVerticle extends AbstractVerticle {
         log.info("Mining settlement batch started (interval {} ms)", intervalMs);
     }
 
-    private void startCountryCodeSyncScheduler(CountryCodeService countryCodeService) {
-        long intervalMs = parseLongEnv("COUNTRY_CODE_SYNC_MS", 86_400_000L); // 24h
-
+    private void startCountryCodeSyncOnce(CountryCodeService countryCodeService) {
         vertx.setTimer(2_000L, id -> countryCodeService.syncCountryCodesFromLocale()
             .onSuccess(count -> log.info("Country code sync completed on startup: {} rows", count))
             .onFailure(t -> log.warn("Country code startup sync failed", t)));
 
-        vertx.setPeriodic(intervalMs, id -> countryCodeService.syncCountryCodesFromLocale()
-            .onSuccess(count -> log.info("Country code scheduled sync completed: {} rows", count))
-            .onFailure(t -> log.warn("Country code scheduled sync failed", t)));
-
-        log.info("Country code sync scheduler started (interval {} ms)", intervalMs);
+        log.info("Country code startup sync scheduled (single-run)");
     }
 
     /**
