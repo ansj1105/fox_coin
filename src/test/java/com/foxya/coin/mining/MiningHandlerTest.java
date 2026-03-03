@@ -274,6 +274,11 @@ public class MiningHandlerTest extends HandlerTestBase {
                     // inviteBonusMultiplier, validDirectReferralCount (선택 필드)
                     assertThat(response.getInviteBonusMultiplier()).isNotNull();
                     assertThat(response.getValidDirectReferralCount()).isNotNull();
+                    assertThat(response.getSubscribed()).isNotNull();
+                    assertThat(response.getAdFree()).isNotNull();
+                    assertThat(response.getAutoBoostMining()).isNotNull();
+                    assertThat(response.getVipMiningEfficiencyBonusPercent()).isNotNull();
+                    assertThat(response.getFullMiningHistoryAccess()).isNotNull();
 
                     // 값 검증
                     assertThat(response.getTodayMiningAmount()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
@@ -514,4 +519,3 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
     }
 }
-

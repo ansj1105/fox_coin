@@ -17,5 +17,10 @@ public class SubscriptionStatusResponseDto {
     private Boolean isSubscribed;
     private LocalDateTime expiresAt;
     private String packageType;
+    private String planCode;
+    private Integer miningEfficiencyBonusPercent;
+    private Boolean adFree;
+    private Boolean autoBoostMining;
+    private Boolean referralReregisterUnlimited;
+    private Boolean fullMiningHistoryAccess;
 }
-

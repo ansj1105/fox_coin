@@ -281,7 +281,11 @@ public class ApiVerticle extends AbstractVerticle {
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
-        ReferralService referralService = new ReferralService(pool, referralRepository, userRepository, emailVerificationRepository, transferService, referralRevenueTierRepository, airdropRepository, notificationService);
+        SubscriptionService subscriptionService = new SubscriptionService(
+            pool, subscriptionRepository);
+        ReferralService referralService = new ReferralService(
+            pool, referralRepository, userRepository, emailVerificationRepository, transferService,
+            referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
@@ -289,13 +293,12 @@ public class ApiVerticle extends AbstractVerticle {
             pool, userRepository, miningRepository, notificationService);
         MiningService miningService = new MiningService(
             pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
-            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService, notificationService);
+            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
+            notificationService, subscriptionService);
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
         NoticeNotificationDispatchRepository noticeNotificationDispatchRepository = new NoticeNotificationDispatchRepository();
         NoticeNotificationDispatchService noticeNotificationDispatchService = new NoticeNotificationDispatchService(pool, noticeNotificationDispatchRepository);
-        SubscriptionService subscriptionService = new SubscriptionService(
-            pool, subscriptionRepository);
         ReviewService reviewService = new ReviewService(
             pool, reviewRepository);
         AgencyService agencyService = new AgencyService(

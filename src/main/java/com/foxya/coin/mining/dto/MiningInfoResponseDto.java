@@ -40,4 +40,14 @@ public class MiningInfoResponseDto {
     private Boolean miningSuspended;
     /** 계정차단 여부 */
     private Boolean accountBlocked;
+    /** 활성 구독 여부 */
+    private Boolean subscribed;
+    /** 광고 제거 혜택 여부 */
+    private Boolean adFree;
+    /** 하루 1회 부스터 시작 후 자동 연속 채굴 혜택 여부 */
+    private Boolean autoBoostMining;
+    /** VIP 구독 기반 추가 채굴 효율 (%) */
+    private Integer vipMiningEfficiencyBonusPercent;
+    /** 채굴 전체 내역 보기 권한 여부 */
+    private Boolean fullMiningHistoryAccess;
 }

@@ -31,6 +31,12 @@ public class SubscriptionHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getSubscriptionStatus);
+
+        // 구독 플랜 조회
+        router.get("/plans")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getPlans);
         
         // 프리미엄 패키지 구독
         router.post("/subscribe")
@@ -46,14 +52,23 @@ public class SubscriptionHandler extends BaseHandler {
         log.info("Getting subscription status for user: {}", userId);
         response(ctx, subscriptionService.getSubscriptionStatus(userId));
     }
-    
+
+    private void getPlans(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        log.info("Getting subscription plans for user: {}", userId);
+        response(ctx, subscriptionService.getPlans());
+    }
+
     private void subscribe(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
-        String packageType = ctx.getBodyAsJson().getString("packageType");
-        Integer months = ctx.getBodyAsJson().getInteger("months");
-        
-        log.info("Subscription request from user: {}, package: {}, months: {}", userId, packageType, months);
-        response(ctx, subscriptionService.subscribe(userId, packageType, months));
+        io.vertx.core.json.JsonObject body = ctx.getBodyAsJson();
+        String planCode = body != null ? body.getString("planCode") : null;
+        String packageType = body != null ? body.getString("packageType") : null;
+        Integer months = body != null ? body.getInteger("months") : null;
+        Integer days = body != null ? body.getInteger("days") : null;
+
+        log.info("Subscription request from user: {}, planCode: {}, package: {}, months: {}, days: {}",
+            userId, planCode, packageType, months, days);
+        response(ctx, subscriptionService.subscribe(userId, planCode, packageType, months, days));
     }
 }
-

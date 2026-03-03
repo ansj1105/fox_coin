@@ -251,6 +251,21 @@ components:
         accountBlocked:
           type: boolean
           description: 계정차단 여부
+        subscribed:
+          type: boolean
+          description: 활성 구독 여부
+        adFree:
+          type: boolean
+          description: 광고 제거 혜택 여부
+        autoBoostMining:
+          type: boolean
+          description: 하루 1회 부스터 시작 후 자동 연속 채굴 혜택 여부
+        vipMiningEfficiencyBonusPercent:
+          type: integer
+          description: VIP 구독 기반 추가 채굴 효율(%)
+        fullMiningHistoryAccess:
+          type: boolean
+          description: 채굴 전체 내역 보기 권한 여부
         warning:
           type: boolean
           description: 경고 여부
@@ -1734,17 +1749,69 @@ components:
         packageType:
           type: string
           nullable: true
+        planCode:
+          type: string
+          nullable: true
+        miningEfficiencyBonusPercent:
+          type: integer
+        adFree:
+          type: boolean
+        autoBoostMining:
+          type: boolean
+        referralReregisterUnlimited:
+          type: boolean
+        fullMiningHistoryAccess:
+          type: boolean
+
+    SubscriptionPlanResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionPlanItem'
+
+    SubscriptionPlanItem:
+      type: object
+      properties:
+        planCode:
+          type: string
+        packageType:
+          type: string
+        displayName:
+          type: string
+        durationDays:
+          type: integer
+        priceKrw:
+          type: integer
+        priceUsd:
+          type: string
+        miningEfficiencyBonusPercent:
+          type: integer
+        adFree:
+          type: boolean
+        autoBoostMining:
+          type: boolean
+        referralReregisterUnlimited:
+          type: boolean
+        fullMiningHistoryAccess:
+          type: boolean
 
     SubscriptionRequest:
       type: object
-      required:
-        - packageType
       properties:
+        planCode:
+          type: string
+          description: 구독 플랜 코드 (VIP_PASS_7D, VIP_1M, VIP_3M, VIP_6M, VIP_12M)
         packageType:
           type: string
+          description: 레거시 호환용 구독 타입 (예: VIP)
         months:
           type: integer
-          description: 구독 기간 (개월), null이면 무제한
+          description: 구독 기간 (개월), planCode 미사용 시 적용
+        days:
+          type: integer
+          description: 구독 기간 (일), planCode 미사용 시 적용
 
     # Review 관련 스키마
     ReviewStatusResponse:
@@ -4137,6 +4204,8 @@ paths:
       summary: 레퍼럴 코드 등록
       description: |
         로그인한 유저가 다른 유저의 추천인 코드를 입력하여 피추천인이 됩니다.
+        일반 사용자는 추천인 삭제 후 30일 이내 재등록이 제한됩니다.
+        VIP 구독(추천인 재등록 제한 해제 혜택) 사용자는 30일 제한 없이 재등록할 수 있습니다.
         중복 추천 방지를 위해 선택적으로 다음 헤더를 보내면, 동일 추천인 하에서 같은 IP/기기로 이미 등록된 피추천인이 있는지 검사합니다.
       tags: [Referral]
       security:
@@ -6202,10 +6271,35 @@ paths:
         '401':
           description: 인증 실패
 
+  /api/v1/subscription/plans:
+    get:
+      summary: VIP 구독 플랜 목록 조회
+      description: 7일 패스/1,3,6,12개월 VIP 플랜과 혜택 정보를 조회합니다.
+      tags: [Subscription]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionPlanResponse'
+        '401':
+          description: 인증 실패
+
   /api/v1/subscription/subscribe:
     post:
       summary: 프리미엄 패키지 구독
-      description: 프리미엄 패키지를 구독합니다.
+      description: |
+        구독을 활성화합니다.
+        - 권장: `planCode` 전달 (VIP_PASS_7D, VIP_1M, VIP_3M, VIP_6M, VIP_12M)
+        - 호환: `packageType + months/days` 전달
       tags: [Subscription]
       security:
         - BearerAuth: []

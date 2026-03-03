@@ -321,6 +321,33 @@ public class ReferralHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(5)
+        @DisplayName("성공 - VIP 구독 사용자는 삭제 후 30일 이내에도 추천인 재등록 가능")
+        void successReregisterWithin30DaysWhenVipSubscribed(VertxTestContext tc) {
+            String user2Token = getAccessTokenOfUser(2L); // Order(1)에서 Soft Delete 완료된 사용자
+
+            JsonObject subscribePayload = new JsonObject().put("planCode", "VIP_PASS_7D");
+            reqPost("/api/v1/subscription/subscribe")
+                .bearerTokenAuthentication(user2Token)
+                .sendJson(subscribePayload, tc.succeeding(subscribeRes -> tc.verify(() -> {
+                    assertThat(subscribeRes.statusCode()).isEqualTo(200);
+
+                    JsonObject registerPayload = new JsonObject().put("referralCode", "REFER123");
+                    reqPost(getUrl("/register"))
+                        .bearerTokenAuthentication(user2Token)
+                        .sendJson(registerPayload, tc.succeeding(registerRes -> tc.verify(() -> {
+                            assertThat(registerRes.statusCode()).isEqualTo(200);
+                            reqDelete(getUrl("/"))
+                                .bearerTokenAuthentication(user2Token)
+                                .send(tc.succeeding(deleteRes -> tc.verify(() -> {
+                                    assertThat(deleteRes.statusCode()).isEqualTo(200);
+                                    tc.completeNow();
+                                })));
+                        })));
+                })));
+        }
     }
     
     @Nested

@@ -20,6 +20,8 @@ import com.foxya.coin.mining.entities.MiningHistory;
 import com.foxya.coin.mining.entities.MiningLevel;
 import com.foxya.coin.mining.entities.MiningSession;
 import com.foxya.coin.referral.ReferralService;
+import com.foxya.coin.subscription.SubscriptionService;
+import com.foxya.coin.subscription.dto.SubscriptionStatusResponseDto;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
@@ -58,6 +60,7 @@ public class MiningService extends BaseService {
     private final EmailVerificationRepository emailVerificationRepository;
     private final LevelService levelService;
     private final NotificationService notificationService;
+    private final SubscriptionService subscriptionService;
     private static final int MAX_AD_WATCH_COUNT = 5;
     /** Normalized comment. */
     private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
@@ -70,7 +73,7 @@ public class MiningService extends BaseService {
                          BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
                          ReferralService referralService, TransferRepository transferRepository, CurrencyRepository currencyRepository,
                          EmailVerificationRepository emailVerificationRepository, LevelService levelService,
-                         NotificationService notificationService) {
+                         NotificationService notificationService, SubscriptionService subscriptionService) {
         super(pool);
         this.miningRepository = miningRepository;
         this.userRepository = userRepository;
@@ -83,6 +86,7 @@ public class MiningService extends BaseService {
         this.emailVerificationRepository = emailVerificationRepository;
         this.levelService = levelService;
         this.notificationService = notificationService;
+        this.subscriptionService = subscriptionService;
     }
     
     public Future<DailyLimitResponseDto> getDailyLimit(Long userId) {
@@ -265,11 +269,23 @@ public class MiningService extends BaseService {
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
                 Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
+                Future<SubscriptionStatusResponseDto> subscriptionStatusFuture = subscriptionService.getSubscriptionStatus(userId);
                 // Normalized comment.
                 Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
                 Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId);
                 
-                return Future.all(List.of(userFuture, dailyMiningFuture, adWatchBonusFuture, totalBalanceFuture, inviteBonusFuture, missionEfficiencyFuture, validDirectCountFuture, sessionsStartedTodayFuture, activeSessionFuture))
+                return Future.all(List.of(
+                    userFuture,
+                    dailyMiningFuture,
+                    adWatchBonusFuture,
+                    totalBalanceFuture,
+                    inviteBonusFuture,
+                    missionEfficiencyFuture,
+                    validDirectCountFuture,
+                    subscriptionStatusFuture,
+                    sessionsStartedTodayFuture,
+                    activeSessionFuture
+                ))
                     .compose(compositeFuture -> {
                         com.foxya.coin.user.entities.User user = userFuture.result();
                         if (user == null) {
@@ -281,7 +297,9 @@ public class MiningService extends BaseService {
                             ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
                             : 0;
                         Integer missionEfficiency = missionEfficiencyFuture.result() != null ? missionEfficiencyFuture.result() : 0;
-                        Integer bonusEfficiency = inviteEfficiency + missionEfficiency;
+                        SubscriptionStatusResponseDto subscriptionStatus = subscriptionStatusFuture.result();
+                        int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
+                        Integer bonusEfficiency = inviteEfficiency + missionEfficiency + vipBonusEfficiency;
                         BigDecimal totalBalance = totalBalanceFuture.result();
                         int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
                         MiningSession activeSession = activeSessionFuture.result();
@@ -333,6 +351,11 @@ public class MiningService extends BaseService {
                                     .warning(toRestrictionFlag(user.getIsWarning()))
                                     .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
                                     .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                                    .subscribed(isSubscribed(subscriptionStatus))
+                                    .adFree(isAdFree(subscriptionStatus))
+                                    .autoBoostMining(isAutoBoostMining(subscriptionStatus))
+                                    .vipMiningEfficiencyBonusPercent(vipBonusEfficiency)
+                                    .fullMiningHistoryAccess(hasFullMiningHistoryAccess(subscriptionStatus))
                                     .build();
                             });
                     });
@@ -464,6 +487,7 @@ public class MiningService extends BaseService {
             .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
             .compose(x -> levelService.syncLevelFromExp(userId))
             .compose(x -> createMiningSessionEndedNotification(userId, session))
+            .compose(x -> maybeStartAutoBoostSession(userId))
             .map(x -> (Void) null);
     }
 
@@ -610,45 +634,139 @@ public class MiningService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
                 }
-                Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
-                return miningRepository.getMiningLevelByLevel(pool, userLevel)
-                    .compose(miningLevel -> {
-                        if (miningLevel == null) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
-                        }
-                        int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0 ? miningLevel.getDailyMaxVideos() : 5;
-                        return miningRepository.countSessionsStartedToday(pool, userId, today)
-                            .compose(sessionsToday -> {
-                                if (sessionsToday >= dailyMaxVideos) {
-                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
+                return subscriptionService.getSubscriptionStatus(userId)
+                    .compose(subscriptionStatus -> {
+                        int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
+                        Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
+                        return miningRepository.getMiningLevelByLevel(pool, userLevel)
+                            .compose(miningLevel -> {
+                                if (miningLevel == null) {
+                                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
                                 }
-                                BigDecimal dailyMax = miningLevel.getDailyMaxMining();
-                                BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
-                                // 채굴 rate: (초대 효율 + 미션 효율) 합산 후 perVideoBase에 적용
-                                // return referralService.getInviteMiningBonusMultiplier(userId).compose(mult -> bonusService.getBonusEfficiency(userId).map(...));
-                                return referralService.getInviteMiningBonusMultiplier(userId)
-                                    .compose(multiplier -> Future.succeededFuture(0)
-                                        .map(missionEfficiency -> {
-                                            int inviteEfficiency = multiplier != null
-                                                ? multiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
-                                                : 0;
-                                            int missionEff = missionEfficiency != null ? missionEfficiency : 0;
-                                            int totalEfficiency = inviteEfficiency + missionEff;
-                                            BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
-                                                BigDecimal.valueOf(totalEfficiency)
-                                                    .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)
-                                            );
-                                            return perVideoBase.multiply(efficiencyMultiplier).setScale(18, RoundingMode.DOWN);
-                                        }))
-                                    .compose(ratePerHour -> {
-                                        LocalDateTime endsAt = now.plusHours(1);
-                                        return pool.withTransaction(client ->
-                                            miningRepository.createMiningSession(client, userId, now, endsAt, ratePerHour, now)
-                                        ).map(created -> ratePerHour);
+                                int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
+                                    ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                                return miningRepository.countSessionsStartedToday(pool, userId, today)
+                                    .compose(sessionsToday -> {
+                                        if (sessionsToday >= dailyMaxVideos) {
+                                            return Future.failedFuture(new com.foxya.coin.common.exceptions.BadRequestException("오늘 시청 가능한 영상 횟수를 모두 사용했습니다."));
+                                        }
+                                        BigDecimal dailyMax = miningLevel.getDailyMaxMining();
+                                        BigDecimal perVideoBase = dailyMax.divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
+                                        return calculateRatePerHour(userId, perVideoBase, vipBonusEfficiency)
+                                            .compose(ratePerHour -> {
+                                                LocalDateTime endsAt = now.plusHours(1);
+                                                return pool.withTransaction(client ->
+                                                    miningRepository.createMiningSession(client, userId, now, endsAt, ratePerHour, now)
+                                                ).map(created -> ratePerHour);
+                                            });
                                     });
                             });
                     });
             });
+    }
+
+    private Future<Void> maybeStartAutoBoostSession(Long userId) {
+        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+
+        return subscriptionService.getSubscriptionStatus(userId)
+            .compose(subscriptionStatus -> {
+                if (!isAutoBoostMining(subscriptionStatus)) {
+                    return Future.succeededFuture();
+                }
+                return miningRepository.getActiveMiningSession(pool, userId)
+                    .compose(activeSession -> {
+                        if (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now)) {
+                            return Future.succeededFuture();
+                        }
+                        return userRepository.getUserById(pool, userId)
+                            .compose(user -> {
+                                if (user == null) return Future.succeededFuture();
+                                Integer userLevel = user.getLevel() != null ? user.getLevel() : 1;
+                                return miningRepository.getMiningLevelByLevel(pool, userLevel)
+                                    .compose(miningLevel -> {
+                                        if (miningLevel == null || miningLevel.getDailyMaxMining() == null || miningLevel.getDailyMaxMining().compareTo(BigDecimal.ZERO) <= 0) {
+                                            return Future.succeededFuture();
+                                        }
+                                        int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
+                                            ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                                        return Future.all(
+                                            miningRepository.countSessionsStartedToday(pool, userId, today),
+                                            miningRepository.getDailyMining(pool, userId, today)
+                                        ).compose(tuple -> {
+                                            Integer sessionsToday = tuple.resultAt(0);
+                                            DailyMining dailyMining = tuple.resultAt(1);
+                                            int usedSessions = sessionsToday != null ? sessionsToday : 0;
+                                            if (usedSessions >= dailyMaxVideos) {
+                                                return Future.succeededFuture();
+                                            }
+                                            BigDecimal todayAmount = dailyMining != null && dailyMining.getMiningAmount() != null
+                                                ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
+                                            if (todayAmount.compareTo(miningLevel.getDailyMaxMining()) >= 0) {
+                                                return Future.succeededFuture();
+                                            }
+
+                                            int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
+                                            BigDecimal perVideoBase = miningLevel.getDailyMaxMining()
+                                                .divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
+                                            return calculateRatePerHour(userId, perVideoBase, vipBonusEfficiency)
+                                                .compose(ratePerHour -> {
+                                                    LocalDateTime startsAt = LocalDateTime.now();
+                                                    LocalDateTime endsAt = startsAt.plusHours(1);
+                                                    return pool.withTransaction(client ->
+                                                        miningRepository.createMiningSession(client, userId, startsAt, endsAt, ratePerHour, startsAt)
+                                                            .map(x -> (Void) null)
+                                                    );
+                                                });
+                                        });
+                                    });
+                            });
+                    });
+            });
+    }
+
+    private Future<BigDecimal> calculateRatePerHour(Long userId, BigDecimal perVideoBase, int vipBonusEfficiency) {
+        if (perVideoBase == null || perVideoBase.compareTo(BigDecimal.ZERO) <= 0) {
+            return Future.succeededFuture(BigDecimal.ZERO);
+        }
+        return referralService.getInviteMiningBonusMultiplier(userId)
+            .compose(multiplier -> Future.succeededFuture(0)
+                .map(missionEfficiency -> {
+                    int inviteEfficiency = multiplier != null
+                        ? multiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
+                        : 0;
+                    int missionEff = missionEfficiency != null ? missionEfficiency : 0;
+                    int totalEfficiency = Math.max(0, inviteEfficiency + missionEff + Math.max(vipBonusEfficiency, 0));
+                    BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
+                        BigDecimal.valueOf(totalEfficiency)
+                            .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)
+                    );
+                    return perVideoBase.multiply(efficiencyMultiplier).setScale(18, RoundingMode.DOWN);
+                }));
+    }
+
+    private int resolveVipBonusEfficiency(SubscriptionStatusResponseDto subscriptionStatus) {
+        if (!isSubscribed(subscriptionStatus)) {
+            return 0;
+        }
+        Integer bonus = subscriptionStatus.getMiningEfficiencyBonusPercent();
+        return bonus != null && bonus > 0 ? bonus : 0;
+    }
+
+    private boolean isSubscribed(SubscriptionStatusResponseDto subscriptionStatus) {
+        return subscriptionStatus != null && Boolean.TRUE.equals(subscriptionStatus.getIsSubscribed());
+    }
+
+    private boolean isAdFree(SubscriptionStatusResponseDto subscriptionStatus) {
+        return isSubscribed(subscriptionStatus) && Boolean.TRUE.equals(subscriptionStatus.getAdFree());
+    }
+
+    private boolean isAutoBoostMining(SubscriptionStatusResponseDto subscriptionStatus) {
+        return isSubscribed(subscriptionStatus) && Boolean.TRUE.equals(subscriptionStatus.getAutoBoostMining());
+    }
+
+    private boolean hasFullMiningHistoryAccess(SubscriptionStatusResponseDto subscriptionStatus) {
+        return isSubscribed(subscriptionStatus) && Boolean.TRUE.equals(subscriptionStatus.getFullMiningHistoryAccess());
     }
     
     /**

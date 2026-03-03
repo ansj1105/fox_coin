@@ -19,6 +19,8 @@ import com.foxya.coin.referral.dto.InviteTiersResponseDto;
 import com.foxya.coin.referral.dto.ReferralRevenueTierDto;
 import com.foxya.coin.referral.dto.ReferralStatsDto;
 import com.foxya.coin.referral.dto.TeamInfoResponseDto;
+import com.foxya.coin.subscription.SubscriptionService;
+import com.foxya.coin.subscription.dto.SubscriptionStatusResponseDto;
 import com.foxya.coin.transfer.TransferService;
 import com.foxya.coin.user.UserRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -59,12 +61,14 @@ public class ReferralService extends BaseService {
     private final ReferralRevenueTierRepository referralRevenueTierRepository;
     private final AirdropRepository airdropRepository;
     private final NotificationService notificationService;
+    private final SubscriptionService subscriptionService;
     
     public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository,
                            EmailVerificationRepository emailVerificationRepository, TransferService transferService,
                            ReferralRevenueTierRepository referralRevenueTierRepository,
                            AirdropRepository airdropRepository,
-                           NotificationService notificationService) {
+                           NotificationService notificationService,
+                           SubscriptionService subscriptionService) {
         super(pool);
         this.referralRepository = referralRepository;
         this.userRepository = userRepository;
@@ -73,6 +77,7 @@ public class ReferralService extends BaseService {
         this.referralRevenueTierRepository = referralRevenueTierRepository;
         this.airdropRepository = airdropRepository;
         this.notificationService = notificationService;
+        this.subscriptionService = subscriptionService;
     }
     
     /**
@@ -85,13 +90,20 @@ public class ReferralService extends BaseService {
                 if (exists) {
                     return Future.failedFuture(new BadRequestException("이미 레퍼럴 코드가 등록되어 있습니다."));
                 }
-                // 삭제 후 30일 미만이면 재등록 거부
-                return referralRepository.getLastDeletedAtByReferredId(pool, userId)
-                    .compose(lastDeletedAt -> {
-                        if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
-                            return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                return subscriptionService.getSubscriptionStatus(userId)
+                    .compose(subscriptionStatus -> {
+                        // VIP 혜택 사용자: 추천인 재등록 30일 제한 해제
+                        if (canBypassReferralReregisterLimit(subscriptionStatus)) {
+                            return userRepository.getUserByReferralCode(pool, referralCode);
                         }
-                        return userRepository.getUserByReferralCode(pool, referralCode);
+                        // 일반 사용자: 삭제 후 30일 미만이면 재등록 거부
+                        return referralRepository.getLastDeletedAtByReferredId(pool, userId)
+                            .compose(lastDeletedAt -> {
+                                if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
+                                    return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                                }
+                                return userRepository.getUserByReferralCode(pool, referralCode);
+                            });
                     });
             })
             .compose(referrer -> {
@@ -173,6 +185,12 @@ public class ReferralService extends BaseService {
                 }
                 return BigDecimal.ONE;
             });
+    }
+
+    private boolean canBypassReferralReregisterLimit(SubscriptionStatusResponseDto subscriptionStatus) {
+        return subscriptionStatus != null
+            && Boolean.TRUE.equals(subscriptionStatus.getIsSubscribed())
+            && Boolean.TRUE.equals(subscriptionStatus.getReferralReregisterUnlimited());
     }
     
     private List<com.foxya.coin.referral.entities.ReferralRevenueTier> getDefaultRevenueTiers() {
