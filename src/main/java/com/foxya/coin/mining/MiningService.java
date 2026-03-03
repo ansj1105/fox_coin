@@ -44,6 +44,7 @@ import java.util.List;
 
 @Slf4j
 public class MiningService extends BaseService {
+    private static final int MAX_SETTLEMENT_SESSIONS_PER_USER_RUN = 100;
     
     private final MiningRepository miningRepository;
     private final UserRepository userRepository;
@@ -523,7 +524,22 @@ public class MiningService extends BaseService {
       * Normalized comment.
      */
     public Future<Void> settlePendingSessionForUser(Long userId) {
-        return settleActiveMiningSession(userId);
+        return settlePendingSessionForUser(userId, 0);
+    }
+
+    private Future<Void> settlePendingSessionForUser(Long userId, int settledCount) {
+        if (settledCount >= MAX_SETTLEMENT_SESSIONS_PER_USER_RUN) {
+            log.warn("Mining settlement safety cap reached - userId: {}, settledCount: {}", userId, settledCount);
+            return Future.succeededFuture();
+        }
+        return miningRepository.getSettlementPendingMiningSession(pool, userId)
+            .compose(session -> {
+                if (session == null) {
+                    return Future.succeededFuture();
+                }
+                return settleActiveMiningSession(userId)
+                    .compose(v -> settlePendingSessionForUser(userId, settledCount + 1));
+            });
     }
 
     /**

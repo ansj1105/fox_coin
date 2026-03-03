@@ -968,17 +968,27 @@ public class ApiVerticle extends AbstractVerticle {
       * Normalized comment.
      */
     private void startMiningSettlementBatch(MiningService miningService) {
-        long intervalMs = 3600_000L; // 1?�간
-        vertx.setPeriodic(intervalMs, id -> {
+        long intervalMs = Math.max(10_000L, Math.min(parseLongEnv("MINING_SETTLEMENT_BATCH_MS", 60_000L), 3_600_000L));
+        long initialDelayMs = Math.max(1_000L, Math.min(parseLongEnv("MINING_SETTLEMENT_BATCH_INITIAL_DELAY_MS", 5_000L), intervalMs));
+        AtomicBoolean running = new AtomicBoolean(false);
+
+        Runnable runTask = () -> {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
             miningService.runSettlementBatch()
                 .onSuccess(count -> {
                     if (count > 0) {
                         log.info("Mining settlement batch completed: {} users settled", count);
                     }
                 })
-                .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable));
-        });
-        log.info("Mining settlement batch started (interval {} ms)", intervalMs);
+                .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable))
+                .onComplete(ar -> running.set(false));
+        };
+
+        vertx.setTimer(initialDelayMs, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("Mining settlement batch started (interval {} ms, initialDelay {} ms)", intervalMs, initialDelayMs);
     }
 
     private void startCountryCodeSyncOnce(CountryCodeService countryCodeService) {
