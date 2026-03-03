@@ -14,4 +14,5 @@ public class LogoutRequestDto {
     private String deviceType;
     private String deviceOs;
     private String appVersion;
+    private String refreshToken;
 }

@@ -75,6 +75,7 @@ import com.foxya.coin.referral.ReferralRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.time.LocalDateTime;
@@ -1188,11 +1189,12 @@ public class AuthService extends BaseService {
     /**
      * 로그아웃
      * @param userId 사용자 ID
-     * @param token JWT 토큰 (블랙리스트에 추가)
+     * @param token Access JWT 토큰 (블랙리스트에 추가)
+     * @param refreshToken Refresh JWT 토큰 (요청 본문/쿠키로 전달되면 블랙리스트에 추가)
      * @param allDevices 모든 디바이스 로그아웃 여부
      * @return 로그아웃 응답
      */
-    public Future<LogoutResponseDto> logout(Long userId, String token, boolean allDevices, String deviceId, String deviceType, String deviceOs) {
+    public Future<LogoutResponseDto> logout(Long userId, String token, String refreshToken, boolean allDevices, String deviceId, String deviceType, String deviceOs) {
         log.info("Logout request from user: {}, allDevices: {}", userId, allDevices);
 
         Future<Void> deviceCleanup;
@@ -1222,37 +1224,46 @@ public class AuthService extends BaseService {
                 .build());
         }
 
-        // 현재 토큰을 블랙리스트에 추가
-        if (token != null && !token.isEmpty()) {
-            return addTokenToBlacklist(token)
-                .compose(v -> {
-                    if (allDevices) {
-                        // 모든 디바이스 로그아웃: 사용자의 모든 토큰을 블랙리스트에 추가
-                        return logoutAllDevices(userId);
-                    }
-                    return Future.succeededFuture();
-                })
-                .compose(v -> deviceCleanup)
-                .map(v -> LogoutResponseDto.builder()
-                    .status("OK")
-                    .message("Logged out successfully")
-                    .build());
-        } else {
-            // 토큰이 없으면 사용자 정보만 로그
-            if (allDevices) {
-                return logoutAllDevices(userId)
-                    .compose(v -> deviceCleanup)
-                    .map(v -> LogoutResponseDto.builder()
-                        .status("OK")
-                        .message("Logged out from all devices")
-                        .build());
-            }
-            return deviceCleanup
-                .map(v -> LogoutResponseDto.builder()
-                    .status("OK")
-                    .message("Logged out successfully")
-                    .build());
+        List<Future<Void>> blacklistFutures = new ArrayList<>();
+        if (token != null && !token.isBlank()) {
+            blacklistFutures.add(addTokenToBlacklist(token));
         }
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            blacklistFutures.add(blacklistRefreshTokenIfOwned(userId, refreshToken));
+        }
+
+        Future<Void> blacklistFuture = blacklistFutures.isEmpty()
+            ? Future.succeededFuture()
+            : Future.all(blacklistFutures).mapEmpty();
+
+        Future<Void> allDevicesFuture = allDevices
+            ? logoutAllDevices(userId)
+            : Future.succeededFuture();
+
+        return blacklistFuture
+            .compose(v -> allDevicesFuture)
+            .compose(v -> deviceCleanup)
+            .map(v -> LogoutResponseDto.builder()
+                .status("OK")
+                .message(allDevices ? "Logged out from all devices" : "Logged out successfully")
+                .build());
+    }
+
+    private Future<Void> blacklistRefreshTokenIfOwned(Long userId, String refreshToken) {
+        return jwtAuth.authenticate(new TokenCredentials(refreshToken))
+            .compose(user -> {
+                Long refreshUserId = AuthUtils.getUserIdOf(user);
+                if (refreshUserId == null || !refreshUserId.equals(userId)) {
+                    return Future.succeededFuture();
+                }
+                String tokenType = AuthUtils.getTokenTypeOf(user);
+                boolean typedToken = tokenType != null && !tokenType.isBlank();
+                if (typedToken && !AuthUtils.isRefreshToken(user)) {
+                    return Future.succeededFuture();
+                }
+                return addToBlacklist(refreshToken, getRefreshTokenExpireSeconds());
+            })
+            .recover(throwable -> Future.succeededFuture());
     }
     
     /**
