@@ -48,6 +48,7 @@ public class SubscriptionHandlerTest extends HandlerTestBase {
                     assertThat(response.getAutoBoostMining()).isNotNull();
                     assertThat(response.getReferralReregisterUnlimited()).isNotNull();
                     assertThat(response.getFullMiningHistoryAccess()).isNotNull();
+                    assertThat(response.getProfileImageUnlock()).isNotNull();
                     assertThat(response.getMiningEfficiencyBonusPercent()).isNotNull();
                     
                     tc.completeNow();
@@ -85,6 +86,11 @@ public class SubscriptionHandlerTest extends HandlerTestBase {
                     assertThat(response.getPlans().size()).isGreaterThanOrEqualTo(5);
                     assertThat(response.getPlans().stream().anyMatch(plan -> "VIP_PASS_7D".equals(plan.getPlanCode()))).isTrue();
                     assertThat(response.getPlans().stream().anyMatch(plan -> "VIP_12M".equals(plan.getPlanCode()))).isTrue();
+                    assertThat(response.getPlans().stream()
+                        .filter(plan -> "VIP_1M".equals(plan.getPlanCode()))
+                        .findFirst()
+                        .map(SubscriptionPlanResponseDto.PlanItem::getProfileImageUnlock))
+                        .contains(true);
                     tc.completeNow();
                 })));
         }

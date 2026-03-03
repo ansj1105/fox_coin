@@ -43,6 +43,7 @@ public class SubscriptionService extends BaseService {
             true,
             true,
             true,
+            true,
             true
         ));
         addPlan(new PlanDef(
@@ -53,6 +54,7 @@ public class SubscriptionService extends BaseService {
             11000,
             "9.99",
             BONUS_VIP_DEFAULT,
+            true,
             true,
             true,
             true,
@@ -69,6 +71,7 @@ public class SubscriptionService extends BaseService {
             true,
             true,
             true,
+            true,
             true
         ));
         addPlan(new PlanDef(
@@ -82,6 +85,7 @@ public class SubscriptionService extends BaseService {
             true,
             true,
             true,
+            true,
             true
         ));
         addPlan(new PlanDef(
@@ -92,6 +96,7 @@ public class SubscriptionService extends BaseService {
             110000,
             "99.99",
             BONUS_VIP_DEFAULT,
+            true,
             true,
             true,
             true,
@@ -124,6 +129,7 @@ public class SubscriptionService extends BaseService {
                     .autoBoostMining(planDef.autoBoostMining)
                     .referralReregisterUnlimited(planDef.referralReregisterUnlimited)
                     .fullMiningHistoryAccess(planDef.fullMiningHistoryAccess)
+                    .profileImageUnlock(planDef.profileImageUnlock)
                     .build();
             });
     }
@@ -171,6 +177,7 @@ public class SubscriptionService extends BaseService {
                 .autoBoostMining(planDef.autoBoostMining)
                 .referralReregisterUnlimited(planDef.referralReregisterUnlimited)
                 .fullMiningHistoryAccess(planDef.fullMiningHistoryAccess)
+                .profileImageUnlock(planDef.profileImageUnlock)
                 .build());
         }
         return Future.succeededFuture(SubscriptionPlanResponseDto.builder().plans(plans).build());
@@ -195,6 +202,7 @@ public class SubscriptionService extends BaseService {
             .autoBoostMining(false)
             .referralReregisterUnlimited(false)
             .fullMiningHistoryAccess(false)
+            .profileImageUnlock(false)
             .build();
     }
 
@@ -246,6 +254,7 @@ public class SubscriptionService extends BaseService {
             false,
             false,
             false,
+            false,
             false
         );
     }
@@ -269,10 +278,12 @@ public class SubscriptionService extends BaseService {
         private final Boolean autoBoostMining;
         private final Boolean referralReregisterUnlimited;
         private final Boolean fullMiningHistoryAccess;
+        private final Boolean profileImageUnlock;
 
         private PlanDef(String planCode, String packageType, String displayName, Integer durationDays,
                         Integer priceKrw, String priceUsd, Integer miningEfficiencyBonusPercent, Boolean adFree,
-                        Boolean autoBoostMining, Boolean referralReregisterUnlimited, Boolean fullMiningHistoryAccess) {
+                        Boolean autoBoostMining, Boolean referralReregisterUnlimited, Boolean fullMiningHistoryAccess,
+                        Boolean profileImageUnlock) {
             this.planCode = planCode;
             this.packageType = packageType;
             this.displayName = displayName;
@@ -284,6 +295,7 @@ public class SubscriptionService extends BaseService {
             this.autoBoostMining = autoBoostMining;
             this.referralReregisterUnlimited = referralReregisterUnlimited;
             this.fullMiningHistoryAccess = fullMiningHistoryAccess;
+            this.profileImageUnlock = profileImageUnlock;
         }
     }
 }

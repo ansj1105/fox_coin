@@ -1762,6 +1762,8 @@ components:
           type: boolean
         fullMiningHistoryAccess:
           type: boolean
+        profileImageUnlock:
+          type: boolean
 
     SubscriptionPlanResponse:
       type: object
@@ -1795,6 +1797,8 @@ components:
         referralReregisterUnlimited:
           type: boolean
         fullMiningHistoryAccess:
+          type: boolean
+        profileImageUnlock:
           type: boolean
 
     SubscriptionRequest:

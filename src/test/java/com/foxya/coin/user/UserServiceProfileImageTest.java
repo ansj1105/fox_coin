@@ -3,6 +3,8 @@ package com.foxya.coin.user;
 import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.utils.EmailService;
+import com.foxya.coin.subscription.SubscriptionService;
+import com.foxya.coin.subscription.dto.SubscriptionStatusResponseDto;
 import com.foxya.coin.user.dto.ProfileImageUploadResponseDto;
 import com.foxya.coin.user.entities.User;
 import io.vertx.core.Future;
@@ -61,6 +63,9 @@ class UserServiceProfileImageTest {
     @Mock
     private UserExternalIdRepository userExternalIdRepository;
 
+    @Mock
+    private SubscriptionService subscriptionService;
+
     @TempDir
     Path tempDir;
 
@@ -72,6 +77,10 @@ class UserServiceProfileImageTest {
 
         when(userRepository.getUserById(pool, 39L))
             .thenReturn(Future.succeededFuture(User.builder().id(39L).level(1).build()));
+        when(subscriptionService.getSubscriptionStatus(39L))
+            .thenReturn(Future.succeededFuture(SubscriptionStatusResponseDto.builder()
+                .profileImageUnlock(false)
+                .build()));
 
         Throwable failure = awaitFailure(userService.uploadMyProfileImage(
             39L,
@@ -113,6 +122,40 @@ class UserServiceProfileImageTest {
 
         assertThat(response.getProfileImageUrl()).startsWith("/api/v1/users/profile-images/39/profile?v=");
         verify(userRepository).updateProfileImageUrl(any(), eq(39L), anyString());
+    }
+
+    @Test
+    void uploadMyProfileImage_whenSubscriptionUnlockEnabled_updatesProfileImageUrl() throws Exception {
+        UserService userService = createService();
+        Path file = tempDir.resolve("vip-unlock.png");
+        writeImage(file, 800, 700, "png");
+
+        when(userRepository.getUserById(pool, 40L))
+            .thenReturn(Future.succeededFuture(User.builder().id(40L).level(1).build()));
+        when(subscriptionService.getSubscriptionStatus(40L))
+            .thenReturn(Future.succeededFuture(SubscriptionStatusResponseDto.builder()
+                .isSubscribed(true)
+                .profileImageUnlock(true)
+                .build()));
+        when(userRepository.updateProfileImageUrl(any(), eq(40L), anyString()))
+            .thenAnswer(invocation -> Future.succeededFuture(
+                User.builder()
+                    .id(40L)
+                    .level(1)
+                    .profileImageUrl(invocation.getArgument(2))
+                    .build()
+            ));
+
+        ProfileImageUploadResponseDto response = awaitSuccess(userService.uploadMyProfileImage(
+            40L,
+            file,
+            "image/png",
+            "vip-unlock.png",
+            Files.size(file)
+        ));
+
+        assertThat(response.getProfileImageUrl()).startsWith("/api/v1/users/profile-images/40/profile?v=");
+        verify(userRepository).updateProfileImageUrl(any(), eq(40L), anyString());
     }
 
     @Test
@@ -162,6 +205,7 @@ class UserServiceProfileImageTest {
             emailService,
             redisApi,
             userExternalIdRepository,
+            subscriptionService,
             tempDir.resolve("profile-storage").toString(),
             new ProfileImageModerationService(null, false, null)
         );

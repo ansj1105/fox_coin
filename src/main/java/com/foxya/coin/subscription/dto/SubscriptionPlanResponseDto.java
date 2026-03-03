@@ -33,5 +33,6 @@ public class SubscriptionPlanResponseDto {
         private Boolean autoBoostMining;
         private Boolean referralReregisterUnlimited;
         private Boolean fullMiningHistoryAccess;
+        private Boolean profileImageUnlock;
     }
 }

@@ -14,6 +14,8 @@ import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
 import com.foxya.coin.common.utils.CountryCodeUtils;
+import com.foxya.coin.subscription.SubscriptionService;
+import com.foxya.coin.subscription.dto.SubscriptionStatusResponseDto;
 import com.foxya.coin.user.dto.ExternalLinkCodeResponseDto;
 import com.foxya.coin.user.dto.ExternalLinkStatusResponseDto;
 import com.foxya.coin.user.dto.CreateUserDto;
@@ -58,6 +60,7 @@ public class UserService extends BaseService {
     private final EmailService emailService;
     private final RedisAPI redisApi;
     private final UserExternalIdRepository userExternalIdRepository;
+    private final SubscriptionService subscriptionService;
     private final ProfileImageProcessor profileImageProcessor;
     private final ProfileImageModerationService profileImageModerationService;
     
@@ -70,6 +73,7 @@ public class UserService extends BaseService {
                        EmailService emailService,
                        RedisAPI redisApi,
                        UserExternalIdRepository userExternalIdRepository,
+                       SubscriptionService subscriptionService,
                        String profileImageUploadDir,
                        ProfileImageModerationService profileImageModerationService) {
         super(pool);
@@ -81,6 +85,7 @@ public class UserService extends BaseService {
         this.emailService = emailService;
         this.redisApi = redisApi;
         this.userExternalIdRepository = userExternalIdRepository;
+        this.subscriptionService = subscriptionService;
         this.profileImageProcessor = new ProfileImageProcessor(
             profileImageUploadDir != null && !profileImageUploadDir.isBlank()
                 ? profileImageUploadDir
@@ -210,26 +215,45 @@ public class UserService extends BaseService {
                 }
 
                 int level = user.getLevel() != null ? user.getLevel() : 1;
-                if (level < ProfileImageProcessor.MIN_LEVEL_TO_UPLOAD) {
+                if (level >= ProfileImageProcessor.MIN_LEVEL_TO_UPLOAD) {
+                    return saveProfileImage(userId, uploadedTempFile, contentType, originalFileName);
+                }
+                if (subscriptionService == null) {
                     return Future.failedFuture(new BadRequestException("레벨 2 이상부터 프로필 사진을 등록할 수 있습니다."));
                 }
+                return subscriptionService.getSubscriptionStatus(userId)
+                    .compose(subscriptionStatus -> canUnlockProfileImageWithSubscription(subscriptionStatus)
+                        ? saveProfileImage(userId, uploadedTempFile, contentType, originalFileName)
+                        : Future.failedFuture(new BadRequestException("레벨 2 이상부터 프로필 사진을 등록할 수 있습니다."))
+                    );
+            });
+    }
 
-                Future<Void> moderationFuture = profileImageModerationService != null
-                    ? profileImageModerationService.validate(uploadedTempFile)
-                    : Future.succeededFuture();
+    private boolean canUnlockProfileImageWithSubscription(SubscriptionStatusResponseDto subscriptionStatus) {
+        return subscriptionStatus != null && Boolean.TRUE.equals(subscriptionStatus.getProfileImageUnlock());
+    }
 
-                return moderationFuture.compose(v -> processProfileImageBlocking(userId, uploadedTempFile, contentType, originalFileName))
-                    .compose(version -> {
-                        String profileImageUrl = ProfileImageProcessor.buildVariantUrl(
-                            userId,
-                            ProfileImageProcessor.VARIANT_PROFILE,
-                            version
-                        );
-                        return userRepository.updateProfileImageUrl(pool, userId, profileImageUrl)
-                            .map(updated -> ProfileImageUploadResponseDto.builder()
-                                .profileImageUrl(profileImageUrl)
-                                .build());
-                    });
+    private Future<ProfileImageUploadResponseDto> saveProfileImage(
+        Long userId,
+        Path uploadedTempFile,
+        String contentType,
+        String originalFileName
+    ) {
+        Future<Void> moderationFuture = profileImageModerationService != null
+            ? profileImageModerationService.validate(uploadedTempFile)
+            : Future.succeededFuture();
+
+        return moderationFuture.compose(v -> processProfileImageBlocking(userId, uploadedTempFile, contentType, originalFileName))
+            .compose(version -> {
+                String profileImageUrl = ProfileImageProcessor.buildVariantUrl(
+                    userId,
+                    ProfileImageProcessor.VARIANT_PROFILE,
+                    version
+                );
+                return userRepository.updateProfileImageUrl(pool, userId, profileImageUrl)
+                    .map(updated -> ProfileImageUploadResponseDto.builder()
+                        .profileImageUrl(profileImageUrl)
+                        .build());
             });
     }
 

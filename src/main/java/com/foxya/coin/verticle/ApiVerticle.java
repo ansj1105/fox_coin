@@ -258,6 +258,8 @@ public class ApiVerticle extends AbstractVerticle {
             profileImageModerationEnabled,
             googleCloudVisionApiKey
         );
+        SubscriptionService subscriptionService = new SubscriptionService(
+            pool, subscriptionRepository);
         
         // Normalized comment.
         UserService userService = new UserService(
@@ -270,6 +272,7 @@ public class ApiVerticle extends AbstractVerticle {
             emailService,
             redisApi,
             userExternalIdRepository,
+            subscriptionService,
             profileImageUploadDir,
             profileImageModerationService
         );
@@ -281,8 +284,6 @@ public class ApiVerticle extends AbstractVerticle {
         
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
-        SubscriptionService subscriptionService = new SubscriptionService(
-            pool, subscriptionRepository);
         ReferralService referralService = new ReferralService(
             pool, referralRepository, userRepository, emailVerificationRepository, transferService,
             referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService);
