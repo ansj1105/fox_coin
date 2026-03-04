@@ -105,6 +105,7 @@ public class FcmService {
         return deviceRepository.getFcmTokensByUserId(pool, userId)
             .compose(tokens -> {
                 if (tokens == null || tokens.isEmpty()) {
+                    log.info("FCM skipped: no active token(s) for userId={}", userId);
                     return Future.succeededFuture((Void) null);
                 }
                 return vertx.<FcmSendResult>executeBlocking(promise -> {

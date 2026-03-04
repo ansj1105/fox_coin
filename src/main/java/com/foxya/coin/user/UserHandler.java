@@ -22,6 +22,7 @@ import com.foxya.coin.user.dto.ExternalLinkCodeRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Keywords.*;
@@ -30,6 +31,7 @@ import static com.foxya.coin.common.jsonschema.Schemas.*;
 
 @Slf4j
 public class UserHandler extends BaseHandler {
+    private static final Pattern APNS_DEVICE_TOKEN_PATTERN = Pattern.compile("^[A-Fa-f0-9]{64}$");
 
     private final UserService userService;
     private final JWTAuth jwtAuth;
@@ -230,6 +232,16 @@ public class UserHandler extends BaseHandler {
             return;
         }
         String fcmToken = body.getString("fcmToken");
+        if (fcmToken == null || fcmToken.isBlank()) {
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("fcmToken 값이 필요합니다."));
+            return;
+        }
+        // iOS APNs device token(64-hex)이 잘못 전달되는 경우를 조기 차단한다.
+        if (APNS_DEVICE_TOKEN_PATTERN.matcher(fcmToken.trim()).matches()) {
+            log.warn("Rejected APNs token for FCM endpoint - userId={}, deviceId={}", userId, deviceId);
+            ctx.fail(400, new com.foxya.coin.common.exceptions.BadRequestException("iOS APNs 토큰이 아니라 FCM registration token을 보내주세요."));
+            return;
+        }
         response(ctx, deviceRepository.updateFcmToken(pool, userId, deviceId, fcmToken)
             .map(updated -> io.vertx.core.json.JsonObject.of("success", updated)));
     }
