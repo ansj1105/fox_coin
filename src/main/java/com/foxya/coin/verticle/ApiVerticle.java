@@ -98,7 +98,9 @@ import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.retry.EmailRetryJob;
 import com.foxya.coin.retry.ExchangeRateRetryJob;
 import com.foxya.coin.retry.FcmRetryJob;
+import com.foxya.coin.retry.BulkNotificationJob;
 import com.foxya.coin.retry.RetryQueuePublisher;
+import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
@@ -148,6 +150,10 @@ public class ApiVerticle extends AbstractVerticle {
     private static final String CFG_EXCHANGE_RATE_RETRY_BATCH = "exchange_rate_retry_batch";
     private static final String CFG_EXCHANGE_RATE_RETRY_BLOCK_MS = "exchange_rate_retry_block_ms";
     private static final String CFG_EXCHANGE_RATE_RETRY_CONSUMER_GROUP = "exchange_rate_retry_consumer_group";
+    private static final String CFG_BULK_NOTIFICATION_PROCESSOR_MS = "bulk_notification_processor_ms";
+    private static final String CFG_BULK_NOTIFICATION_BATCH = "bulk_notification_batch";
+    private static final String CFG_BULK_NOTIFICATION_BLOCK_MS = "bulk_notification_block_ms";
+    private static final String CFG_BULK_NOTIFICATION_CONSUMER_GROUP = "bulk_notification_consumer_group";
     
     static {
         DatabindCodec.mapper()
@@ -210,7 +216,7 @@ public class ApiVerticle extends AbstractVerticle {
         AppConfigRepository appConfigRepository = new AppConfigRepository();
 
         FcmService fcmService = new FcmService(vertx, pool, deviceRepository, retryQueuePublisher, appConfigRepository);
-        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository);
+        NotificationService notificationService = new NotificationService(pool, notificationRepository, fcmService, userRepository, retryQueuePublisher);
 
         // Normalized comment.
         EmailService emailService = new EmailService(
@@ -375,6 +381,7 @@ public class ApiVerticle extends AbstractVerticle {
             startEmailRetryProcessor(emailService, retryQueuePublisher);
             startFcmRetryProcessor(fcmService, retryQueuePublisher, appConfigRepository, pool);
             startExchangeRateRetryProcessor(currencyService, retryQueuePublisher, appConfigRepository, pool);
+            startBulkNotificationProcessor(notificationService, retryQueuePublisher, appConfigRepository, pool);
         }
 
         // Normalized comment.
@@ -402,7 +409,7 @@ public class ApiVerticle extends AbstractVerticle {
         LevelHandler levelHandler = new LevelHandler(vertx, levelService, jwtAuth);
         NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
         NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
-        AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, jwtAuth);
+        AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, retryQueuePublisher, jwtAuth);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -854,6 +861,117 @@ public class ApiVerticle extends AbstractVerticle {
                 return nextAction.compose(v -> retryQueuePublisher.ackFcmRetry(consumerGroup, message.messageId()));
             })
             .compose(v -> processFcmRetryMessages(messages, index + 1, consumerGroup, retryQueuePublisher, fcmService));
+    }
+
+    private void startBulkNotificationProcessor(NotificationService notificationService,
+                                                RetryQueuePublisher retryQueuePublisher,
+                                                AppConfigRepository appConfigRepository,
+                                                PgPool pool) {
+        if (notificationService == null || retryQueuePublisher == null) {
+            return;
+        }
+
+        int defaultIntervalMs = (int) Math.max(1_000L, Math.min(parseLongEnv("BULK_NOTIFICATION_PROCESSOR_MS", 2_000L), 60_000L));
+        int defaultBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("BULK_NOTIFICATION_BATCH", 50L), 500L));
+        int defaultBlockMs = (int) Math.max(100L, Math.min(parseLongEnv("BULK_NOTIFICATION_BLOCK_MS", 700L), 5000L));
+        String defaultConsumerGroup = System.getenv("BULK_NOTIFICATION_CONSUMER_GROUP");
+        if (defaultConsumerGroup == null || defaultConsumerGroup.isBlank()) {
+            defaultConsumerGroup = "bulk-notification-group";
+        }
+        String consumerName = System.getenv("BULK_NOTIFICATION_CONSUMER_NAME");
+        if (consumerName == null || consumerName.isBlank()) {
+            consumerName = "api-" + UUID.randomUUID();
+        }
+        String configuredConsumerName = consumerName;
+
+        Future<Integer> intervalFuture = resolveIntConfig(appConfigRepository, pool, CFG_BULK_NOTIFICATION_PROCESSOR_MS, defaultIntervalMs, 1000, 60000);
+        Future<Integer> batchFuture = resolveIntConfig(appConfigRepository, pool, CFG_BULK_NOTIFICATION_BATCH, defaultBatchSize, 1, 500);
+        Future<Integer> blockFuture = resolveIntConfig(appConfigRepository, pool, CFG_BULK_NOTIFICATION_BLOCK_MS, defaultBlockMs, 100, 5000);
+        Future<String> groupFuture = resolveStringConfig(appConfigRepository, pool, CFG_BULK_NOTIFICATION_CONSUMER_GROUP, defaultConsumerGroup);
+
+        Future.all(intervalFuture, batchFuture, blockFuture, groupFuture)
+            .onSuccess(result -> {
+                int intervalMs = (Integer) result.resultAt(0);
+                int batchSize = (Integer) result.resultAt(1);
+                int blockMs = (Integer) result.resultAt(2);
+                String consumerGroup = (String) result.resultAt(3);
+
+                String finalConsumerGroup = consumerGroup;
+                String finalConsumerName = configuredConsumerName;
+                retryQueuePublisher.ensureBulkNotificationConsumerGroup(finalConsumerGroup)
+                    .onSuccess(v -> log.info("Bulk-notification consumer group ready. group={}", finalConsumerGroup))
+                    .onFailure(t -> log.warn("Failed to initialize bulk-notification consumer group. group={}", finalConsumerGroup, t));
+
+                AtomicBoolean running = new AtomicBoolean(false);
+                Runnable runTask = () -> {
+                    if (!running.compareAndSet(false, true)) {
+                        return;
+                    }
+                    retryQueuePublisher.readBulkNotificationBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                        .compose(messages -> processBulkNotificationMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, notificationService))
+                        .onFailure(t -> log.warn("Bulk-notification batch processing failed", t))
+                        .onComplete(ar -> running.set(false));
+                };
+
+                vertx.setTimer(2_000L, id -> runTask.run());
+                vertx.setPeriodic(intervalMs, id -> runTask.run());
+                log.info("Bulk-notification processor started (interval {} ms, batch {}, block {} ms, group {}, consumer {})",
+                    intervalMs, batchSize, blockMs, consumerGroup, configuredConsumerName);
+            })
+            .onFailure(t -> log.warn("Failed to initialize bulk-notification processor config", t));
+    }
+
+    private Future<Void> processBulkNotificationMessages(List<RetryQueuePublisher.BulkNotificationMessage> messages,
+                                                         int index,
+                                                         String consumerGroup,
+                                                         RetryQueuePublisher retryQueuePublisher,
+                                                         NotificationService notificationService) {
+        if (messages == null || index >= messages.size()) {
+            return Future.succeededFuture();
+        }
+
+        RetryQueuePublisher.BulkNotificationMessage message = messages.get(index);
+        if (message == null || message.job() == null || message.messageId() == null || message.messageId().isBlank()) {
+            return processBulkNotificationMessages(messages, index + 1, consumerGroup, retryQueuePublisher, notificationService);
+        }
+
+        BulkNotificationJob job = message.job();
+        NotificationType type;
+        try {
+            type = NotificationType.valueOf(job.getType() == null ? "NOTICE" : job.getType().trim().toUpperCase());
+        } catch (Exception ignored) {
+            type = NotificationType.NOTICE;
+        }
+
+        return notificationService.createNotificationStrict(
+                job.getUserId(),
+                type,
+                job.getTitle(),
+                job.getMessage(),
+                job.getRelatedId(),
+                job.getMetadata()
+            )
+            .compose(v -> retryQueuePublisher.ackBulkNotification(consumerGroup, message.messageId()))
+            .compose(v -> retryQueuePublisher.incrementBulkProcessed(job.getRequestId()))
+            .compose(v -> retryQueuePublisher.incrementBulkSuccess(job.getRequestId()))
+            .recover(throwable -> {
+                log.warn("Bulk-notification processing failed. requestId={}, userId={}, retryCount={}, maxRetries={}",
+                    job.getRequestId(), job.getUserId(), job.getRetryCount(), job.getMaxRetries(), throwable);
+
+                BulkNotificationJob next = job.withIncrementedRetry();
+                Future<Void> nextAction;
+                if (next.getRetryCount() >= job.getMaxRetries()) {
+                    nextAction = retryQueuePublisher.enqueueBulkNotificationDlq(job, throwable.getMessage())
+                        .compose(v -> retryQueuePublisher.incrementBulkProcessed(job.getRequestId()))
+                        .compose(v -> retryQueuePublisher.incrementBulkFailed(job.getRequestId()))
+                        .compose(v -> retryQueuePublisher.incrementBulkDlq(job.getRequestId()));
+                } else {
+                    nextAction = retryQueuePublisher.enqueueBulkNotification(next)
+                        .compose(v -> retryQueuePublisher.incrementBulkRetryScheduled(job.getRequestId()));
+                }
+                return nextAction.compose(v -> retryQueuePublisher.ackBulkNotification(consumerGroup, message.messageId()));
+            })
+            .compose(v -> processBulkNotificationMessages(messages, index + 1, consumerGroup, retryQueuePublisher, notificationService));
     }
 
     private void startExchangeRateRetryProcessor(CurrencyService currencyService,

@@ -8,6 +8,7 @@ import com.foxya.coin.notification.dto.UnreadCountResponseDto;
 import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.notification.utils.NotificationMessageLocalizer;
+import com.foxya.coin.retry.RetryQueuePublisher;
 import com.foxya.coin.user.UserRepository;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
@@ -27,20 +28,26 @@ public class NotificationService extends BaseService {
     private final NotificationRepository notificationRepository;
     private final FcmService fcmService;
     private final UserRepository userRepository;
+    private final RetryQueuePublisher retryQueuePublisher;
 
     public NotificationService(PgPool pool, NotificationRepository notificationRepository) {
-        this(pool, notificationRepository, null, null);
+        this(pool, notificationRepository, null, null, null);
     }
 
     public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService) {
-        this(pool, notificationRepository, fcmService, null);
+        this(pool, notificationRepository, fcmService, null, null);
     }
 
     public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService, UserRepository userRepository) {
+        this(pool, notificationRepository, fcmService, userRepository, null);
+    }
+
+    public NotificationService(PgPool pool, NotificationRepository notificationRepository, FcmService fcmService, UserRepository userRepository, RetryQueuePublisher retryQueuePublisher) {
         super(pool);
         this.notificationRepository = notificationRepository;
         this.fcmService = fcmService;
         this.userRepository = userRepository;
+        this.retryQueuePublisher = retryQueuePublisher;
     }
 
     /**
@@ -49,14 +56,35 @@ public class NotificationService extends BaseService {
      */
     public Future<Notification> createNotification(Long userId, NotificationType type, String title, String message,
                                                    Long relatedId, String metadata) {
+        return createNotificationInternal(userId, type, title, message, relatedId, metadata, true);
+    }
+
+    /**
+     * 다건 워커 전용: DB 저장 실패를 삼키지 않고 실패 반환(재시도/DLQ 분기용).
+     */
+    public Future<Notification> createNotificationStrict(Long userId, NotificationType type, String title, String message,
+                                                         Long relatedId, String metadata) {
+        return createNotificationInternal(userId, type, title, message, relatedId, metadata, false);
+    }
+
+    public RetryQueuePublisher getRetryQueuePublisher() {
+        return retryQueuePublisher;
+    }
+
+    private Future<Notification> createNotificationInternal(Long userId, NotificationType type, String title, String message,
+                                                            Long relatedId, String metadata, boolean swallowInsertFailure) {
         JsonNode metadataNode = parseMetadata(metadata);
         return resolveLocalizedText(userId, title, message, metadataNode)
-            .compose(resolved -> notificationRepository.insert(pool, userId, type, resolved.getTitle(), resolved.getMessage(), relatedId, metadata)
-                .recover(err -> {
-                    log.warn("알림 생성 실패(무시) - userId: {}, type: {}", userId, type, err);
-                    return Future.succeededFuture((Notification) null);
-                })
-                .compose(notification -> {
+            .compose(resolved -> {
+                Future<Notification> insertFuture = notificationRepository
+                    .insert(pool, userId, type, resolved.getTitle(), resolved.getMessage(), relatedId, metadata);
+                if (swallowInsertFailure) {
+                    insertFuture = insertFuture.recover(err -> {
+                        log.warn("알림 생성 실패(무시) - userId: {}, type: {}", userId, type, err);
+                        return Future.succeededFuture((Notification) null);
+                    });
+                }
+                return insertFuture.compose(notification -> {
                     if (notification != null && fcmService != null && fcmService.isEnabled()) {
                         Map<String, String> data = toFcmData(metadataNode);
                         data.put("type", type.name());
@@ -67,7 +95,8 @@ public class NotificationService extends BaseService {
                         });
                     }
                     return Future.succeededFuture(notification);
-                }));
+                });
+            });
     }
 
     /**
