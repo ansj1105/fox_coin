@@ -871,7 +871,10 @@ public class AuthHandler extends BaseHandler {
     }
 
     /**
-     * preferCookie=true: 쿠키 우선(Refresh API 권장)
+     * preferCookie=true:
+     *  - 웹 브라우저: 쿠키 우선 (기존 동작 유지)
+     *  - 모바일 앱(X-Device-* 헤더 존재): body 우선
+     *    (stale 쿠키보다 앱 localStorage에 저장된 최신 refreshToken을 신뢰)
      * preferCookie=false: body 우선(기존/호환 동작, 로그아웃 등)
      */
     private String resolveRefreshToken(RoutingContext ctx, String bodyRefreshToken, boolean preferCookie) {
@@ -879,6 +882,15 @@ public class AuthHandler extends BaseHandler {
         String cookieRefreshToken = cookie != null ? cookie.getValue() : null;
 
         if (preferCookie) {
+            if (isMobileRefreshRequest(ctx)) {
+                if (bodyRefreshToken != null && !bodyRefreshToken.isBlank()) {
+                    return bodyRefreshToken;
+                }
+                if (cookieRefreshToken != null && !cookieRefreshToken.isBlank()) {
+                    return cookieRefreshToken;
+                }
+                return null;
+            }
             if (cookieRefreshToken != null && !cookieRefreshToken.isBlank()) {
                 return cookieRefreshToken;
             }
@@ -891,6 +903,13 @@ public class AuthHandler extends BaseHandler {
             return bodyRefreshToken;
         }
         return cookieRefreshToken;
+    }
+
+    private boolean isMobileRefreshRequest(RoutingContext ctx) {
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        String deviceType = ctx.request().getHeader("X-Device-Type");
+        String deviceOs = ctx.request().getHeader("X-Device-Os");
+        return hasText(deviceId) && hasText(deviceType) && hasText(deviceOs);
     }
 
     private boolean hasText(String value) {
