@@ -27,7 +27,10 @@ public class SubscriptionService extends BaseService {
 
     private static final int BONUS_FREE = 0;
     private static final int BONUS_VIP_PASS_7D = 5;
-    private static final int BONUS_VIP_DEFAULT = 45;
+    private static final int BONUS_VIP_1M = 10;
+    private static final int BONUS_VIP_3M = 25;
+    private static final int BONUS_VIP_6M = 35;
+    private static final int BONUS_VIP_12M = 50;
 
     private static final Map<String, PlanDef> PLAN_DEFS = new LinkedHashMap<>();
 
@@ -42,9 +45,9 @@ public class SubscriptionService extends BaseService {
             BONUS_VIP_PASS_7D,
             true,
             true,
-            true,
-            true,
-            true
+            false,
+            false,
+            false
         ));
         addPlan(new PlanDef(
             PLAN_VIP_1M,
@@ -53,7 +56,7 @@ public class SubscriptionService extends BaseService {
             30,
             11000,
             "9.99",
-            BONUS_VIP_DEFAULT,
+            BONUS_VIP_1M,
             true,
             true,
             true,
@@ -67,7 +70,7 @@ public class SubscriptionService extends BaseService {
             90,
             33000,
             "29.99",
-            BONUS_VIP_DEFAULT,
+            BONUS_VIP_3M,
             true,
             true,
             true,
@@ -81,7 +84,7 @@ public class SubscriptionService extends BaseService {
             180,
             66000,
             "59.99",
-            BONUS_VIP_DEFAULT,
+            BONUS_VIP_6M,
             true,
             true,
             true,
@@ -95,7 +98,7 @@ public class SubscriptionService extends BaseService {
             365,
             110000,
             "99.99",
-            BONUS_VIP_DEFAULT,
+            BONUS_VIP_12M,
             true,
             true,
             true,

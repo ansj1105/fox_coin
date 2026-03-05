@@ -371,6 +371,26 @@ public class ReferralRepository extends BaseRepository {
     }
 
     /**
+     * 해당 사용자(referred_id)의 마지막 레퍼럴 등록 시각(created_at) 조회.
+     * 재등록 1일 1회 제한 판단용. 등록 이력이 없으면 null 반환.
+     */
+    public Future<LocalDateTime> getLastCreatedAtByReferredId(SqlClient client, Long referredId) {
+        String sql = QueryBuilder
+            .select("referral_relations", "created_at")
+            .where("referred_id", Op.Equal, "referred_id")
+            .appendQueryString("ORDER BY created_at DESC LIMIT 1")
+            .build();
+        return query(client, sql, Collections.singletonMap("referred_id", referredId))
+            .map(rows -> {
+                if (rows.iterator().hasNext()) {
+                    return getLocalDateTimeColumnValue(rows.iterator().next(), "created_at");
+                }
+                return null;
+            })
+            .onFailure(throwable -> log.error("레퍼럴 등록일 조회 실패 - referredId: {}", referredId, throwable));
+    }
+
+    /**
      * 레퍼럴 관계 완전 삭제 (Hard Delete)
      */
     public Future<Void> hardDeleteReferralRelation(SqlClient client, Long referredId) {
@@ -631,4 +651,3 @@ public class ReferralRepository extends BaseRepository {
         };
     }
 }
-

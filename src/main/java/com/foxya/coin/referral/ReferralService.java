@@ -92,17 +92,21 @@ public class ReferralService extends BaseService {
                 }
                 return subscriptionService.getSubscriptionStatus(userId)
                     .compose(subscriptionStatus -> {
+                        // 모든 사용자: 레퍼럴 재등록은 1일 1회만 허용
+                        return ensureDailyReferralReregisterLimit(userId)
+                            .compose(v -> {
                         // VIP 혜택 사용자: 추천인 재등록 30일 제한 해제
-                        if (canBypassReferralReregisterLimit(subscriptionStatus)) {
-                            return userRepository.getUserByReferralCode(pool, referralCode);
-                        }
-                        // 일반 사용자: 삭제 후 30일 미만이면 재등록 거부
-                        return referralRepository.getLastDeletedAtByReferredId(pool, userId)
-                            .compose(lastDeletedAt -> {
-                                if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
-                                    return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                                if (canBypassReferralReregisterLimit(subscriptionStatus)) {
+                                    return userRepository.getUserByReferralCode(pool, referralCode);
                                 }
-                                return userRepository.getUserByReferralCode(pool, referralCode);
+                                // 일반 사용자: 삭제 후 30일 미만이면 재등록 거부
+                                return referralRepository.getLastDeletedAtByReferredId(pool, userId)
+                                    .compose(lastDeletedAt -> {
+                                        if (lastDeletedAt != null && lastDeletedAt.isAfter(LocalDateTime.now().minusDays(30))) {
+                                            return Future.failedFuture(new BadRequestException("레퍼럴 코드는 삭제 후 30일이 지나야 재등록할 수 있습니다."));
+                                        }
+                                        return userRepository.getUserByReferralCode(pool, referralCode);
+                                    });
                             });
                     });
             })
@@ -191,6 +195,16 @@ public class ReferralService extends BaseService {
         return subscriptionStatus != null
             && Boolean.TRUE.equals(subscriptionStatus.getIsSubscribed())
             && Boolean.TRUE.equals(subscriptionStatus.getReferralReregisterUnlimited());
+    }
+
+    private Future<Void> ensureDailyReferralReregisterLimit(Long userId) {
+        return referralRepository.getLastCreatedAtByReferredId(pool, userId)
+            .compose(lastCreatedAt -> {
+                if (lastCreatedAt != null && lastCreatedAt.isAfter(LocalDateTime.now().minusDays(1))) {
+                    return Future.failedFuture(new BadRequestException("레퍼럴 코드는 1일 1회만 등록할 수 있습니다."));
+                }
+                return Future.succeededFuture();
+            });
     }
     
     private List<com.foxya.coin.referral.entities.ReferralRevenueTier> getDefaultRevenueTiers() {
