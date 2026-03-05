@@ -121,6 +121,8 @@ public class AuthService extends BaseService {
 
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
+    private static final String ROTATED_REFRESH_PREFIX = "token:rotated-refresh:";
+    private static final int ROTATED_REFRESH_TTL_SECONDS = 30;
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
     private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
     private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
@@ -1052,7 +1054,26 @@ public class AuthService extends BaseService {
                 return isTokenBlacklisted(refreshToken)
                     .compose(blacklisted -> {
                         if (Boolean.TRUE.equals(blacklisted)) {
-                            return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+                            return getRotatedRefreshToken(refreshToken)
+                                .compose(rotatedRefreshToken -> {
+                                    if (rotatedRefreshToken != null && !rotatedRefreshToken.isBlank()) {
+                                        log.info("Refresh replay recovered by rotation cache. userId={}, deviceId={}, deviceType={}, deviceOs={}",
+                                            userId, toLogValue(deviceId), toLogValue(deviceType), toLogValue(deviceOs));
+                                        String replayAccessToken = AuthUtils.generateAccessToken(
+                                            jwtAuth,
+                                            userId,
+                                            UserRole.valueOf(role),
+                                            getAccessTokenExpireSeconds()
+                                        );
+                                        return Future.succeededFuture(RefreshResponseDto.builder()
+                                            .accessToken(replayAccessToken)
+                                            .refreshToken(rotatedRefreshToken)
+                                            .build());
+                                    }
+                                    log.info("Refresh rejected: blacklisted token with no rotation cache. userId={}, deviceId={}, deviceType={}, deviceOs={}",
+                                        userId, toLogValue(deviceId), toLogValue(deviceType), toLogValue(deviceOs));
+                                    return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
+                                });
                         }
                         return ensureActiveDevice(userId, deviceId, deviceType, deviceOs)
                             .compose(ignored -> {
@@ -1064,10 +1085,14 @@ public class AuthService extends BaseService {
                                     .build();
                                 // 로테이션: tokenType이 명시된 REFRESH 토큰만 블랙리스트 처리.
                                 // 레거시(타입 미포함) 토큰은 access/refresh 구분이 불가해 오탐 차단을 피한다.
+                                Future<Void> rotationCacheFuture = typedToken
+                                    ? cacheRotatedRefreshToken(refreshToken, newRefresh)
+                                    : Future.succeededFuture();
                                 Future<Void> blacklistFuture = typedToken
                                     ? addToBlacklist(refreshToken, getRefreshTokenExpireSeconds())
                                     : Future.succeededFuture();
-                                return blacklistFuture
+                                return rotationCacheFuture
+                                    .compose(v -> blacklistFuture)
                                     .map(v -> dto);
                             });
                     });
@@ -1077,6 +1102,41 @@ public class AuthService extends BaseService {
                 log.warn("Refresh token verification failed: {}", t.getMessage());
                 return Future.failedFuture(new UnauthorizedException("Invalid or expired refresh token"));
             });
+    }
+
+    private Future<Void> cacheRotatedRefreshToken(String oldRefreshToken, String newRefreshToken) {
+        if (redisApi == null || oldRefreshToken == null || oldRefreshToken.isBlank() || newRefreshToken == null || newRefreshToken.isBlank()) {
+            return Future.succeededFuture();
+        }
+        String key = ROTATED_REFRESH_PREFIX + oldRefreshToken;
+        return redisApi.setex(key, String.valueOf(ROTATED_REFRESH_TTL_SECONDS), newRefreshToken)
+            .<Void>map(response -> null)
+            .recover(throwable -> {
+                log.warn("Failed to cache rotated refresh token: {}", throwable.getMessage());
+                return Future.succeededFuture();
+            });
+    }
+
+    private Future<String> getRotatedRefreshToken(String oldRefreshToken) {
+        if (redisApi == null || oldRefreshToken == null || oldRefreshToken.isBlank()) {
+            return Future.succeededFuture(null);
+        }
+        String key = ROTATED_REFRESH_PREFIX + oldRefreshToken;
+        return redisApi.get(key)
+            .map(response -> {
+                if (response == null || response.toString() == null || response.toString().isBlank()) {
+                    return null;
+                }
+                return response.toString();
+            })
+            .recover(throwable -> {
+                log.warn("Failed to read rotated refresh token cache: {}", throwable.getMessage());
+                return Future.succeededFuture(null);
+            });
+    }
+
+    private String toLogValue(String value) {
+        return (value == null || value.isBlank()) ? "-" : value;
     }
 
     private Future<Void> ensureActiveDevice(Long userId, String deviceId, String deviceType, String deviceOs) {

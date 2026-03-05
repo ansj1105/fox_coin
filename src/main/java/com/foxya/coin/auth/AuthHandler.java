@@ -36,6 +36,7 @@ import static io.vertx.json.schema.common.dsl.Schemas.*;
 import static com.foxya.coin.common.jsonschema.Schemas.*;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 @Slf4j
 public class AuthHandler extends BaseHandler {
@@ -809,12 +810,38 @@ public class AuthHandler extends BaseHandler {
      * Authorization 없이 body의 refreshToken만으로 호출. 응답은 { status, accessToken, refreshToken? }.
      */
     private void refresh(RoutingContext ctx) {
-        RefreshRequestDto dto = getObjectMapper().convertValue(
-            Utils.getMapFromJsonObject(ctx.getBodyAsJson()),
-            RefreshRequestDto.class
+        JsonObject bodyJson = ctx.getBodyAsJson();
+        RefreshRequestDto dto = bodyJson != null
+            ? getObjectMapper().convertValue(
+                Utils.getMapFromJsonObject(bodyJson),
+                RefreshRequestDto.class
+            )
+            : new RefreshRequestDto();
+
+        String bodyRefreshToken = dto.getRefreshToken();
+        Cookie refreshCookie = ctx.request().getCookie(REFRESH_COOKIE_NAME);
+        String cookieRefreshToken = refreshCookie != null ? refreshCookie.getValue() : null;
+
+        String refreshToken = resolveRefreshToken(ctx, bodyRefreshToken, true);
+        String tokenSource;
+        if (refreshToken == null || refreshToken.isBlank()) {
+            tokenSource = "NONE";
+        } else if (Objects.equals(refreshToken, cookieRefreshToken)) {
+            tokenSource = "COOKIE";
+        } else if (Objects.equals(refreshToken, bodyRefreshToken)) {
+            tokenSource = "BODY";
+        } else {
+            tokenSource = "UNKNOWN";
+        }
+        log.info(
+            "Refresh token request: source={}, bodyPresent={}, cookiePresent={}, hasDeviceId={}, hasDeviceType={}, hasDeviceOs={}",
+            tokenSource,
+            bodyRefreshToken != null && !bodyRefreshToken.isBlank(),
+            cookieRefreshToken != null && !cookieRefreshToken.isBlank(),
+            hasText(ctx.request().getHeader("X-Device-Id")),
+            hasText(ctx.request().getHeader("X-Device-Type")),
+            hasText(ctx.request().getHeader("X-Device-Os"))
         );
-        String refreshToken = resolveRefreshToken(ctx, dto.getRefreshToken());
-        log.info("Refresh token request");
         if (refreshToken == null || refreshToken.isBlank()) {
             ctx.fail(new com.foxya.coin.common.exceptions.UnauthorizedException("Invalid or expired refresh token"));
             return;
@@ -840,11 +867,34 @@ public class AuthHandler extends BaseHandler {
     }
 
     private String resolveRefreshToken(RoutingContext ctx, String bodyRefreshToken) {
+        return resolveRefreshToken(ctx, bodyRefreshToken, false);
+    }
+
+    /**
+     * preferCookie=true: 쿠키 우선(Refresh API 권장)
+     * preferCookie=false: body 우선(기존/호환 동작, 로그아웃 등)
+     */
+    private String resolveRefreshToken(RoutingContext ctx, String bodyRefreshToken, boolean preferCookie) {
+        Cookie cookie = ctx.request().getCookie(REFRESH_COOKIE_NAME);
+        String cookieRefreshToken = cookie != null ? cookie.getValue() : null;
+
+        if (preferCookie) {
+            if (cookieRefreshToken != null && !cookieRefreshToken.isBlank()) {
+                return cookieRefreshToken;
+            }
+            if (bodyRefreshToken != null && !bodyRefreshToken.isBlank()) {
+                return bodyRefreshToken;
+            }
+            return null;
+        }
         if (bodyRefreshToken != null && !bodyRefreshToken.isBlank()) {
             return bodyRefreshToken;
         }
-        Cookie cookie = ctx.request().getCookie(REFRESH_COOKIE_NAME);
-        return cookie != null ? cookie.getValue() : null;
+        return cookieRefreshToken;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private void setRefreshTokenCookie(RoutingContext ctx, String refreshToken) {
