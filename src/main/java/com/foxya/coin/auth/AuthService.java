@@ -122,7 +122,6 @@ public class AuthService extends BaseService {
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
     private static final String ROTATED_REFRESH_PREFIX = "token:rotated-refresh:";
-    private static final long DEFAULT_ROTATED_REFRESH_TTL_SECONDS = 86400L; // 24h
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
     private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
     private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
@@ -1138,11 +1137,12 @@ public class AuthService extends BaseService {
 
     /**
      * 이전 refresh 토큰 재사용(네트워크 재시도/다중 요청) 복구용 캐시 TTL.
-     * config 미설정 시 24시간 유지해 세션 만료 오탐을 줄인다.
+     * config 미설정 시 refresh token 만료시간과 동일하게 유지해
+     * 클라이언트가 이전 refresh 토큰을 오래 보관한 경우에도 자동 복구를 허용한다.
      */
     private long getRotatedRefreshTtlSeconds() {
         Integer configured = jwtConfig.getInteger("rotated_refresh_ttl_seconds");
-        long ttl = configured != null ? configured.longValue() : DEFAULT_ROTATED_REFRESH_TTL_SECONDS;
+        long ttl = configured != null ? configured.longValue() : getRefreshTokenExpireSeconds();
         return Math.max(60L, ttl);
     }
 
