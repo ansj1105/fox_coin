@@ -122,7 +122,7 @@ public class AuthService extends BaseService {
     // Redis 키 접두사
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
     private static final String ROTATED_REFRESH_PREFIX = "token:rotated-refresh:";
-    private static final int ROTATED_REFRESH_TTL_SECONDS = 30;
+    private static final long DEFAULT_ROTATED_REFRESH_TTL_SECONDS = 86400L; // 24h
     private static final String USER_TOKENS_PREFIX = "user:tokens:";
     private static final String RECOVERY_NONCE_PREFIX = "recovery:nonce:";
     private static final int RECOVERY_NONCE_TTL_SECONDS = 600;
@@ -1109,7 +1109,8 @@ public class AuthService extends BaseService {
             return Future.succeededFuture();
         }
         String key = ROTATED_REFRESH_PREFIX + oldRefreshToken;
-        return redisApi.setex(key, String.valueOf(ROTATED_REFRESH_TTL_SECONDS), newRefreshToken)
+        long ttlSeconds = getRotatedRefreshTtlSeconds();
+        return redisApi.setex(key, String.valueOf(ttlSeconds), newRefreshToken)
             .<Void>map(response -> null)
             .recover(throwable -> {
                 log.warn("Failed to cache rotated refresh token: {}", throwable.getMessage());
@@ -1133,6 +1134,16 @@ public class AuthService extends BaseService {
                 log.warn("Failed to read rotated refresh token cache: {}", throwable.getMessage());
                 return Future.succeededFuture(null);
             });
+    }
+
+    /**
+     * 이전 refresh 토큰 재사용(네트워크 재시도/다중 요청) 복구용 캐시 TTL.
+     * config 미설정 시 24시간 유지해 세션 만료 오탐을 줄인다.
+     */
+    private long getRotatedRefreshTtlSeconds() {
+        Integer configured = jwtConfig.getInteger("rotated_refresh_ttl_seconds");
+        long ttl = configured != null ? configured.longValue() : DEFAULT_ROTATED_REFRESH_TTL_SECONDS;
+        return Math.max(60L, ttl);
     }
 
     private String toLogValue(String value) {
