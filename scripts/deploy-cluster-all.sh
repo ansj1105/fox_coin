@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRIMARY_SSH_KEY="${PRIMARY_SSH_KEY:-/Users/anseojeong/Downloads/bmbit.pem}"
 PRIMARY_SSH_HOST="${PRIMARY_SSH_HOST:-ubuntu@54.210.92.221}"
 PRIMARY_DEPLOY_DIR="${PRIMARY_DEPLOY_DIR:-/var/www/fox_coin}"
+PRIMARY_ENV_PATH="${PRIMARY_ENV_PATH:-${PRIMARY_DEPLOY_DIR}/.env}"
 
 STANDBY_SSH_KEY="${STANDBY_SSH_KEY:-/Users/anseojeong/Downloads/bmbit.pem}"
 STANDBY_SSH_HOST="${STANDBY_SSH_HOST:-ubuntu@3.88.238.122}"
@@ -16,7 +17,7 @@ TELEGRAM_SOURCE_SSH_KEY="${TELEGRAM_SOURCE_SSH_KEY:-/Users/anseojeong/Downloads/
 TELEGRAM_SOURCE_SSH_HOST="${TELEGRAM_SOURCE_SSH_HOST:-ubuntu@54.83.183.123}"
 TELEGRAM_SOURCE_ENV_PATH="${TELEGRAM_SOURCE_ENV_PATH:-/var/www/korion/.env}"
 
-PRIMARY_TUNNEL_REMOTE_HOST="${PRIMARY_TUNNEL_REMOTE_HOST:-${PRIMARY_SSH_HOST#*@}}"
+PRIMARY_TUNNEL_REMOTE_HOST="${PRIMARY_TUNNEL_REMOTE_HOST:-}"
 STANDBY_TUNNEL_LOCAL_BIND="${STANDBY_TUNNEL_LOCAL_BIND:-127.0.0.1:15433}"
 STANDBY_TUNNEL_POLL_INTERVAL="${STANDBY_TUNNEL_POLL_INTERVAL:-2}"
 STANDBY_CONTAINER_NAME="${STANDBY_CONTAINER_NAME:-foxya-postgres-standby}"
@@ -77,6 +78,17 @@ fetch_remote_env_value() {
         "grep -m1 '^${key}=' '$TELEGRAM_SOURCE_ENV_PATH' | cut -d= -f2-"
 }
 
+fetch_primary_env_value() {
+    local key="$1"
+    ssh_run "$PRIMARY_SSH_KEY" "$PRIMARY_SSH_HOST" \
+        "grep -m1 '^${key}=' '$PRIMARY_ENV_PATH' | cut -d= -f2-" || true
+}
+
+resolve_primary_private_host() {
+    ssh_run "$PRIMARY_SSH_KEY" "$PRIMARY_SSH_HOST" \
+        "hostname -I | awk '{print \$1}'"
+}
+
 resolve_telegram_config() {
     if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
         TELEGRAM_BOT_TOKEN="$(fetch_remote_env_value TELEGRAM_BOT_TOKEN | tr -d '\r')"
@@ -87,6 +99,33 @@ resolve_telegram_config() {
 
     [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] || fail "TELEGRAM_BOT_TOKEN could not be resolved"
     [[ -n "${TELEGRAM_CHAT_ID:-}" ]] || fail "TELEGRAM_CHAT_ID could not be resolved"
+}
+
+resolve_primary_runtime_config() {
+    local remote_db_name remote_db_user remote_db_password remote_private_host
+
+    remote_db_name="$(fetch_primary_env_value DB_NAME | tr -d '\r')"
+    remote_db_user="$(fetch_primary_env_value DB_USER | tr -d '\r')"
+    remote_db_password="$(fetch_primary_env_value DB_PASSWORD | tr -d '\r')"
+    remote_private_host="$(resolve_primary_private_host | tr -d '\r')"
+
+    if [[ -n "$remote_db_name" ]]; then
+        DB_NAME="$remote_db_name"
+    fi
+    if [[ -n "$remote_db_user" ]]; then
+        DB_USER="$remote_db_user"
+    fi
+    if [[ -n "$remote_db_password" ]]; then
+        DB_PASSWORD="$remote_db_password"
+    fi
+    if [[ -z "${PRIMARY_TUNNEL_REMOTE_HOST:-}" && -n "$remote_private_host" ]]; then
+        PRIMARY_TUNNEL_REMOTE_HOST="$remote_private_host"
+    fi
+
+    [[ -n "${DB_NAME:-}" ]] || fail "DB_NAME could not be resolved from ${PRIMARY_SSH_HOST}:${PRIMARY_ENV_PATH}"
+    [[ -n "${DB_USER:-}" ]] || fail "DB_USER could not be resolved from ${PRIMARY_SSH_HOST}:${PRIMARY_ENV_PATH}"
+    [[ -n "${DB_PASSWORD:-}" ]] || fail "DB_PASSWORD could not be resolved from ${PRIMARY_SSH_HOST}:${PRIMARY_ENV_PATH}"
+    [[ -n "${PRIMARY_TUNNEL_REMOTE_HOST:-}" ]] || fail "PRIMARY_TUNNEL_REMOTE_HOST could not be resolved"
 }
 
 prepare_temp_files() {
@@ -298,6 +337,8 @@ else
   COMPOSE="sudo docker-compose"
 fi
 
+sudo systemctl stop pg-primary-tunnel.service >/dev/null 2>&1 || true
+sudo docker rm -f foxya-postgres-standby >/dev/null 2>&1 || true
 $COMPOSE -f "$deploy_dir/docker-compose.standby.yml" up -d
 
 sudo systemctl daemon-reload
@@ -319,10 +360,25 @@ verify_cluster() {
 
 send_telegram_notice() {
     log "Sending Telegram deployment notice"
-    curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-        -H 'Content-Type: application/json' \
-        -d @- >/dev/null <<EOF
-{"chat_id":"${TELEGRAM_CHAT_ID}","text":"[KORION] DB Cluster Deploy Complete\nprimary=${PRIMARY_SSH_HOST}\nstandby=${STANDBY_SSH_HOST}\nalertMonitor=enabled\nsyncReplication=verified","disable_web_page_preview":true}
+    ssh_run "$PRIMARY_SSH_KEY" "$PRIMARY_SSH_HOST" "bash -s" -- "$PRIMARY_ENV_PATH" "$PRIMARY_SSH_HOST" "$STANDBY_SSH_HOST" <<'EOF'
+set -euo pipefail
+env_path="$1"
+primary_host="$2"
+standby_host="$3"
+
+bot_token="$(grep -m1 '^TELEGRAM_BOT_TOKEN=' "$env_path" | cut -d= -f2-)"
+chat_id="$(grep -m1 '^TELEGRAM_CHAT_ID=' "$env_path" | cut -d= -f2-)"
+
+if [[ -z "$bot_token" || -z "$chat_id" ]]; then
+  echo "telegram config missing from $env_path" >&2
+  exit 1
+fi
+
+curl -sS -X POST "https://api.telegram.org/bot${bot_token}/sendMessage" \
+  -H 'Content-Type: application/json' \
+  -d @- >/dev/null <<JSON
+{"chat_id":"${chat_id}","text":"[KORION] DB Cluster Deploy Complete\nprimary=${primary_host}\nstandby=${standby_host}\nalertMonitor=enabled\nsyncReplication=verified","disable_web_page_preview":true}
+JSON
 EOF
 }
 
@@ -335,6 +391,7 @@ main() {
 
     load_local_env
     resolve_telegram_config
+    resolve_primary_runtime_config
     prepare_temp_files
     build_primary_bundle
     build_standby_bundle

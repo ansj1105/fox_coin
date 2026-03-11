@@ -36,3 +36,5 @@
 - primary 쪽은 현재 작업 트리를 tarball로 덮어쓰고 `docker compose build app && up -d --no-deps db-proxy app app2`를 수행합니다.
 - standby 쪽은 `standby/docker-compose.standby.yml`과 tunnel watchdog/systemd를 같이 배포합니다.
 - 이 스크립트는 기존 standby 데이터 볼륨과 replication bootstrap이 이미 준비된 상태를 전제로 합니다.
+- 재실행 시에는 primary 서버의 `.env`에서 `DB_NAME`, `DB_USER`, `DB_PASSWORD`를 읽어 standby `.env`를 다시 맞추고, 기존 `foxya-postgres-standby` 컨테이너를 제거한 뒤 compose up을 수행합니다.
+- 단일 `docker-compose.yml`만으로 양쪽 서버를 동시에 처리하는 구조는 아닙니다. 현재 구성은 2개 호스트와 systemd tunnel watchdog이 필요하므로, 로컬에서 `scripts/deploy-cluster-all.sh` 한 번으로 양쪽 서버를 오케스트레이션하는 방식이 최종 배포 경로입니다.
