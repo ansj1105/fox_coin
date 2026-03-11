@@ -11,12 +11,19 @@ NC='\033[0m'
 
 echo -e "${YELLOW}PostgreSQL psql을 사용한 데이터베이스 마이그레이션 실행 중...${NC}"
 
-# Docker 컨테이너 이름
-DB_CONTAINER="foxya-postgres"
+if [ -f ".env" ]; then
+    set -a
+    . ./.env
+    set +a
+fi
 
-# DB 연결 정보
-DB_USER="foxya"
-DB_NAME="coin_system_cloud"
+DB_ADMIN_MODE="${DB_ADMIN_MODE:-container}"
+DB_CONTAINER="${DB_ADMIN_SERVICE:-postgres}"
+DB_HOST="${DB_ADMIN_HOST:-${DB_PRIMARY_HOST:-${DB_HOST:-postgres}}}"
+DB_PORT="${DB_ADMIN_PORT:-${DB_PRIMARY_PORT:-${DB_PORT:-5432}}}"
+DB_USER="${DB_USER:-foxya}"
+DB_NAME="${DB_NAME:-coin_system_cloud}"
+DB_PASSWORD="${DB_PASSWORD:-}"
 
 # 마이그레이션 파일 경로
 MIGRATION_DIR="${1:-./src/main/resources/db/migration}"
@@ -31,7 +38,15 @@ echo -e "${YELLOW}마이그레이션 파일 실행 중...${NC}"
 
 for sql_file in $(ls -1 ${MIGRATION_DIR}/V*.sql | sort -V); do
     echo -e "${YELLOW}실행 중: $(basename $sql_file)${NC}"
-    docker exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} < "$sql_file"
+    if [ "${DB_ADMIN_MODE}" = "container" ]; then
+        docker-compose -f docker-compose.prod.yml exec -T "${DB_CONTAINER}" \
+            psql -U "${DB_USER}" -d "${DB_NAME}" < "$sql_file"
+    else
+        docker run --rm -i \
+            -e PGPASSWORD="${DB_PASSWORD}" \
+            postgres:15-alpine \
+            psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" < "$sql_file"
+    fi
     
     if [ $? -ne 0 ]; then
         echo -e "${RED}마이그레이션 실패: $(basename $sql_file)${NC}"
@@ -40,4 +55,3 @@ for sql_file in $(ls -1 ${MIGRATION_DIR}/V*.sql | sort -V); do
 done
 
 echo -e "${GREEN}마이그레이션 완료!${NC}"
-

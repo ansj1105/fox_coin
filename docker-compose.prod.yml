@@ -4,9 +4,9 @@ services:
     image: postgres:15-alpine
     container_name: foxya-postgres
     environment:
-      POSTGRES_DB: coin_system_cloud
-      POSTGRES_USER: foxya
-      POSTGRES_PASSWORD: foxya1124!@
+      POSTGRES_DB: ${DB_NAME:-coin_system_cloud}
+      POSTGRES_USER: ${DB_USER:-foxya}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
       TZ: Asia/Seoul
     ports:
       - "127.0.0.1:5432:5432"
@@ -15,7 +15,7 @@ services:
     networks:
       - coin-shared
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U foxya -d coin_system_cloud"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-foxya} -d ${DB_NAME:-coin_system_cloud}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,6 +25,41 @@ services:
       resources:
         limits:
           memory: 1G
+
+  # ==================== DB Proxy (Active-Standby 접속 엔드포인트) ====================
+  db-proxy:
+    image: haproxy:2.9-alpine
+    container_name: foxya-db-proxy
+    user: "0:0"
+    environment:
+      DB_PROXY_PORT: ${DB_PROXY_PORT:-5432}
+      DB_PRIMARY_HOST: ${DB_PRIMARY_HOST:-postgres}
+      DB_PRIMARY_PORT: ${DB_PRIMARY_PORT:-5432}
+      DB_STANDBY_HOST: ${DB_STANDBY_HOST:-postgres}
+      DB_STANDBY_PORT: ${DB_STANDBY_PORT:-5432}
+    ports:
+      - "127.0.0.1:${DB_PROXY_BIND_PORT:-15432}:${DB_PROXY_PORT:-5432}"
+    volumes:
+      - ./ops/db-proxy/haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        cp /usr/local/etc/haproxy/haproxy.cfg.template /usr/local/etc/haproxy/haproxy.cfg
+        sed -i \
+          -e "s/__DB_PROXY_PORT__/$${DB_PROXY_PORT}/g" \
+          -e "s/__DB_PRIMARY_HOST__/$${DB_PRIMARY_HOST}/g" \
+          -e "s/__DB_PRIMARY_PORT__/$${DB_PRIMARY_PORT}/g" \
+          -e "s/__DB_STANDBY_HOST__/$${DB_STANDBY_HOST}/g" \
+          -e "s/__DB_STANDBY_PORT__/$${DB_STANDBY_PORT}/g" \
+          /usr/local/etc/haproxy/haproxy.cfg
+        exec haproxy -W -db -f /usr/local/etc/haproxy/haproxy.cfg
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - coin-shared
+    restart: unless-stopped
 
   # ==================== Redis ====================
   redis:
@@ -82,6 +117,12 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+      DB_HOST: ${DB_HOST:-db-proxy}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-coin_system_cloud}
+      DB_USER: ${DB_USER:-foxya}
+      DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
@@ -95,8 +136,8 @@ services:
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
       - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-proxy:
+        condition: service_started
       redis:
         condition: service_healthy
       tron-service:
@@ -147,6 +188,12 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+      DB_HOST: ${DB_HOST:-db-proxy}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-coin_system_cloud}
+      DB_USER: ${DB_USER:-foxya}
+      DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
@@ -159,8 +206,8 @@ services:
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
       - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-proxy:
+        condition: service_started
       redis:
         condition: service_healthy
       tron-service:
@@ -189,7 +236,11 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=postgres
+      - DB_HOST=${DB_HOST:-db-proxy}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-coin_system_cloud}
+      - DB_USER=${DB_USER:-foxya}
+      - DB_PASSWORD=${DB_PASSWORD:-change-this-in-production}
       - REDIS_HOST=redis
       - NODE_ENV=production
       - PORT=3000
@@ -197,8 +248,8 @@ services:
     networks:
       - coin-shared
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-proxy:
+        condition: service_started
       redis:
         condition: service_healthy
     volumes:
@@ -226,7 +277,11 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=postgres
+      - DB_HOST=${DB_HOST:-db-proxy}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-coin_system_cloud}
+      - DB_USER=${DB_USER:-foxya}
+      - DB_PASSWORD=${DB_PASSWORD:-change-this-in-production}
       - REDIS_HOST=redis
       - NODE_ENV=production
       - PORT=3000
@@ -234,8 +289,8 @@ services:
     networks:
       - coin-shared
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-proxy:
+        condition: service_started
       redis:
         condition: service_healthy
     volumes:

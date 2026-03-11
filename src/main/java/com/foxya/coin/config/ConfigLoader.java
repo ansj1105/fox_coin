@@ -60,10 +60,11 @@ public class ConfigLoader {
                     envConfig = fullConfig.getJsonObject("local");
                 }
                 
-                // env 필드 추가
-                envConfig.put("env", env);
+                JsonObject resolvedConfig = envConfig.copy();
+                resolvedConfig.put("env", env);
+                applyDatabaseEnvOverrides(resolvedConfig);
                 
-                return envConfig;
+                return resolvedConfig;
             })
             .onSuccess(config -> log.info("Config loaded successfully"))
             .onFailure(throwable -> log.error("Failed to load config", throwable));
@@ -90,9 +91,11 @@ public class ConfigLoader {
                     throw new IllegalArgumentException("Environment '" + env + "' not found in config at " + configPath);
                 }
                 
-                envConfig.put("env", env);
+                JsonObject resolvedConfig = envConfig.copy();
+                resolvedConfig.put("env", env);
+                applyDatabaseEnvOverrides(resolvedConfig);
                 
-                return envConfig;
+                return resolvedConfig;
             })
             .onSuccess(config -> log.info("Config loaded successfully for env: {}", env))
             .onFailure(throwable -> log.error("Failed to load config for env: {} from {}", env, configPath, throwable));
@@ -104,5 +107,40 @@ public class ConfigLoader {
     public static Future<JsonObject> loadForEnv(Vertx vertx, String env) {
         return loadForEnv(vertx, "src/main/resources/config.json", env);
     }
-}
 
+    private static void applyDatabaseEnvOverrides(JsonObject config) {
+        JsonObject databaseConfig = config.getJsonObject("database");
+        if (databaseConfig == null) {
+            return;
+        }
+
+        JsonObject overridden = databaseConfig.copy();
+        putIfEnvSet(overridden, "host", "DB_HOST");
+        putIfEnvSetInt(overridden, "port", "DB_PORT");
+        putIfEnvSet(overridden, "database", "DB_NAME");
+        putIfEnvSet(overridden, "user", "DB_USER");
+        putIfEnvSet(overridden, "password", "DB_PASSWORD");
+        putIfEnvSetInt(overridden, "pool_size", "DB_POOL_SIZE");
+        config.put("database", overridden);
+    }
+
+    private static void putIfEnvSet(JsonObject config, String key, String envName) {
+        String value = System.getenv(envName);
+        if (value != null && !value.isBlank()) {
+            config.put(key, value);
+        }
+    }
+
+    private static void putIfEnvSetInt(JsonObject config, String key, String envName) {
+        String value = System.getenv(envName);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+
+        try {
+            config.put(key, Integer.parseInt(value));
+        } catch (NumberFormatException e) {
+            log.warn("Ignoring invalid integer env override {}={}", envName, value);
+        }
+    }
+}

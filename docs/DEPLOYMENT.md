@@ -13,6 +13,9 @@
 **운영·모니터링·장애 대응·성능 검증**은 **[OPERATIONS.md](./OPERATIONS.md)**에서 상세히 다룹니다.  
 (일상 점검, Prometheus/Grafana 연동, 장애 대응 절차, 성능 검증, Grafana/Prometheus 안 열릴 때 체크리스트)
 
+**DB Active-Standby 구조**는 **[DB_ACTIVE_STANDBY_CLUSTER.md](./DB_ACTIVE_STANDBY_CLUSTER.md)**를 참고하세요. 단일 `postgres` 컨테이너만으로는 서버 장애를 막지 못합니다.
+실제 동기 복제 구축 절차는 **[DB_SYNC_REPLICATION_RUNBOOK.md](./DB_SYNC_REPLICATION_RUNBOOK.md)**를 기준으로 진행하세요.
+
 ---
 
 ## 사전 준비
@@ -99,10 +102,21 @@ APP_ENV=prod
 APP_VERSION=1.0.0
 
 # Database
+DB_HOST=db-proxy
+DB_PORT=5432
 DB_NAME=coin_system_cloud
 DB_USER=foxya
-DB_PASSWORD=foxya1124!@
+DB_PASSWORD=change-this-in-production
 DB_POOL_SIZE=20
+
+# Active-Standby DB
+DB_PRIMARY_HOST=10.0.10.10
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=10.0.10.11
+DB_STANDBY_PORT=5432
+DB_ADMIN_MODE=network
+DB_ADMIN_HOST=10.0.10.10
+DB_ADMIN_PORT=5432
 
 # JWT (프로덕션에서 반드시 변경!)
 JWT_SECRET=your-secure-jwt-secret-key-here
@@ -184,8 +198,8 @@ docker compose -f docker-compose.prod.yml logs --tail=100 app
 # Nginx 로그
 docker compose -f docker-compose.prod.yml logs -f nginx
 
-# PostgreSQL 로그
-docker compose -f docker-compose.prod.yml logs -f postgres
+# DB 프록시 로그
+docker compose -f docker-compose.prod.yml logs -f db-proxy
 ```
 
 ### 🔄 서비스 관리
@@ -209,16 +223,19 @@ docker compose -f docker-compose.prod.yml up -d --build app
 ### 💾 데이터베이스 관리
 ```bash
 # PostgreSQL 접속
-docker compose -f docker-compose.prod.yml exec postgres psql -U foxya -d coin_system_cloud
+docker run --rm -it -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  psql -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" -d "$DB_NAME"
 
 # DB 백업
 ./scripts/deploy.sh backup-db
 
 # 수동 백업
-docker compose -f docker-compose.prod.yml exec postgres pg_dump -U foxya coin_system_cloud > backup_$(date +%Y%m%d).sql
+docker run --rm -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  pg_dump -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" "$DB_NAME" > backup_$(date +%Y%m%d).sql
 
 # DB 복원
-cat backup_20241204.sql | docker compose -f docker-compose.prod.yml exec -T postgres psql -U foxya -d coin_system_cloud
+cat backup_20241204.sql | docker run --rm -i -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  psql -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" -d "$DB_NAME"
 ```
 
 ### 🔴 Redis 관리
@@ -377,11 +394,12 @@ docker ps -a
 
 ### DB 연결 실패
 ```bash
-# PostgreSQL 컨테이너 상태 확인
-docker compose -f docker-compose.prod.yml logs postgres
+# DB 프록시 상태 확인
+docker compose -f docker-compose.prod.yml logs db-proxy
 
 # DB 직접 접속 테스트
-docker compose -f docker-compose.prod.yml exec postgres psql -U foxya -d coin_system_cloud
+docker run --rm -it -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  psql -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" -d "$DB_NAME"
 ```
 
 ### 포트 충돌
@@ -459,4 +477,3 @@ git reset --hard origin/develop
 ---
 
 *Last Updated: 2024-12-04*
-

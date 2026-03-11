@@ -178,7 +178,7 @@
                                   "baseUrl":  "http://localhost"
                               },
                  "database":  {
-                                  "host":  "postgres",
+                                  "host":  "db-proxy",
                                   "port":  5432,
                                   "database":  "coin_system_cloud",
                                   "user":  "foxya",

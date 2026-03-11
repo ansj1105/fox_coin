@@ -1,0 +1,22 @@
+global
+  log stdout format raw local0
+  maxconn 4096
+
+defaults
+  log global
+  mode tcp
+  option tcplog
+  timeout connect 5s
+  timeout client 1m
+  timeout server 1m
+  retries 3
+
+frontend postgres_front
+  bind *:__DB_PROXY_PORT__
+  default_backend postgres_backend
+
+backend postgres_backend
+  option tcp-check
+  default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+  server primary __DB_PRIMARY_HOST__:__DB_PRIMARY_PORT__ check
+  server standby __DB_STANDBY_HOST__:__DB_STANDBY_PORT__ check backup

@@ -1,0 +1,24 @@
+# Fox Coin PostgreSQL Primary HA settings
+listen_addresses = '*'
+port = 5432
+
+wal_level = replica
+hot_standby = on
+max_wal_senders = 10
+max_replication_slots = 10
+wal_keep_size = '2048MB'
+
+password_encryption = scram-sha-256
+
+# Synchronous replication: wait for one standby acknowledgement.
+synchronous_commit = on
+synchronous_standby_names = 'FIRST 1 (__SYNC_STANDBY_NAME__)'
+
+archive_mode = on
+archive_command = 'test ! -f __ARCHIVE_DIR__/%f && cp %p __ARCHIVE_DIR__/%f'
+
+logging_collector = on
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_lock_waits = on

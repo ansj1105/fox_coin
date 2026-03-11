@@ -37,6 +37,43 @@ REPO_URL="${REPO_URL:-git@github.com:your-org/foxya-coin-service.git}"
 BRANCH="${BRANCH:-develop}"
 COMPOSE_FILE="docker-compose.prod.yml"
 
+load_env_file() {
+    if [ -f ".env" ]; then
+        set -a
+        . ./.env
+        set +a
+    fi
+}
+
+db_admin_mode() {
+    echo "${DB_ADMIN_MODE:-container}"
+}
+
+db_admin_service() {
+    echo "${DB_ADMIN_SERVICE:-postgres}"
+}
+
+db_admin_host() {
+    echo "${DB_ADMIN_HOST:-${DB_PRIMARY_HOST:-${DB_HOST:-postgres}}}"
+}
+
+db_admin_port() {
+    echo "${DB_ADMIN_PORT:-${DB_PRIMARY_PORT:-${DB_PORT:-5432}}}"
+}
+
+pg_dump_cmd() {
+    if [ "$(db_admin_mode)" = "container" ]; then
+        docker-compose -f "${COMPOSE_FILE}" exec -T "$(db_admin_service)" \
+            pg_dump -U "${DB_USER}" "${DB_NAME}"
+        return
+    fi
+
+    docker run --rm \
+        -e PGPASSWORD="${DB_PASSWORD}" \
+        postgres:15-alpine \
+        pg_dump -h "$(db_admin_host)" -p "$(db_admin_port)" -U "${DB_USER}" "${DB_NAME}"
+}
+
 # 사용법 출력
 usage() {
     echo "Usage: $0 [command]"
@@ -331,11 +368,14 @@ backup_db() {
     cd "${DEPLOY_DIR}"
     BACKUP_FILE="backups/foxya_coin_$(date +%Y%m%d_%H%M%S).sql.gz"
     
-    # .env에서 DB 정보 로드
-    source .env
-    
-    docker-compose -f ${COMPOSE_FILE} exec -T postgres \
-        pg_dump -U ${DB_USER} ${DB_NAME} | gzip > ${BACKUP_FILE}
+    load_env_file
+
+    if [ "$(db_admin_mode)" = "network" ] && [ -z "${DB_PASSWORD}" ]; then
+        log_error "DB_ADMIN_MODE=network 인 경우 DB_PASSWORD가 필요합니다."
+        exit 1
+    fi
+
+    pg_dump_cmd | gzip > "${BACKUP_FILE}"
     
     log_success "백업 완료: ${BACKUP_FILE}"
     
@@ -386,4 +426,3 @@ case "${1}" in
         usage
         ;;
 esac
-

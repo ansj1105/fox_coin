@@ -51,7 +51,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 - `app`만 빌드하면 `app`/`app2` 둘 다 같은 이미지(`foxya-coin-api:latest`)를 사용합니다.
-- `up -d` 시 postgres, redis, app, app2, tron-service, nginx 등 전체 기동.
+- `up -d` 시 postgres, db-proxy, redis, app, app2, tron-service, nginx 등 전체 기동.
 
 ### 업데이트 배포 (무중단, 한 대씩 재시작)
 

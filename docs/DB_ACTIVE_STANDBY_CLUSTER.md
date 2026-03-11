@@ -1,0 +1,112 @@
+# DB Active-Standby Cluster
+
+현재 `docker-compose.prod.yml`의 단일 `postgres` 컨테이너는 앱 2대 구성과 달리 DB가 단일 장애점(SPOF)입니다.  
+DB 서버 자체가 죽는 상황을 막으려면 PostgreSQL을 최소 2개 서버로 분리하고, 앱은 항상 고정 엔드포인트(`db-proxy`)만 보도록 바꿔야 합니다.
+
+이 프로젝트의 기본 선택은 `동기 복제(synchronous replication)`입니다. 실제 적용 절차는 [DB_SYNC_REPLICATION_RUNBOOK.md](./DB_SYNC_REPLICATION_RUNBOOK.md)를 따르세요.
+
+## 목표 구조
+
+```text
+app/app2/tron-service
+        |
+        v
+   db-proxy(HAProxy/Pgpool)
+        |
+   +----+----+
+   |         |
+   v         v
+Primary   Standby
+  |          |
+  +----+-----+
+       |
+    replication
+```
+
+권장 서버 배치:
+
+1. `db-primary` EC2: PostgreSQL Primary
+2. `db-standby` EC2: PostgreSQL Standby
+3. `db-witness` 또는 관리 노드: Patroni/repmgr witness 또는 etcd quorum
+4. `app` EC2: 현재 fox_coin API, TRON service, `db-proxy`
+
+같은 EC2 안에 Primary/Standby 컨테이너 2개를 올리는 것은 "프로세스 장애"만 줄일 뿐 "서버 장애"는 막지 못합니다.
+
+## 이 레포에서 반영된 내용
+
+1. 앱(Java)은 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_POOL_SIZE` 환경변수로 DB 연결을 덮어쓸 수 있습니다.
+2. 운영 compose에 `db-proxy` 서비스가 추가되어 앱이 직접 `postgres`를 보지 않고 `db-proxy`를 보도록 바뀌었습니다.
+3. `tron-service`도 동일하게 `DB_HOST=db-proxy`를 사용합니다.
+4. 백업/마이그레이션 스크립트는 `DB_ADMIN_*` 값을 사용해 Primary 직결 경로로 실행할 수 있습니다.
+
+## 필수 운영 원칙
+
+1. 앱 접속용: `DB_HOST=db-proxy`
+2. 백업/DDL/Flyway용: `DB_ADMIN_HOST=<현재 Primary>`
+3. Standby에는 절대 마이그레이션하지 않습니다.
+4. Primary 승격은 Patroni/repmgr/RDS Multi-AZ 같은 외부 HA 매니저가 맡아야 합니다.
+
+## 권장 환경 변수
+
+```bash
+DB_HOST=db-proxy
+DB_PORT=5432
+DB_NAME=coin_system_cloud
+DB_USER=foxya
+DB_PASSWORD=change-this
+DB_POOL_SIZE=20
+
+DB_PRIMARY_HOST=10.0.10.10
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=10.0.10.11
+DB_STANDBY_PORT=5432
+
+DB_ADMIN_MODE=network
+DB_ADMIN_HOST=10.0.10.10
+DB_ADMIN_PORT=5432
+```
+
+단일 컨테이너 임시운영에서는 아래처럼 둘 수 있습니다.
+
+```bash
+DB_PRIMARY_HOST=postgres
+DB_STANDBY_HOST=postgres
+DB_ADMIN_MODE=container
+DB_ADMIN_SERVICE=postgres
+```
+
+## 장애조치 절차
+
+자동 승격(Patroni/repmgr/RDS Multi-AZ)이 있는 경우:
+
+1. Primary 장애 발생
+2. HA 매니저가 Standby를 새 Primary로 승격
+3. `db-proxy`가 새 Primary에 붙도록 `DB_PRIMARY_HOST`, `DB_STANDBY_HOST`를 맞춘 뒤 재기동
+4. 앱은 `DB_HOST=db-proxy` 그대로 유지
+
+수동 승격만 있는 경우:
+
+1. Standby에서 `promote` 수행
+2. `.env`의 `DB_PRIMARY_HOST`, `DB_STANDBY_HOST`, `DB_ADMIN_HOST` 갱신
+3. `docker compose -f docker-compose.prod.yml up -d db-proxy`
+4. `./scripts/deploy.sh backup-db` 또는 `psql -c "SELECT pg_is_in_recovery()"`로 Primary 여부 확인
+
+## 점검 명령
+
+```bash
+# 앱이 보는 프록시 상태
+docker logs foxya-db-proxy --tail 100
+
+# 현재 Primary 확인
+docker run --rm -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  psql -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" -d "$DB_NAME" \
+  -c "SELECT pg_is_in_recovery() AS standby, now() AS checked_at"
+
+# 백업
+./scripts/deploy.sh backup-db
+```
+
+## 추천
+
+가능하면 자체 Active-Standby보다 AWS RDS Multi-AZ 또는 Aurora PostgreSQL로 전환하는 편이 운영 리스크가 훨씬 낮습니다.  
+직접 운영해야 한다면 최소한 `Primary + Standby + Witness + db-proxy` 4개 역할은 분리하세요.

@@ -11,12 +11,17 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Flyway CLI를 사용한 데이터베이스 마이그레이션 실행 중...${NC}"
 
-# Docker 네트워크 및 DB 정보
-DB_HOST="foxya-postgres"
-DB_PORT="5432"
-DB_NAME="coin_system_cloud"
-DB_USER="foxya"
-DB_PASSWORD="foxya1124!@"
+if [ -f ".env" ]; then
+    set -a
+    . ./.env
+    set +a
+fi
+
+DB_HOST="${DB_ADMIN_HOST:-${DB_PRIMARY_HOST:-${DB_HOST:-postgres}}}"
+DB_PORT="${DB_ADMIN_PORT:-${DB_PRIMARY_PORT:-${DB_PORT:-5432}}}"
+DB_NAME="${DB_NAME:-coin_system_cloud}"
+DB_USER="${DB_USER:-foxya}"
+DB_PASSWORD="${DB_PASSWORD:-}"
 
 # 마이그레이션 파일 경로 (호스트)
 MIGRATION_DIR="${1:-./src/main/resources/db/migration}"
@@ -30,7 +35,6 @@ fi
 echo -e "${YELLOW}Flyway 컨테이너에서 migration 실행...${NC}"
 
 docker run --rm \
-    --network foxya-network \
     -v "$(pwd)/src/main/resources/db/migration:/flyway/sql" \
     flyway/flyway:10.4.1 \
     -url=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME} \
@@ -45,4 +49,3 @@ else
     echo -e "${RED}마이그레이션 실패!${NC}"
     exit 1
 fi
-

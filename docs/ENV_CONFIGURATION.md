@@ -23,12 +23,29 @@ APP_VERSION=1.0.0
 
 ### Database
 ```bash
-DB_HOST=postgres
+DB_HOST=db-proxy
 DB_PORT=5432
 DB_NAME=coin_system_cloud
 DB_USER=foxya
 DB_PASSWORD=your_password_here
 DB_POOL_SIZE=20
+```
+
+### Active-Standby DB Routing
+```bash
+# 앱이 붙는 고정 엔드포인트
+DB_PRIMARY_HOST=10.0.10.10
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=10.0.10.11
+DB_STANDBY_PORT=5432
+DB_PROXY_PORT=5432
+DB_PROXY_BIND_PORT=15432
+
+# 백업/마이그레이션은 반드시 Primary 직결 경로 사용
+DB_ADMIN_MODE=network     # container | network
+DB_ADMIN_SERVICE=postgres # 단일 컨테이너 운영 시만 사용
+DB_ADMIN_HOST=10.0.10.10
+DB_ADMIN_PORT=5432
 ```
 
 ### JWT
@@ -129,16 +146,22 @@ JAVA_OPTS=-Xmx1024m -Xms512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
 
 ## 📦 Docker Compose 설정
 
-`docker-compose.prod.yml`에서 TRON 서비스는 자동으로 `.env` 파일을 로드합니다:
+`docker-compose.prod.yml`에서 앱과 TRON 서비스는 자동으로 `.env` 파일을 로드하거나 주입받습니다:
 
 ```yaml
+app:
+  environment:
+    DB_HOST: ${DB_HOST:-db-proxy}
+
 tron-service:
   env_file:
     - .env  # 모든 환경 변수 자동 로드
   environment:
-    - DB_HOST=postgres      # Docker 네트워크용 오버라이드
+    - DB_HOST=${DB_HOST:-db-proxy}
     - REDIS_HOST=redis      # Docker 네트워크용 오버라이드
 ```
+
+`db-proxy` 서비스는 `DB_PRIMARY_HOST`, `DB_STANDBY_HOST`를 보고 Active-Standby 엔드포인트를 제공합니다. 실제 다중 서버 구성과 장애조치 절차는 [DB_ACTIVE_STANDBY_CLUSTER.md](./DB_ACTIVE_STANDBY_CLUSTER.md)를 참고하세요.
 
 ## 🚀 배포 시 설정
 
@@ -157,4 +180,3 @@ docker-compose -f docker-compose.prod.yml up -d --build
 ```bash
 docker exec foxya-tron-service env | grep -E "BTC|ETH|TRON"
 ```
-

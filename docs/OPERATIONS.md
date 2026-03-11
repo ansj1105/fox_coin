@@ -20,7 +20,7 @@ Foxya Coin Service(KORION)의 일상 운영, 모니터링, 장애 대응, 성능
 
 | 항목 | 명령어 / 방법 | 정상 기준 |
 |------|----------------|-----------|
-| 컨테이너 상태 | `docker compose -f docker-compose.prod.yml ps` | app, nginx, postgres, redis 모두 `Up` |
+| 컨테이너 상태 | `docker compose -f docker-compose.prod.yml ps` | app, nginx, db-proxy, redis 모두 `Up` |
 | 헬스체크 | `curl -s -o /dev/null -w "%{http_code}" https://your-domain/health` | `200` |
 | API 응답 | `curl -s https://your-domain/api/v1/health` (또는 공개 엔드포인트) | JSON 정상 반환 |
 | 디스크 여유 | `df -h` | `/` 20% 이상 여유 권장 |
@@ -58,7 +58,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost/health
 | 앱 최근 N줄 | `docker logs foxya-api --tail 200` |
 | 에러만 | `docker logs foxya-api 2>&1 \| grep -i error` |
 | Nginx 접근/에러 | `docker exec foxya-nginx tail -f /var/log/nginx/foxya_access.log` / `foxya_error.log` |
-| PostgreSQL | `docker logs foxya-postgres --tail 100` |
+| DB 프록시 | `docker logs foxya-db-proxy --tail 100` |
 
 자세한 명령어는 [LOG_CHECK.md](./LOG_CHECK.md) 참고.
 
@@ -134,8 +134,9 @@ docker compose -f docker-compose.prod.yml up -d --build app
 #### DB 연결 실패
 
 ```bash
-docker logs foxya-postgres --tail 50
-docker compose -f docker-compose.prod.yml exec postgres psql -U foxya -d coin_system_cloud -c "SELECT 1"
+docker logs foxya-db-proxy --tail 50
+docker run --rm -e PGPASSWORD="$DB_PASSWORD" postgres:15-alpine \
+  psql -h "$DB_ADMIN_HOST" -p "$DB_ADMIN_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT pg_is_in_recovery(), now()"
 # 풀/연결 수 확인 후 app 재시작
 ```
 

@@ -1,0 +1,24 @@
+services:
+  postgres-standby:
+    image: postgres:15-alpine
+    container_name: foxya-postgres-standby
+    environment:
+      POSTGRES_DB: ${DB_NAME:-coin_system_cloud}
+      POSTGRES_USER: ${DB_USER:-foxya}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
+      TZ: Asia/Seoul
+    ports:
+      - "${DB_STANDBY_BIND_PORT:-15432}:5432"
+    volumes:
+      - postgres-standby-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-foxya} -d ${DB_NAME:-coin_system_cloud}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  postgres-standby-data:
+    name: postgres-standby-data

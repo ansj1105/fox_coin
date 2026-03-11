@@ -1,0 +1,5 @@
+# TYPE  DATABASE        USER              ADDRESS               METHOD
+local   all             all                                     scram-sha-256
+host    all             all               127.0.0.1/32          scram-sha-256
+host    all             all               __APP_SUBNET_CIDR__   scram-sha-256
+host    replication     __REPL_USER__     __STANDBY_CIDR__      scram-sha-256
