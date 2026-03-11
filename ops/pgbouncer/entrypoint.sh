@@ -52,4 +52,6 @@ cat > /etc/pgbouncer/userlist.txt <<EOF
 "${DB_USER}" "${DB_PASSWORD}"
 EOF
 
-exec pgbouncer /etc/pgbouncer/pgbouncer.ini
+chown -R pgbouncer:pgbouncer /etc/pgbouncer /var/log/pgbouncer /var/run/pgbouncer
+
+exec su-exec pgbouncer pgbouncer /etc/pgbouncer/pgbouncer.ini
