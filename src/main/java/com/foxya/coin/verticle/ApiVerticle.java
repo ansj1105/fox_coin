@@ -34,6 +34,7 @@ import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.UserExternalIdRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
+import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
 import com.foxya.coin.app.AppConfigRepository;
@@ -186,6 +187,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         UserRepository userRepository = new UserRepository();
         WalletRepository walletRepository = new WalletRepository();
+        VirtualWalletMappingRepository virtualWalletMappingRepository = new VirtualWalletMappingRepository();
         CurrencyRepository currencyRepository = new CurrencyRepository();
         ReferralRepository referralRepository = new ReferralRepository();
         ReferralRevenueTierRepository referralRevenueTierRepository = new ReferralRevenueTierRepository();
@@ -288,7 +290,16 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject tronConfig = blockchainConfig.getJsonObject("tron", new JsonObject());
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
         
-        WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl, redisApi);
+        WalletService walletService = new WalletService(
+            pool,
+            walletRepository,
+            currencyRepository,
+            webClient,
+            tronServiceUrl,
+            redisApi,
+            virtualWalletMappingRepository,
+            appConfigRepository
+        );
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
         ReferralService referralService = new ReferralService(
             pool, referralRepository, userRepository, emailVerificationRepository, transferService,
@@ -360,7 +371,7 @@ public class ApiVerticle extends AbstractVerticle {
         }
         AuthService authService = new AuthService(
             pool, userRepository, userService, jwtAuth, jwtConfig, socialLinkRepository, phoneVerificationRepository,
-            redisApi, walletRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
+            redisApi, walletRepository, virtualWalletMappingRepository, transferRepository, bonusRepository, miningRepository, missionRepository,
             notificationService, notificationRepository, subscriptionRepository, reviewRepository, agencyRepository,
             swapRepository, exchangeRepository, paymentDepositRepository,
             tokenDepositRepository, airdropRepository, inquiryRepository, emailVerificationRepository,

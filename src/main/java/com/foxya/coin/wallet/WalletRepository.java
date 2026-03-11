@@ -187,6 +187,23 @@ public class WalletRepository extends BaseRepository {
             .<Void>map(rows -> null)
             .onFailure(throwable -> log.error("지갑 개인키 업데이트 실패 - walletId: {}", walletId, throwable));
     }
+
+    public Future<Wallet> updateWalletAddressById(SqlClient client, Long walletId, String address) {
+        String sql = QueryBuilder
+            .update("user_wallets", "address", "updated_at")
+            .where("id", Op.Equal, "walletId")
+            .andWhere("deleted_at", Op.IsNull)
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("walletId", walletId);
+        params.put("address", address);
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows))
+            .onFailure(throwable -> log.error("지갑 주소 업데이트 실패 - walletId: {}", walletId, throwable));
+    }
     
     /**
      * 사용자와 통화로 지갑 조회
@@ -221,7 +238,11 @@ public class WalletRepository extends BaseRepository {
      */
     public Future<List<DepositWatchAddressDto>> getDepositWatchAddresses(SqlClient client) {
         String sql = """
-            SELECT uw.user_id AS userId, uw.currency_id AS currencyId, uw.address AS address, c.chain AS network
+            SELECT uw.user_id AS userId,
+                   uw.currency_id AS currencyId,
+                   c.code AS currencyCode,
+                   uw.address AS address,
+                   c.chain AS network
             FROM user_wallets uw
             JOIN currency c ON uw.currency_id = c.id
             WHERE uw.address IS NOT NULL AND uw.deleted_at IS NULL
@@ -234,6 +255,7 @@ public class WalletRepository extends BaseRepository {
                     list.add(DepositWatchAddressDto.builder()
                         .userId(getLongColumnValue(row, "userid"))
                         .currencyId(getIntegerColumnValue(row, "currencyid"))
+                        .currencyCode(getStringColumnValue(row, "currencycode"))
                         .address(getStringColumnValue(row, "address"))
                         .network(getStringColumnValue(row, "network"))
                         .build());

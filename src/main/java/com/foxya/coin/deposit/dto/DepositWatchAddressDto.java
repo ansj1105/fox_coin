@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 public class DepositWatchAddressDto {
     private Long userId;
     private Integer currencyId;
+    private String currencyCode;
     private String address;
     private String network;  // TRON, ETH, BTC 등
 }

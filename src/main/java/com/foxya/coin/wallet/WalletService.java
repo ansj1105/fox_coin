@@ -1,5 +1,6 @@
 package com.foxya.coin.wallet;
 
+import com.foxya.coin.app.AppConfigRepository;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
@@ -11,6 +12,7 @@ import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.auth.RecoverySignatureVerifier;
 import com.foxya.coin.common.utils.PrivateKeyEncryptionUtil;
+import com.foxya.coin.wallet.entities.VirtualWalletMapping;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 import org.web3j.crypto.Credentials;
@@ -27,19 +29,35 @@ public class WalletService extends BaseService {
     private final WebClient webClient;
     private final String tronServiceUrl;
     private final RedisAPI redisApi;
+    private final VirtualWalletMappingRepository virtualWalletMappingRepository;
+    private final AppConfigRepository appConfigRepository;
 
     private static final String WALLET_RECOVERY_NONCE_PREFIX = "wallet:nonce:";
     private static final int WALLET_RECOVERY_TTL_SECONDS = 600;
+    private static final String HOT_WALLET_USER_ID_KEY = "hot_wallet_user_id";
+    private static final String HOT_WALLET_ADDRESS_ENV = "TRON_HOT_WALLET_ADDRESS";
+    private static final String TRON_NETWORK = "TRON";
     /** TRON 체인에서 동일 지갑 주소를 쓰는 통화 (KORI, TRX, USDT) */
     private static final Set<String> TRON_SAME_ADDRESS_CURRENCIES = Set.of("KORI", "TRX", "USDT");
     
-    public WalletService(PgPool pool, WalletRepository walletRepository, CurrencyRepository currencyRepository, WebClient webClient, String tronServiceUrl, RedisAPI redisApi) {
+    public WalletService(
+        PgPool pool,
+        WalletRepository walletRepository,
+        CurrencyRepository currencyRepository,
+        WebClient webClient,
+        String tronServiceUrl,
+        RedisAPI redisApi,
+        VirtualWalletMappingRepository virtualWalletMappingRepository,
+        AppConfigRepository appConfigRepository
+    ) {
         super(pool);
         this.walletRepository = walletRepository;
         this.currencyRepository = currencyRepository;
         this.webClient = webClient;
         this.tronServiceUrl = tronServiceUrl;
         this.redisApi = redisApi;
+        this.virtualWalletMappingRepository = virtualWalletMappingRepository;
+        this.appConfigRepository = appConfigRepository;
     }
     
     /**
@@ -47,7 +65,8 @@ public class WalletService extends BaseService {
      * TRC(TRON), BTC, ETH 네트워크의 지갑이 없으면 자동으로 생성
      */
     public Future<List<Wallet>> getUserWallets(Long userId) {
-        return walletRepository.getWalletsByUserId(pool, userId);
+        return ensureTronVirtualWallets(userId)
+            .compose(v -> walletRepository.getWalletsByUserId(pool, userId));
     }
     
     /**
@@ -57,6 +76,9 @@ public class WalletService extends BaseService {
      * @return 생성된 지갑
      */
     public Future<Wallet> createWallet(Long userId, String currencyCode) {
+        if (TRON_SAME_ADDRESS_CURRENCIES.contains(currencyCode.toUpperCase())) {
+            return ensureTronWalletForCurrency(userId, currencyCode, null);
+        }
         // 0. KRWT는 미구현 처리
         if ("KRWT".equalsIgnoreCase(currencyCode)) {
             return Future.failedFuture(new BadRequestException("KRWT 지갑 생성은 아직 구현되지 않았습니다."));
@@ -170,9 +192,17 @@ public class WalletService extends BaseService {
             return Future.failedFuture(new BadRequestException("지갑 주소를 입력해주세요."));
         }
         String normalizedAddress = normalizeAddress(normalizedChain, address);
-        return walletRepository.getWalletByAddressIgnoreCase(pool, normalizedAddress)
-            .compose(existing -> {
-                if (existing != null && !existing.getUserId().equals(userId)) {
+        Future<Long> ownerUserIdFuture;
+        if (TRON_NETWORK.equals(normalizedChain)) {
+            ownerUserIdFuture = virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, normalizedAddress, normalizedChain)
+                .map(existing -> existing != null ? existing.getUserId() : null);
+        } else {
+            ownerUserIdFuture = walletRepository.getWalletByAddressIgnoreCase(pool, normalizedAddress)
+                .map(existing -> existing != null ? existing.getUserId() : null);
+        }
+        return ownerUserIdFuture
+            .compose(ownerUserId -> {
+                if (ownerUserId != null && !ownerUserId.equals(userId)) {
                     return Future.failedFuture(new BadRequestException("이미 등록된 지갑 주소입니다."));
                 }
                 String nonce = UUID.randomUUID().toString().replace("-", "");
@@ -211,7 +241,13 @@ public class WalletService extends BaseService {
                 if (!verified) {
                     return Future.failedFuture(new BadRequestException("서명 검증에 실패했습니다."));
                 }
-                return createWalletWithAddress(userId, currencyCode, normalizedChain, normalizedAddress)
+                Future<Wallet> walletFuture;
+                if (TRON_NETWORK.equals(normalizedChain) && TRON_SAME_ADDRESS_CURRENCIES.contains(currencyCode.toUpperCase())) {
+                    walletFuture = ensureTronWalletForCurrency(userId, currencyCode, normalizedAddress);
+                } else {
+                    walletFuture = createWalletWithAddress(userId, currencyCode, normalizedChain, normalizedAddress);
+                }
+                return walletFuture
                     .compose(wallet -> redisApi.del(List.of(key)).map(v -> wallet));
             });
     }
@@ -284,6 +320,9 @@ public class WalletService extends BaseService {
     }
 
     public Future<Wallet> createWalletWithAddress(Long userId, String currencyCode, String chain, String address) {
+        if (TRON_SAME_ADDRESS_CURRENCIES.contains(currencyCode.toUpperCase()) && TRON_NETWORK.equalsIgnoreCase(chain)) {
+            return ensureTronWalletForCurrency(userId, currencyCode, normalizeAddress(TRON_NETWORK, address));
+        }
         if ("KRWT".equalsIgnoreCase(currencyCode)) {
             return Future.failedFuture(new BadRequestException("KRWT 지갑 생성은 아직 구현되지 않았습니다."));
         }
@@ -341,6 +380,142 @@ public class WalletService extends BaseService {
                                 .updatedAt(wallet.getUpdatedAt())
                                 .build());
                     });
+            });
+    }
+
+    private Future<Void> ensureTronVirtualWallets(Long userId) {
+        return ensureTronWalletForCurrency(userId, "TRX", null)
+            .compose(v -> ensureTronWalletForCurrency(userId, "USDT", null))
+            .compose(v -> ensureTronWalletForCurrency(userId, "KORI", null))
+            .mapEmpty();
+    }
+
+    private Future<Wallet> ensureTronWalletForCurrency(Long userId, String currencyCode, String ownerAddress) {
+        return resolveTronHotWalletContext()
+            .compose(context -> {
+                if (context.userId() != null && context.userId().equals(userId)) {
+                    return upsertTronWallet(userId, currencyCode, context.hotWalletAddress());
+                }
+
+                return ensureVirtualWalletMapping(userId, context.hotWalletAddress(), ownerAddress)
+                    .compose(mapping -> upsertTronWallet(userId, currencyCode, mapping.getVirtualAddress()));
+            });
+    }
+
+    private Future<Wallet> upsertTronWallet(Long userId, String currencyCode, String address) {
+        return currencyRepository.getCurrencyByCodeAndChain(pool, currencyCode, TRON_NETWORK)
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyCode));
+                }
+                return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currency.getId())
+                    .compose(existingWallet -> {
+                        if (existingWallet == null) {
+                            return walletRepository.createWallet(pool, userId, currency.getId(), address);
+                        }
+                        if (address.equals(existingWallet.getAddress())) {
+                            return Future.succeededFuture(existingWallet);
+                        }
+                        return walletRepository.updateWalletAddressById(pool, existingWallet.getId(), address);
+                    })
+                    .map(wallet -> Wallet.builder()
+                        .id(wallet.getId())
+                        .userId(wallet.getUserId())
+                        .currencyId(wallet.getCurrencyId())
+                        .currencyCode(currency.getCode())
+                        .currencyName(currency.getName())
+                        .currencySymbol(currency.getCode())
+                        .network(currency.getChain())
+                        .address(wallet.getAddress())
+                        .balance(wallet.getBalance())
+                        .lockedBalance(wallet.getLockedBalance())
+                        .status(wallet.getStatus())
+                        .createdAt(wallet.getCreatedAt())
+                        .updatedAt(wallet.getUpdatedAt())
+                        .build());
+            });
+    }
+
+    private Future<VirtualWalletMapping> ensureVirtualWalletMapping(Long userId, String hotWalletAddress, String ownerAddress) {
+        String mappingSeed = "user:" + userId + ":TRON";
+        String normalizedOwnerAddress = ownerAddress == null || ownerAddress.isBlank()
+            ? null
+            : normalizeAddress(TRON_NETWORK, ownerAddress);
+        return virtualWalletMappingRepository.findByUserIdAndNetwork(pool, userId, TRON_NETWORK)
+            .compose(existing -> {
+                Future<Void> ownerValidationFuture = validateTronOwnerAddress(userId, normalizedOwnerAddress, existing != null ? existing.getId() : null);
+                if (existing != null) {
+                    return ownerValidationFuture.compose(v -> {
+                        String nextOwnerAddress = normalizedOwnerAddress != null ? normalizedOwnerAddress : existing.getOwnerAddress();
+                        boolean sameHotWallet = hotWalletAddress.equals(existing.getHotWalletAddress());
+                        boolean sameOwner = java.util.Objects.equals(nextOwnerAddress, existing.getOwnerAddress());
+                        if (sameHotWallet && sameOwner) {
+                            return Future.succeededFuture(existing);
+                        }
+                        return virtualWalletMappingRepository.updateBinding(pool, existing.getId(), hotWalletAddress, nextOwnerAddress);
+                    });
+                }
+
+                return ownerValidationFuture.compose(v -> {
+                    String virtualAddress = VirtualWalletAddressGenerator.generateTronAddress(hotWalletAddress, mappingSeed);
+                    return virtualWalletMappingRepository.create(pool, userId, TRON_NETWORK, hotWalletAddress, virtualAddress, normalizedOwnerAddress, mappingSeed);
+                });
+            });
+    }
+
+    private Future<TronHotWalletContext> resolveTronHotWalletContext() {
+        String envHotWalletAddress = System.getenv(HOT_WALLET_ADDRESS_ENV);
+        return getHotWalletUserId()
+            .compose(hotWalletUserId -> {
+                if (envHotWalletAddress != null && !envHotWalletAddress.isBlank()) {
+                    return Future.succeededFuture(new TronHotWalletContext(hotWalletUserId, envHotWalletAddress.trim()));
+                }
+                if (hotWalletUserId == null) {
+                    return Future.failedFuture(new NotFoundException("TRON 핫월렛 설정이 없습니다."));
+                }
+                return walletRepository.getWalletsByUserId(pool, hotWalletUserId)
+                    .compose(wallets -> wallets.stream()
+                        .filter(wallet -> TRON_NETWORK.equalsIgnoreCase(wallet.getNetwork()))
+                        .filter(wallet -> wallet.getAddress() != null && !wallet.getAddress().isBlank())
+                        .findFirst()
+                        .<Future<TronHotWalletContext>>map(wallet ->
+                            Future.succeededFuture(new TronHotWalletContext(hotWalletUserId, wallet.getAddress()))
+                        )
+                        .orElseGet(() -> Future.failedFuture(new NotFoundException("TRON 핫월렛 주소를 찾을 수 없습니다."))));
+            });
+    }
+
+    private Future<Void> validateTronOwnerAddress(Long userId, String ownerAddress, Long currentMappingId) {
+        if (ownerAddress == null || ownerAddress.isBlank()) {
+            return Future.succeededFuture();
+        }
+        return virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, ownerAddress, TRON_NETWORK)
+            .compose(existing -> {
+                if (existing == null) {
+                    return Future.succeededFuture();
+                }
+                boolean sameMapping = currentMappingId != null && currentMappingId.equals(existing.getId());
+                if (sameMapping || existing.getUserId().equals(userId)) {
+                    return Future.succeededFuture();
+                }
+                return Future.failedFuture(new BadRequestException("이미 등록된 지갑 주소입니다."));
+            });
+    }
+
+    private Future<Long> getHotWalletUserId() {
+        if (appConfigRepository == null) {
+            return Future.succeededFuture(null);
+        }
+        return appConfigRepository.getByKey(pool, HOT_WALLET_USER_ID_KEY)
+            .map(value -> {
+                if (value == null || value.isBlank()) {
+                    return null;
+                }
+                try {
+                    return Long.parseLong(value.trim());
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
             });
     }
 
@@ -527,17 +702,8 @@ public class WalletService extends BaseService {
     public Future<Boolean> hasSeed(Long userId) {
         return walletRepository.getWalletsByUserId(pool, userId)
             .map(wallets -> {
-                // ETH, TRON, BTC 체인의 지갑이 하나라도 있으면 시드 구문이 있다고 간주
                 return wallets.stream()
-                    .anyMatch(wallet -> {
-                        String network = wallet.getNetwork();
-                        return network != null && (
-                            "ETH".equalsIgnoreCase(network) ||
-                            "TRON".equalsIgnoreCase(network) ||
-                            "BTC".equalsIgnoreCase(network) ||
-                            "Ether".equalsIgnoreCase(network)
-                        );
-                    });
+                    .anyMatch(wallet -> wallet.getPrivateKey() != null && !wallet.getPrivateKey().isBlank());
             });
     }
 
@@ -587,6 +753,12 @@ public class WalletService extends BaseService {
 
                 // USDT(TRON) 지갑 생성 (없는 경우만)
                 if (tronAddress != null) {
+                    boolean hasTrx = existingWallets.stream()
+                        .anyMatch(w -> "TRX".equalsIgnoreCase(w.getCurrencyCode()) && "TRON".equalsIgnoreCase(w.getNetwork()));
+                    if (!hasTrx) {
+                        walletFutures.add(createWalletWithAddress(userId, "TRX", "TRON", tronAddress));
+                    }
+
                     boolean hasUsdt = existingWallets.stream()
                         .anyMatch(w -> "USDT".equalsIgnoreCase(w.getCurrencyCode()) && "TRON".equalsIgnoreCase(w.getNetwork()));
                     if (!hasUsdt) {
@@ -640,5 +812,8 @@ public class WalletService extends BaseService {
                         return createdWallets;
                     });
             });
+    }
+
+    private record TronHotWalletContext(Long userId, String hotWalletAddress) {
     }
 }

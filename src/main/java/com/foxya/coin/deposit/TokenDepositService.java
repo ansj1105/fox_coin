@@ -177,6 +177,9 @@ public class TokenDepositService extends BaseService {
             .amount(deposit.getAmount())
             .network(deposit.getNetwork())
             .senderAddress(deposit.getSenderAddress())
+            .toAddress(deposit.getToAddress())
+            .logIndex(deposit.getLogIndex())
+            .blockNumber(deposit.getBlockNumber())
             .txHash(deposit.getTxHash())
             .status(TokenDeposit.STATUS_PENDING)
             .build();

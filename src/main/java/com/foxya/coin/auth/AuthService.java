@@ -51,6 +51,7 @@ import com.foxya.coin.auth.dto.KakaoLoginResponseDto;
 import com.foxya.coin.auth.dto.AppleLoginRequestDto;
 import com.foxya.coin.auth.dto.AppleLoginResponseDto;
 import com.foxya.coin.user.entities.User;
+import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.bonus.BonusRepository;
@@ -92,6 +93,7 @@ public class AuthService extends BaseService {
     private final PhoneVerificationRepository phoneVerificationRepository;
     private final RedisAPI redisApi;
     private final WalletRepository walletRepository;
+    private final VirtualWalletMappingRepository virtualWalletMappingRepository;
     private final TransferRepository transferRepository;
     private final BonusRepository bonusRepository;
     private final MiningRepository miningRepository;
@@ -149,7 +151,7 @@ public class AuthService extends BaseService {
     
     public AuthService(PgPool pool, UserRepository userRepository, UserService userService, JWTAuth jwtAuth, JsonObject jwtConfig,
                       SocialLinkRepository socialLinkRepository, PhoneVerificationRepository phoneVerificationRepository,
-                      RedisAPI redisApi, WalletRepository walletRepository, TransferRepository transferRepository,
+                      RedisAPI redisApi, WalletRepository walletRepository, VirtualWalletMappingRepository virtualWalletMappingRepository, TransferRepository transferRepository,
                       BonusRepository bonusRepository, MiningRepository miningRepository, MissionRepository missionRepository,
                       NotificationService notificationService, NotificationRepository notificationRepository, SubscriptionRepository subscriptionRepository,
                       ReviewRepository reviewRepository, AgencyRepository agencyRepository, SwapRepository swapRepository,
@@ -171,6 +173,7 @@ public class AuthService extends BaseService {
         this.phoneVerificationRepository = phoneVerificationRepository;
         this.redisApi = redisApi;
         this.walletRepository = walletRepository;
+        this.virtualWalletMappingRepository = virtualWalletMappingRepository;
         this.transferRepository = transferRepository;
         this.bonusRepository = bonusRepository;
         this.miningRepository = miningRepository;
@@ -554,6 +557,18 @@ public class AuthService extends BaseService {
     private Future<com.foxya.coin.wallet.entities.Wallet> findWalletForRecovery(String chain, String address) {
         if ("ETH".equals(chain)) {
             return transferRepository.getWalletByAddressIgnoreCase(pool, address);
+        }
+        if ("TRON".equals(chain) && virtualWalletMappingRepository != null) {
+            return virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, address, chain)
+                .compose(mapping -> {
+                    if (mapping == null || mapping.getVirtualAddress() == null || mapping.getVirtualAddress().isBlank()) {
+                        return transferRepository.getWalletByAddress(pool, address);
+                    }
+                    return transferRepository.getWalletByAddress(pool, mapping.getVirtualAddress())
+                        .compose(wallet -> wallet != null
+                            ? Future.succeededFuture(wallet)
+                            : transferRepository.getWalletByAddress(pool, address));
+                });
         }
         return transferRepository.getWalletByAddress(pool, address);
     }
