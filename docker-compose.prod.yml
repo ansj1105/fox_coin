@@ -61,39 +61,6 @@ services:
       - coin-shared
     restart: unless-stopped
 
-  # ==================== PgBouncer (DB Connection Pool) ====================
-  pgbouncer:
-    build:
-      context: .
-      dockerfile: ops/pgbouncer/Dockerfile
-    image: foxya-pgbouncer:${PGBOUNCER_VERSION:-latest}
-    container_name: foxya-pgbouncer
-    environment:
-      DB_HOST: ${DB_PRIMARY_CLIENT_HOST:-db-proxy}
-      DB_PORT: ${DB_PRIMARY_CLIENT_PORT:-5432}
-      DB_NAME: ${DB_NAME:-coin_system_cloud}
-      DB_USER: ${DB_USER:-foxya}
-      DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
-      PGBOUNCER_PORT: ${PGBOUNCER_PORT:-6432}
-      PGBOUNCER_POOL_MODE: ${PGBOUNCER_POOL_MODE:-session}
-      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-400}
-      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-25}
-      PGBOUNCER_MIN_POOL_SIZE: ${PGBOUNCER_MIN_POOL_SIZE:-5}
-      PGBOUNCER_RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
-      PGBOUNCER_RESERVE_POOL_TIMEOUT: ${PGBOUNCER_RESERVE_POOL_TIMEOUT:-5}
-      PGBOUNCER_MAX_DB_CONNECTIONS: ${PGBOUNCER_MAX_DB_CONNECTIONS:-40}
-      PGBOUNCER_QUERY_WAIT_TIMEOUT: ${PGBOUNCER_QUERY_WAIT_TIMEOUT:-120}
-      PGBOUNCER_SERVER_CONNECT_TIMEOUT: ${PGBOUNCER_SERVER_CONNECT_TIMEOUT:-5}
-      PGBOUNCER_IDLE_TRANSACTION_TIMEOUT: ${PGBOUNCER_IDLE_TRANSACTION_TIMEOUT:-60}
-    ports:
-      - "127.0.0.1:${PGBOUNCER_BIND_PORT:-16432}:${PGBOUNCER_PORT:-6432}"
-    depends_on:
-      db-proxy:
-        condition: service_started
-    networks:
-      - coin-shared
-    restart: unless-stopped
-
   # ==================== Redis ====================
   redis:
     image: redis:7-alpine
@@ -152,8 +119,8 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
-      DB_HOST: ${DB_HOST:-pgbouncer}
-      DB_PORT: ${DB_PORT:-6432}
+      DB_HOST: ${DB_HOST:-db-proxy}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-coin_system_cloud}
       DB_USER: ${DB_USER:-foxya}
       DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
@@ -172,7 +139,7 @@ services:
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
       - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
-      pgbouncer:
+      db-proxy:
         condition: service_started
       redis:
         condition: service_healthy
@@ -226,8 +193,8 @@ services:
       APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI}
       APPLE_IOS_REDIRECT_URI: ${APPLE_IOS_REDIRECT_URI}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID}
-      DB_HOST: ${DB_HOST:-pgbouncer}
-      DB_PORT: ${DB_PORT:-6432}
+      DB_HOST: ${DB_HOST:-db-proxy}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-coin_system_cloud}
       DB_USER: ${DB_USER:-foxya}
       DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
@@ -245,7 +212,7 @@ services:
       - /var/www/AuthKey_6ZQZJLZ467.p8:/var/www/AuthKey_6ZQZJLZ467.p8:ro
       - ${FCM_CREDENTIALS_HOST_PATH:-/var/www/korion-wallet-69f0a-firebase-adminsdk-fbsvc-215386f23c.json}:/var/secrets/firebase-service-account.json:ro
     depends_on:
-      pgbouncer:
+      db-proxy:
         condition: service_started
       redis:
         condition: service_healthy
@@ -275,8 +242,8 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=${DB_HOST:-pgbouncer}
-      - DB_PORT=${DB_PORT:-6432}
+      - DB_HOST=${DB_HOST:-db-proxy}
+      - DB_PORT=${DB_PORT:-5432}
       - DB_NAME=${DB_NAME:-coin_system_cloud}
       - DB_USER=${DB_USER:-foxya}
       - DB_PASSWORD=${DB_PASSWORD:-change-this-in-production}
@@ -287,7 +254,7 @@ services:
     networks:
       - coin-shared
     depends_on:
-      pgbouncer:
+      db-proxy:
         condition: service_started
       redis:
         condition: service_healthy
@@ -316,8 +283,8 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=${DB_HOST:-pgbouncer}
-      - DB_PORT=${DB_PORT:-6432}
+      - DB_HOST=${DB_HOST:-db-proxy}
+      - DB_PORT=${DB_PORT:-5432}
       - DB_NAME=${DB_NAME:-coin_system_cloud}
       - DB_USER=${DB_USER:-foxya}
       - DB_PASSWORD=${DB_PASSWORD:-change-this-in-production}
@@ -328,7 +295,7 @@ services:
     networks:
       - coin-shared
     depends_on:
-      pgbouncer:
+      db-proxy:
         condition: service_started
       redis:
         condition: service_healthy

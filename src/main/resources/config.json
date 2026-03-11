@@ -178,8 +178,8 @@
                                   "baseUrl":  "http://localhost"
                               },
                  "database":  {
-                                  "host":  "pgbouncer",
-                                  "port":  6432,
+                                  "host":  "db-proxy",
+                                  "port":  5432,
                                   "database":  "coin_system_cloud",
                                   "user":  "foxya",
                                   "password":  "foxya1124!@",
