@@ -558,18 +558,6 @@ public class AuthService extends BaseService {
         if ("ETH".equals(chain)) {
             return transferRepository.getWalletByAddressIgnoreCase(pool, address);
         }
-        if ("TRON".equals(chain) && virtualWalletMappingRepository != null) {
-            return virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, address, chain)
-                .compose(mapping -> {
-                    if (mapping == null || mapping.getVirtualAddress() == null || mapping.getVirtualAddress().isBlank()) {
-                        return transferRepository.getWalletByAddress(pool, address);
-                    }
-                    return transferRepository.getWalletByAddress(pool, mapping.getVirtualAddress())
-                        .compose(wallet -> wallet != null
-                            ? Future.succeededFuture(wallet)
-                            : transferRepository.getWalletByAddress(pool, address));
-                });
-        }
         return transferRepository.getWalletByAddress(pool, address);
     }
 
