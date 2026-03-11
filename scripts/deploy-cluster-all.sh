@@ -99,7 +99,7 @@ prepare_temp_files() {
 }
 
 build_primary_bundle() {
-    tar \
+    COPYFILE_DISABLE=1 tar \
         --exclude='.git' \
         --exclude='.gradle' \
         --exclude='build' \
@@ -108,6 +108,7 @@ build_primary_bundle() {
         --exclude='storage' \
         --exclude='backups' \
         --exclude='.env' \
+        --exclude='._*' \
         --exclude='*.bak*' \
         -czf "$PRIMARY_BUNDLE" \
         -C "$ROOT_DIR" \
@@ -115,7 +116,7 @@ build_primary_bundle() {
 }
 
 build_standby_bundle() {
-    tar -czf "$STANDBY_BUNDLE" -C "$ROOT_DIR/ops/db-ha/standby" .
+    COPYFILE_DISABLE=1 tar --exclude='._*' -czf "$STANDBY_BUNDLE" -C "$ROOT_DIR/ops/db-ha/standby" .
 }
 
 prepare_primary_alert_env() {
@@ -173,8 +174,11 @@ deploy_primary_repo() {
 set -euo pipefail
 deploy_dir="$1"
 
+sudo mkdir -p "$deploy_dir"
+sudo tar xzf /tmp/fox_coin-primary-bundle.tgz --no-same-owner -C "$deploy_dir"
+sudo chown -R "$(id -un)":"$(id -gn)" "$deploy_dir"
+
 cd "$deploy_dir"
-tar xzf /tmp/fox_coin-primary-bundle.tgz -C "$deploy_dir"
 rm -f /tmp/fox_coin-primary-bundle.tgz
 
 if [[ ! -f .env ]]; then
