@@ -6,13 +6,20 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 public final class PrivateKeyEncryptionUtil {
 
     private static final String ENV_KEY = "ENCRYPTION_KEY";
+    private static final String ENV_LEGACY_KEY = "ENCRYPTION_KEY_LEGACY";
+    private static final String ENV_KEYS = "ENCRYPTION_KEYS";
     private static final String ALGORITHM = "AES/GCM/NoPadding";
     private static final int IV_LENGTH_BYTES = 16;
     private static final int TAG_LENGTH_BITS = 128;
+    private static final int TAG_LENGTH_BYTES = TAG_LENGTH_BITS / 8;
 
     private PrivateKeyEncryptionUtil() {
     }
@@ -43,35 +50,101 @@ public final class PrivateKeyEncryptionUtil {
         }
         try {
             byte[] data = hexToBytes(encryptedValue);
-            if (data.length <= IV_LENGTH_BYTES) {
-                throw new IllegalArgumentException("Encrypted private key format is invalid.");
+            Exception lastError = null;
+            for (SecretKeySpec key : getSecretKeys()) {
+                try {
+                    return decryptJavaFormat(data, key);
+                } catch (Exception e) {
+                    lastError = e;
+                }
+                try {
+                    return decryptLegacyNodeFormat(data, key);
+                } catch (Exception e) {
+                    lastError = e;
+                }
             }
-            byte[] iv = new byte[IV_LENGTH_BYTES];
-            byte[] cipherText = new byte[data.length - IV_LENGTH_BYTES];
-            System.arraycopy(data, 0, iv, 0, IV_LENGTH_BYTES);
-            System.arraycopy(data, IV_LENGTH_BYTES, cipherText, 0, cipherText.length);
-
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-            GCMParameterSpec spec = new GCMParameterSpec(TAG_LENGTH_BITS, iv);
-            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(), spec);
-            byte[] decrypted = cipher.doFinal(cipherText);
-            return new String(decrypted, StandardCharsets.UTF_8);
+            throw new IllegalStateException("Failed to decrypt private key: " + (lastError != null ? lastError.getMessage() : "unknown format"), lastError);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to decrypt private key: " + e.getMessage(), e);
         }
     }
 
     private static SecretKeySpec getSecretKey() throws Exception {
-        String key = System.getenv(ENV_KEY);
-        if (key == null || key.isBlank()) {
-            key = System.getProperty(ENV_KEY);
+        return getSecretKeys().get(0);
+    }
+
+    private static List<SecretKeySpec> getSecretKeys() throws Exception {
+        Set<String> rawKeys = new LinkedHashSet<>();
+        addKey(rawKeys, getConfigValue(ENV_KEY));
+        addKey(rawKeys, getConfigValue(ENV_LEGACY_KEY));
+        String keyList = getConfigValue(ENV_KEYS);
+        if (keyList != null && !keyList.isBlank()) {
+            for (String key : keyList.split(",")) {
+                addKey(rawKeys, key);
+            }
         }
-        if (key == null || key.isBlank()) {
+        if (rawKeys.isEmpty()) {
             throw new IllegalStateException("ENCRYPTION_KEY environment variable is required.");
         }
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hashed = digest.digest(key.getBytes(StandardCharsets.UTF_8));
-        return new SecretKeySpec(hashed, "AES");
+        List<SecretKeySpec> keys = new ArrayList<>();
+        for (String key : rawKeys) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            keys.add(new SecretKeySpec(hashed, "AES"));
+        }
+        return keys;
+    }
+
+    private static void addKey(Set<String> keys, String value) {
+        if (value != null && !value.isBlank()) {
+            keys.add(value.trim());
+        }
+    }
+
+    private static String getConfigValue(String key) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(key);
+        }
+        return value;
+    }
+
+    private static String decryptJavaFormat(byte[] data, SecretKeySpec key) throws Exception {
+        if (data.length <= IV_LENGTH_BYTES + TAG_LENGTH_BYTES) {
+            throw new IllegalArgumentException("Encrypted private key format is invalid.");
+        }
+        byte[] iv = new byte[IV_LENGTH_BYTES];
+        byte[] cipherText = new byte[data.length - IV_LENGTH_BYTES];
+        System.arraycopy(data, 0, iv, 0, IV_LENGTH_BYTES);
+        System.arraycopy(data, IV_LENGTH_BYTES, cipherText, 0, cipherText.length);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_LENGTH_BITS, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+        byte[] decrypted = cipher.doFinal(cipherText);
+        return new String(decrypted, StandardCharsets.UTF_8);
+    }
+
+    private static String decryptLegacyNodeFormat(byte[] data, SecretKeySpec key) throws Exception {
+        if (data.length <= IV_LENGTH_BYTES + TAG_LENGTH_BYTES) {
+            throw new IllegalArgumentException("Encrypted private key format is invalid.");
+        }
+        byte[] iv = new byte[IV_LENGTH_BYTES];
+        byte[] authTag = new byte[TAG_LENGTH_BYTES];
+        byte[] cipherText = new byte[data.length - IV_LENGTH_BYTES - TAG_LENGTH_BYTES];
+        System.arraycopy(data, 0, iv, 0, IV_LENGTH_BYTES);
+        System.arraycopy(data, IV_LENGTH_BYTES, authTag, 0, TAG_LENGTH_BYTES);
+        System.arraycopy(data, IV_LENGTH_BYTES + TAG_LENGTH_BYTES, cipherText, 0, cipherText.length);
+
+        byte[] javaCompatibleCipher = new byte[cipherText.length + authTag.length];
+        System.arraycopy(cipherText, 0, javaCompatibleCipher, 0, cipherText.length);
+        System.arraycopy(authTag, 0, javaCompatibleCipher, cipherText.length, authTag.length);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_LENGTH_BITS, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+        byte[] decrypted = cipher.doFinal(javaCompatibleCipher);
+        return new String(decrypted, StandardCharsets.UTF_8);
     }
 
     private static String bytesToHex(byte[] bytes) {
