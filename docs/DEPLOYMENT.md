@@ -107,7 +107,7 @@ DB_PORT=5432
 DB_NAME=coin_system_cloud
 DB_USER=foxya
 DB_PASSWORD=change-this-in-production
-DB_POOL_SIZE=20
+DB_POOL_SIZE=15
 
 # Active-Standby DB
 DB_PRIMARY_HOST=10.0.10.10

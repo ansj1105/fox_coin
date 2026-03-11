@@ -28,7 +28,7 @@ DB_PORT=5432
 DB_NAME=coin_system_cloud
 DB_USER=foxya
 DB_PASSWORD=your_password_here
-DB_POOL_SIZE=20
+DB_POOL_SIZE=15
 ```
 
 ### Active-Standby DB Routing

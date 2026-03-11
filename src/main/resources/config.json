@@ -183,7 +183,7 @@
                                   "database":  "coin_system_cloud",
                                   "user":  "foxya",
                                   "password":  "foxya1124!@",
-                                  "pool_size":  20
+                                  "pool_size":  15
                               },
                  "jwt":  {
                              "secret":  "your-production-jwt-secret-key-change-this",

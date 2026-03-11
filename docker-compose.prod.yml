@@ -122,7 +122,7 @@ services:
       DB_NAME: ${DB_NAME:-coin_system_cloud}
       DB_USER: ${DB_USER:-foxya}
       DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-15}
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
@@ -193,7 +193,7 @@ services:
       DB_NAME: ${DB_NAME:-coin_system_cloud}
       DB_USER: ${DB_USER:-foxya}
       DB_PASSWORD: ${DB_PASSWORD:-change-this-in-production}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-15}
       PROFILE_IMAGE_UPLOAD_DIR: ${PROFILE_IMAGE_UPLOAD_DIR:-/app/storage/profile-images}
       PROFILE_IMAGE_MODERATION_ENABLED: ${PROFILE_IMAGE_MODERATION_ENABLED:-false}
       GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
