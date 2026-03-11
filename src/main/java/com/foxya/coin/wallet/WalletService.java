@@ -56,7 +56,8 @@ public class WalletService extends BaseService {
      * TRC(TRON), BTC, ETH 네트워크의 지갑이 없으면 자동으로 생성
      */
     public Future<List<Wallet>> getUserWallets(Long userId) {
-        return walletRepository.getWalletsByUserId(pool, userId);
+        return ensureSharedTronWallets(userId)
+            .compose(v -> walletRepository.getWalletsByUserId(pool, userId));
     }
     
     /**
@@ -133,7 +134,7 @@ public class WalletService extends BaseService {
                         
                         // 3. 지갑 주소 생성 (TRON.js 서버 호출 또는 더미 주소)
                         return generateWalletAddress(userId, currency, currencyCode)
-                            .compose(address -> walletRepository.createWallet(pool, userId, currency.getId(), address))
+                            .compose(address -> createWalletRecord(userId, currency, address))
                             .recover(throwable -> {
                                 // 중복 키 오류 발생 시 기존 지갑 조회하여 반환
                                 if (throwable.getMessage() != null && throwable.getMessage().contains("uk_user_wallets_user_currency")) {
@@ -333,7 +334,7 @@ public class WalletService extends BaseService {
                                     return Future.succeededFuture(existingWallet);
                                 });
                         }
-                        return walletRepository.createWallet(pool, userId, currency.getId(), address)
+                        return createWalletRecord(userId, currency, address)
                             .map(wallet -> Wallet.builder()
                                 .id(wallet.getId())
                                 .userId(wallet.getUserId())
@@ -351,6 +352,93 @@ public class WalletService extends BaseService {
                                 .build());
                     });
             });
+    }
+
+    private Future<Void> ensureSharedTronWallets(Long userId) {
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .compose(wallets -> {
+                List<Wallet> tronWallets = wallets.stream()
+                    .filter(this::isManagedTronWallet)
+                    .toList();
+
+                String sharedAddress = tronWallets.stream()
+                    .map(Wallet::getAddress)
+                    .filter(address -> address != null && !address.isBlank())
+                    .findFirst()
+                    .orElse(null);
+
+                String sharedPrivateKey = tronWallets.stream()
+                    .filter(wallet -> sharedAddress == null || sharedAddress.equals(wallet.getAddress()))
+                    .map(Wallet::getPrivateKey)
+                    .filter(privateKey -> privateKey != null && !privateKey.isBlank())
+                    .findFirst()
+                    .orElse(null);
+
+                Future<Void> future = backfillSharedTronPrivateKeys(tronWallets, sharedPrivateKey);
+
+                if (sharedAddress == null || sharedAddress.isBlank()) {
+                    return future
+                        .compose(v -> createWallet(userId, "TRX").mapEmpty())
+                        .compose(v -> createWallet(userId, "USDT").mapEmpty())
+                        .compose(v -> createWallet(userId, "KORI").mapEmpty());
+                }
+
+                for (String currencyCode : TRON_SAME_ADDRESS_CURRENCIES) {
+                    boolean exists = tronWallets.stream()
+                        .anyMatch(wallet -> currencyCode.equalsIgnoreCase(wallet.getCurrencyCode()));
+                    if (!exists) {
+                        future = future.compose(v -> createWalletWithAddress(userId, currencyCode, "TRON", sharedAddress).mapEmpty());
+                    }
+                }
+                return future;
+            });
+    }
+
+    private Future<Void> backfillSharedTronPrivateKeys(List<Wallet> tronWallets, String sharedPrivateKey) {
+        if (sharedPrivateKey == null || sharedPrivateKey.isBlank()) {
+            return Future.succeededFuture();
+        }
+
+        Future<Void> future = Future.succeededFuture();
+        for (Wallet wallet : tronWallets) {
+            if (wallet.getPrivateKey() == null || wallet.getPrivateKey().isBlank()) {
+                future = future.compose(v -> walletRepository.updatePrivateKeyById(pool, wallet.getId(), sharedPrivateKey));
+            }
+        }
+        return future;
+    }
+
+    private boolean isManagedTronWallet(Wallet wallet) {
+        return wallet != null
+            && "TRON".equalsIgnoreCase(wallet.getNetwork())
+            && wallet.getCurrencyCode() != null
+            && TRON_SAME_ADDRESS_CURRENCIES.contains(wallet.getCurrencyCode().toUpperCase());
+    }
+
+    private Future<Wallet> createWalletRecord(Long userId, com.foxya.coin.currency.entities.Currency currency, String address) {
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("지갑 주소가 비어 있습니다."));
+        }
+
+        Future<String> privateKeyFuture;
+        if ("TRON".equalsIgnoreCase(currency.getChain()) && TRON_SAME_ADDRESS_CURRENCIES.contains(currency.getCode().toUpperCase())) {
+            privateKeyFuture = resolveSharedTronPrivateKey(userId, address);
+        } else {
+            privateKeyFuture = Future.succeededFuture(null);
+        }
+
+        return privateKeyFuture.compose(privateKey -> walletRepository.createWallet(pool, userId, currency.getId(), address, privateKey));
+    }
+
+    private Future<String> resolveSharedTronPrivateKey(Long userId, String address) {
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .map(wallets -> wallets.stream()
+                .filter(this::isManagedTronWallet)
+                .filter(wallet -> address.equals(wallet.getAddress()))
+                .map(Wallet::getPrivateKey)
+                .filter(privateKey -> privateKey != null && !privateKey.isBlank())
+                .findFirst()
+                .orElse(null));
     }
 
     private String normalizeChain(String chain) {
