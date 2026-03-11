@@ -112,7 +112,9 @@ public class NoticeNotificationDispatchRepository extends BaseRepository {
                     NOW(),
                     NOW()
                 FROM target_users tu
-                ON CONFLICT (user_id, type, related_id) WHERE deleted_at IS NULL DO NOTHING
+                ON CONFLICT (user_id, type, related_id)
+                    WHERE related_id IS NOT NULL AND deleted_at IS NULL
+                    DO NOTHING
                 RETURNING 1
             )
             SELECT
