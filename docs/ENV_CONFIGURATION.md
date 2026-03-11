@@ -105,6 +105,18 @@ TRON_SERVICE_PATH=/var/www/coin_publish
 MONITORING_API_KEY=your-secret-monitoring-key-here
 ```
 
+### DB Alert Monitor
+```bash
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_telegram_chat_id
+DB_ALERT_MONITOR_ENABLED=true
+DB_ALERT_POLL_MS=15000
+DB_ALERT_CONNECTION_RATIO_THRESHOLD=0.75
+DB_ALERT_LOCK_WAIT_THRESHOLD=3
+DB_ALERT_SYNC_REP_WAIT_THRESHOLD=1
+DB_ALERT_CONSECUTIVE_BREACHES=2
+```
+
 ### JVM Options
 ```bash
 JAVA_OPTS=-Xmx1024m -Xms512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200

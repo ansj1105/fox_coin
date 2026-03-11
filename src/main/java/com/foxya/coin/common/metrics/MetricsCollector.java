@@ -1,6 +1,8 @@
 package com.foxya.coin.common.metrics;
 
+import com.foxya.coin.common.alert.DbHealthSnapshot;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.prometheus.PrometheusConfig;
@@ -9,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * API 메트릭 수집기
@@ -20,8 +24,18 @@ public class MetricsCollector {
     private final PrometheusMeterRegistry registry;
     private final ConcurrentHashMap<String, Counter> requestCounters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Timer> responseTimers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> dbAlertStates = new ConcurrentHashMap<>();
     private final Counter totalRequests;
     private final Counter totalErrors;
+    private final AtomicInteger dbMaxConnections = new AtomicInteger();
+    private final AtomicInteger dbTotalConnections = new AtomicInteger();
+    private final AtomicInteger dbActiveConnections = new AtomicInteger();
+    private final AtomicReference<Double> dbConnectionUsageRatio = new AtomicReference<>(0.0d);
+    private final AtomicInteger dbLockWaits = new AtomicInteger();
+    private final AtomicInteger dbSyncRepWaits = new AtomicInteger();
+    private final AtomicInteger dbStreamingReplicas = new AtomicInteger();
+    private final AtomicInteger dbHealthySyncReplicas = new AtomicInteger();
+    private final AtomicInteger dbSynchronousReplicationExpected = new AtomicInteger();
     
     public MetricsCollector() {
         this.registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
@@ -34,6 +48,34 @@ public class MetricsCollector {
         // 전체 에러 수 카운터
         this.totalErrors = Counter.builder("http_errors_total")
             .description("Total number of HTTP errors")
+            .register(registry);
+
+        Gauge.builder("db_connections_max", dbMaxConnections, AtomicInteger::get)
+            .description("Configured PostgreSQL max_connections")
+            .register(registry);
+        Gauge.builder("db_connections_total", dbTotalConnections, AtomicInteger::get)
+            .description("Current PostgreSQL connections for the active database")
+            .register(registry);
+        Gauge.builder("db_connections_active", dbActiveConnections, AtomicInteger::get)
+            .description("Current active PostgreSQL connections for the active database")
+            .register(registry);
+        Gauge.builder("db_connections_usage_ratio", dbConnectionUsageRatio, ref -> ref.get())
+            .description("Current PostgreSQL connection usage ratio")
+            .register(registry);
+        Gauge.builder("db_waits_lock", dbLockWaits, AtomicInteger::get)
+            .description("Current PostgreSQL lock waits for the active database")
+            .register(registry);
+        Gauge.builder("db_waits_sync_rep", dbSyncRepWaits, AtomicInteger::get)
+            .description("Current PostgreSQL sync replication waits for the active database")
+            .register(registry);
+        Gauge.builder("db_replication_streaming_total", dbStreamingReplicas, AtomicInteger::get)
+            .description("Current number of streaming PostgreSQL replicas")
+            .register(registry);
+        Gauge.builder("db_replication_sync_healthy_total", dbHealthySyncReplicas, AtomicInteger::get)
+            .description("Current number of healthy synchronous PostgreSQL replicas")
+            .register(registry);
+        Gauge.builder("db_synchronous_replication_expected", dbSynchronousReplicationExpected, AtomicInteger::get)
+            .description("1 when synchronous replication is configured, else 0")
             .register(registry);
     }
     
@@ -107,6 +149,38 @@ public class MetricsCollector {
     public String scrape() {
         return registry.scrape();
     }
+
+    public void recordDbHealthSnapshot(DbHealthSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+
+        dbMaxConnections.set(snapshot.maxConnections());
+        dbTotalConnections.set(snapshot.totalConnections());
+        dbActiveConnections.set(snapshot.activeConnections());
+        dbConnectionUsageRatio.set(snapshot.connectionUsageRatio());
+        dbLockWaits.set(snapshot.lockWaits());
+        dbSyncRepWaits.set(snapshot.syncRepWaits());
+        dbStreamingReplicas.set(snapshot.streamingReplicas());
+        dbHealthySyncReplicas.set(snapshot.healthySyncReplicas());
+        dbSynchronousReplicationExpected.set(snapshot.synchronousReplicationExpected() ? 1 : 0);
+    }
+
+    public void recordDbAlertState(String alertKey, boolean active) {
+        if (alertKey == null || alertKey.isBlank()) {
+            return;
+        }
+
+        AtomicInteger gauge = dbAlertStates.computeIfAbsent(alertKey, key -> {
+            AtomicInteger value = new AtomicInteger();
+            Gauge.builder("db_alert_active", value, AtomicInteger::get)
+                .description("1 when the named DB alert is currently active")
+                .tag("alert", key)
+                .register(registry);
+            return value;
+        });
+        gauge.set(active ? 1 : 0);
+    }
     
     /**
      * MeterRegistry 반환 (커스텀 메트릭 추가용)
@@ -115,4 +189,3 @@ public class MetricsCollector {
         return registry;
     }
 }
-

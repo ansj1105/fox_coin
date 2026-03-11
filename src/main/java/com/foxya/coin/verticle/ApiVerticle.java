@@ -97,6 +97,7 @@ import com.foxya.coin.swap.SwapRepository;
 import com.foxya.coin.swap.SwapService;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.common.alert.DbAlertMonitorService;
 import com.foxya.coin.retry.EmailRetryJob;
 import com.foxya.coin.retry.ExchangeRateRetryJob;
 import com.foxya.coin.retry.FcmRetryJob;
@@ -168,6 +169,7 @@ public class ApiVerticle extends AbstractVerticle {
     private static final long LOCK_WAITING_WITHDRAWAL_PROMOTION = 10_009L;
     private static final long LOCK_LEVEL_SYNC = 10_010L;
     private static final long LOCK_IMPORTANT_NOTICE_DISPATCH = 10_011L;
+    private static final long LOCK_DB_ALERT_MONITOR = 10_012L;
     
     static {
         DatabindCodec.mapper()
@@ -249,6 +251,7 @@ public class ApiVerticle extends AbstractVerticle {
             .setIdleTimeout(externalIdleTimeoutSec);
         WebClient webClient = WebClient.create(vertx, webClientOptions);
         log.info("External WebClient configured (connectTimeout={}ms, idleTimeout={}s)", externalConnectTimeoutMs, externalIdleTimeoutSec);
+        DbAlertMonitorService dbAlertMonitorService = DbAlertMonitorService.fromEnv(pool, metricsCollector, webClient);
 
         String profileImageUploadDir = System.getenv("PROFILE_IMAGE_UPLOAD_DIR");
         if (profileImageUploadDir == null || profileImageUploadDir.isBlank()) {
@@ -420,6 +423,7 @@ public class ApiVerticle extends AbstractVerticle {
             startWaitingWithdrawalPromotionScheduler(transferService, pool);
             startLevelSyncScheduler(levelService, pool);
             startImportantNoticeDispatchScheduler(noticeNotificationDispatchService, pool);
+            startDbAlertMonitor(dbAlertMonitorService, pool);
             log.info("Background jobs enabled for this API instance");
         } else {
             log.info("Background jobs disabled for this API instance");
@@ -1274,6 +1278,23 @@ public class ApiVerticle extends AbstractVerticle {
         vertx.setPeriodic(intervalMs, id -> runTask.run());
         log.info("Important notice dispatch scheduler started (interval {} ms, noticeBatch {}, userBatch {})",
             intervalMs, noticeBatchSize, userBatchSize);
+    }
+
+    private void startDbAlertMonitor(DbAlertMonitorService dbAlertMonitorService, PgPool pool) {
+        if (dbAlertMonitorService == null || !dbAlertMonitorService.isMonitorEnabled()) {
+            log.info("DB alert monitor disabled");
+            return;
+        }
+
+        long intervalMs = Math.max(5_000L, Math.min(parseLongEnv("DB_ALERT_POLL_MS", 15_000L), 300_000L));
+        AtomicBoolean running = new AtomicBoolean(false);
+        Runnable runTask = () -> runExclusiveBackgroundTask(pool, LOCK_DB_ALERT_MONITOR, "DB alert monitor", running,
+            dbAlertMonitorService::monitorOnce);
+
+        vertx.setTimer(5_000L, id -> runTask.run());
+        vertx.setPeriodic(intervalMs, id -> runTask.run());
+        log.info("DB alert monitor started (interval {} ms, telegramEnabled={})",
+            intervalMs, dbAlertMonitorService.isTelegramEnabled());
     }
 
     private Future<Integer> resolveIntConfig(AppConfigRepository appConfigRepository,
