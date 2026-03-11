@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/default/pg-primary-tunnel
 ExecStart=/usr/local/bin/maintain-standby-tunnel.sh
 Restart=always
 RestartSec=3

@@ -29,3 +29,10 @@
 직접 `5432/tcp`를 열 수 없는 경우, standby 호스트에서 `SSH tunnel -> primary postgres container` 경로로 복제를 유지할 수 있습니다.
 이때는 `standby/maintain-standby-tunnel.sh` 같은 감시 스크립트로 `foxya-postgres-standby` 컨테이너 PID 변경을 감지하고 tunnel을 자동 재부착해야 합니다.
 컨테이너 재시작 후 tunnel을 수동으로 다시 붙이는 방식은 운영상 안전하지 않습니다.
+
+원샷 배포:
+
+- `scripts/deploy-cluster-all.sh`는 로컬 머신에서 primary/app 서버와 standby 서버를 같이 갱신합니다.
+- primary 쪽은 현재 작업 트리를 tarball로 덮어쓰고 `docker compose build app && up -d --no-deps db-proxy app app2`를 수행합니다.
+- standby 쪽은 `standby/docker-compose.standby.yml`과 tunnel watchdog/systemd를 같이 배포합니다.
+- 이 스크립트는 기존 standby 데이터 볼륨과 replication bootstrap이 이미 준비된 상태를 전제로 합니다.
