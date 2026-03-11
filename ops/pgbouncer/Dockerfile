@@ -1,0 +1,9 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache pgbouncer
+
+COPY ops/pgbouncer/entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

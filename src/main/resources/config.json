@@ -178,12 +178,12 @@
                                   "baseUrl":  "http://localhost"
                               },
                  "database":  {
-                                  "host":  "db-proxy",
-                                  "port":  5432,
+                                  "host":  "pgbouncer",
+                                  "port":  6432,
                                   "database":  "coin_system_cloud",
                                   "user":  "foxya",
                                   "password":  "foxya1124!@",
-                                  "pool_size":  15
+                                  "pool_size":  12
                               },
                  "jwt":  {
                              "secret":  "your-production-jwt-secret-key-change-this",

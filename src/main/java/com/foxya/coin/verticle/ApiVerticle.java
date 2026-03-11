@@ -18,6 +18,7 @@ import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.SqlConnection;
 import com.foxya.coin.common.utils.ErrorHandler;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
@@ -138,6 +139,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 @Slf4j
 public class ApiVerticle extends AbstractVerticle {
@@ -155,6 +157,17 @@ public class ApiVerticle extends AbstractVerticle {
     private static final String CFG_BULK_NOTIFICATION_BATCH = "bulk_notification_batch";
     private static final String CFG_BULK_NOTIFICATION_BLOCK_MS = "bulk_notification_block_ms";
     private static final String CFG_BULK_NOTIFICATION_CONSUMER_GROUP = "bulk_notification_consumer_group";
+    private static final long LOCK_EMAIL_RETRY_PROCESSOR = 10_001L;
+    private static final long LOCK_FCM_RETRY_PROCESSOR = 10_002L;
+    private static final long LOCK_EXCHANGE_RATE_RETRY_PROCESSOR = 10_003L;
+    private static final long LOCK_BULK_NOTIFICATION_PROCESSOR = 10_004L;
+    private static final long LOCK_MINING_SETTLEMENT_BATCH = 10_005L;
+    private static final long LOCK_COUNTRY_CODE_SYNC = 10_006L;
+    private static final long LOCK_EXCHANGE_RATE_REFRESH = 10_007L;
+    private static final long LOCK_WITHDRAWAL_REDISPATCH = 10_008L;
+    private static final long LOCK_WAITING_WITHDRAWAL_PROMOTION = 10_009L;
+    private static final long LOCK_LEVEL_SYNC = 10_010L;
+    private static final long LOCK_IMPORTANT_NOTICE_DISPATCH = 10_011L;
     
     static {
         DatabindCodec.mapper()
@@ -387,26 +400,30 @@ public class ApiVerticle extends AbstractVerticle {
         ClientService clientService = new ClientService(
             pool, clientRepository, userExternalIdRepository, userRepository, jwtAuth, redisApi);
         
-        // Normalized comment.
-        if (redisApi != null && retryQueuePublisher != null) {
-            startEmailRetryProcessor(emailService, retryQueuePublisher);
-            startFcmRetryProcessor(fcmService, retryQueuePublisher, appConfigRepository, pool);
-            startExchangeRateRetryProcessor(currencyService, retryQueuePublisher, appConfigRepository, pool);
-            startBulkNotificationProcessor(notificationService, retryQueuePublisher, appConfigRepository, pool);
+        boolean backgroundJobsEnabled = parseBooleanEnv("BACKGROUND_JOBS_ENABLED", true);
+        if (backgroundJobsEnabled) {
+            if (redisApi != null && retryQueuePublisher != null) {
+                startEmailRetryProcessor(emailService, retryQueuePublisher, pool);
+                startFcmRetryProcessor(fcmService, retryQueuePublisher, appConfigRepository, pool);
+                startExchangeRateRetryProcessor(currencyService, retryQueuePublisher, appConfigRepository, pool);
+                startBulkNotificationProcessor(notificationService, retryQueuePublisher, appConfigRepository, pool);
+            }
+
+            startMiningSettlementBatch(miningService, pool);
+
+            // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
+            startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
+            startCountryCodeSyncOnce(countryCodeService, pool);
+
+            // Re-dispatch pending withdrawals so external settlement is eventually processed.
+            startWithdrawalRedispatchScheduler(transferService, pool);
+            startWaitingWithdrawalPromotionScheduler(transferService, pool);
+            startLevelSyncScheduler(levelService, pool);
+            startImportantNoticeDispatchScheduler(noticeNotificationDispatchService, pool);
+            log.info("Background jobs enabled for this API instance");
+        } else {
+            log.info("Background jobs disabled for this API instance");
         }
-
-        // Normalized comment.
-        startMiningSettlementBatch(miningService);
-
-        // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
-        startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
-        startCountryCodeSyncOnce(countryCodeService);
-
-        // Re-dispatch pending withdrawals so external settlement is eventually processed.
-        startWithdrawalRedispatchScheduler(transferService);
-        startWaitingWithdrawalPromotionScheduler(transferService);
-        startLevelSyncScheduler(levelService);
-        startImportantNoticeDispatchScheduler(noticeNotificationDispatchService);
 
         // Normalized comment.
         AuthHandler authHandler = new AuthHandler(vertx, authService, countryCodeService, jwtAuth);
@@ -758,23 +775,28 @@ public class ApiVerticle extends AbstractVerticle {
     /**
       * Normalized comment.
      */
-    private void startEmailRetryProcessor(EmailService emailService, RetryQueuePublisher retryQueuePublisher) {
+    private void startEmailRetryProcessor(EmailService emailService,
+                                         RetryQueuePublisher retryQueuePublisher,
+                                         PgPool pool) {
         long intervalMs = 15_000;
+        AtomicBoolean running = new AtomicBoolean(false);
         vertx.setPeriodic(intervalMs, id -> {
-            retryQueuePublisher.popEmailRetry()
-                .onSuccess(job -> {
-                    if (job == null) return;
-                    emailService.processRetryJob(job)
-                        .onSuccess(v -> log.debug("Email retry succeeded. type={}, email={}", job.getType(), job.getEmail()))
-                        .onFailure(throwable -> {
-                            EmailRetryJob next = job.withIncrementedRetry();
-                            if (next.getRetryCount() >= job.getMaxRetries()) {
-                                retryQueuePublisher.enqueueEmailDlq(job, throwable.getMessage());
-                            } else {
-                                retryQueuePublisher.enqueueEmailRetry(next);
-                            }
-                        });
-                });
+            runExclusiveBackgroundTask(pool, LOCK_EMAIL_RETRY_PROCESSOR, "Email retry processor", running, () ->
+                retryQueuePublisher.popEmailRetry()
+                    .compose(job -> {
+                        if (job == null) {
+                            return Future.succeededFuture();
+                        }
+                        return emailService.processRetryJob(job)
+                            .onSuccess(v -> log.debug("Email retry succeeded. type={}, email={}", job.getType(), job.getEmail()))
+                            .recover(throwable -> {
+                                EmailRetryJob next = job.withIncrementedRetry();
+                                if (next.getRetryCount() >= job.getMaxRetries()) {
+                                    return retryQueuePublisher.enqueueEmailDlq(job, throwable.getMessage());
+                                }
+                                return retryQueuePublisher.enqueueEmailRetry(next);
+                            });
+                    }));
         });
         log.info("Email retry processor started (interval {} ms)", intervalMs);
     }
@@ -824,13 +846,9 @@ public class ApiVerticle extends AbstractVerticle {
 
                 AtomicBoolean running = new AtomicBoolean(false);
                 Runnable runTask = () -> {
-                    if (!running.compareAndSet(false, true)) {
-                        return;
-                    }
-                    retryQueuePublisher.readFcmRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
-                        .compose(messages -> processFcmRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, fcmService))
-                        .onFailure(t -> log.warn("FCM retry batch processing failed", t))
-                        .onComplete(ar -> running.set(false));
+                    runExclusiveBackgroundTask(pool, LOCK_FCM_RETRY_PROCESSOR, "FCM retry batch processing", running, () ->
+                        retryQueuePublisher.readFcmRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                            .compose(messages -> processFcmRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, fcmService)));
                 };
 
                 vertx.setTimer(3_000L, id -> runTask.run());
@@ -915,13 +933,9 @@ public class ApiVerticle extends AbstractVerticle {
 
                 AtomicBoolean running = new AtomicBoolean(false);
                 Runnable runTask = () -> {
-                    if (!running.compareAndSet(false, true)) {
-                        return;
-                    }
-                    retryQueuePublisher.readBulkNotificationBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
-                        .compose(messages -> processBulkNotificationMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, notificationService))
-                        .onFailure(t -> log.warn("Bulk-notification batch processing failed", t))
-                        .onComplete(ar -> running.set(false));
+                    runExclusiveBackgroundTask(pool, LOCK_BULK_NOTIFICATION_PROCESSOR, "Bulk-notification batch processing", running, () ->
+                        retryQueuePublisher.readBulkNotificationBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                            .compose(messages -> processBulkNotificationMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, notificationService)));
                 };
 
                 vertx.setTimer(2_000L, id -> runTask.run());
@@ -1026,13 +1040,9 @@ public class ApiVerticle extends AbstractVerticle {
 
                 AtomicBoolean running = new AtomicBoolean(false);
                 Runnable runTask = () -> {
-                    if (!running.compareAndSet(false, true)) {
-                        return;
-                    }
-                    retryQueuePublisher.readExchangeRateRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
-                        .compose(messages -> processExchangeRateRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, currencyService))
-                        .onFailure(t -> log.warn("Exchange-rate retry batch processing failed", t))
-                        .onComplete(ar -> running.set(false));
+                    runExclusiveBackgroundTask(pool, LOCK_EXCHANGE_RATE_RETRY_PROCESSOR, "Exchange-rate retry batch processing", running, () ->
+                        retryQueuePublisher.readExchangeRateRetryBatch(finalConsumerGroup, finalConsumerName, batchSize, blockMs)
+                            .compose(messages -> processExchangeRateRetryMessages(messages, 0, finalConsumerGroup, retryQueuePublisher, currencyService)));
                 };
 
                 vertx.setTimer(4_000L, id -> runTask.run());
@@ -1096,23 +1106,20 @@ public class ApiVerticle extends AbstractVerticle {
       * Normalized comment.
       * Normalized comment.
      */
-    private void startMiningSettlementBatch(MiningService miningService) {
+    private void startMiningSettlementBatch(MiningService miningService, PgPool pool) {
         long intervalMs = Math.max(10_000L, Math.min(parseLongEnv("MINING_SETTLEMENT_BATCH_MS", 60_000L), 3_600_000L));
         long initialDelayMs = Math.max(1_000L, Math.min(parseLongEnv("MINING_SETTLEMENT_BATCH_INITIAL_DELAY_MS", 5_000L), intervalMs));
         AtomicBoolean running = new AtomicBoolean(false);
 
         Runnable runTask = () -> {
-            if (!running.compareAndSet(false, true)) {
-                return;
-            }
-            miningService.runSettlementBatch()
-                .onSuccess(count -> {
-                    if (count > 0) {
-                        log.info("Mining settlement batch completed: {} users settled", count);
-                    }
-                })
-                .onFailure(throwable -> log.warn("Mining settlement batch failed", throwable))
-                .onComplete(ar -> running.set(false));
+            runExclusiveBackgroundTask(pool, LOCK_MINING_SETTLEMENT_BATCH, "Mining settlement batch", running, () ->
+                miningService.runSettlementBatch()
+                    .map(count -> {
+                        if (count > 0) {
+                            log.info("Mining settlement batch completed: {} users settled", count);
+                        }
+                        return (Void) null;
+                    }));
         };
 
         vertx.setTimer(initialDelayMs, id -> runTask.run());
@@ -1120,10 +1127,14 @@ public class ApiVerticle extends AbstractVerticle {
         log.info("Mining settlement batch started (interval {} ms, initialDelay {} ms)", intervalMs, initialDelayMs);
     }
 
-    private void startCountryCodeSyncOnce(CountryCodeService countryCodeService) {
-        vertx.setTimer(2_000L, id -> countryCodeService.syncCountryCodesFromLocale()
-            .onSuccess(count -> log.info("Country code sync completed on startup: {} rows", count))
-            .onFailure(t -> log.warn("Country code startup sync failed", t)));
+    private void startCountryCodeSyncOnce(CountryCodeService countryCodeService, PgPool pool) {
+        AtomicBoolean running = new AtomicBoolean(false);
+        vertx.setTimer(2_000L, id -> runExclusiveBackgroundTask(pool, LOCK_COUNTRY_CODE_SYNC, "Country code startup sync", running, () ->
+            countryCodeService.syncCountryCodesFromLocale()
+                .map(count -> {
+                    log.info("Country code sync completed on startup: {} rows", count);
+                    return (Void) null;
+                })));
 
         log.info("Country code startup sync scheduled (single-run)");
     }
@@ -1138,20 +1149,23 @@ public class ApiVerticle extends AbstractVerticle {
                                                    AppConfigRepository appConfigRepository,
                                                    PgPool pool) {
         long intervalMs = parseLongEnv("EXCHANGE_RATE_REFRESH_MS", 300_000L); // 5 minutes default
+        AtomicBoolean running = new AtomicBoolean(false);
 
         // Kick once shortly after startup.
-        vertx.setTimer(1500, id -> currencyService.refreshExchangeRates()
-            .onSuccess(v -> log.info("Exchange rates refreshed on startup"))
-            .onFailure(t -> {
-                log.warn("Exchange rate startup refresh failed", t);
-                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "startup-refresh", t);
-            }));
+        vertx.setTimer(1500, id -> runExclusiveBackgroundTask(pool, LOCK_EXCHANGE_RATE_REFRESH, "Exchange rate startup refresh", running, () ->
+            currencyService.refreshExchangeRates()
+                .onSuccess(v -> log.info("Exchange rates refreshed on startup"))
+                .recover(t -> {
+                    enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "startup-refresh", t);
+                    return Future.failedFuture(t);
+                })));
 
-        vertx.setPeriodic(intervalMs, id -> currencyService.refreshExchangeRates()
-            .onFailure(t -> {
-                log.warn("Exchange rate scheduled refresh failed", t);
-                enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "scheduled-refresh", t);
-            }));
+        vertx.setPeriodic(intervalMs, id -> runExclusiveBackgroundTask(pool, LOCK_EXCHANGE_RATE_REFRESH, "Exchange rate scheduled refresh", running, () ->
+            currencyService.refreshExchangeRates()
+                .recover(t -> {
+                    enqueueExchangeRateRetryIfPossible(retryQueuePublisher, appConfigRepository, pool, "scheduled-refresh", t);
+                    return Future.failedFuture(t);
+                })));
 
         log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
     }
@@ -1159,49 +1173,55 @@ public class ApiVerticle extends AbstractVerticle {
     /**
      * Periodically republishes pending withdrawals to guarantee eventual external processing.
      */
-    private void startWithdrawalRedispatchScheduler(TransferService transferService) {
+    private void startWithdrawalRedispatchScheduler(TransferService transferService, PgPool pool) {
         long intervalMs = parseLongEnv("WITHDRAWAL_REDISPATCH_MS", 15_000L);
         int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("WITHDRAWAL_REDISPATCH_BATCH", 100L), 500L));
+        AtomicBoolean running = new AtomicBoolean(false);
 
         // Kick once shortly after startup.
-        vertx.setTimer(2_000L, id -> transferService.redispatchPendingWithdrawals(batchSize)
-            .onSuccess(count -> {
-                if (count > 0) {
-                    log.info("Withdrawal redispatch startup run completed: {} events republished", count);
-                }
-            })
-            .onFailure(t -> log.warn("Withdrawal redispatch startup run failed", t)));
+        vertx.setTimer(2_000L, id -> runExclusiveBackgroundTask(pool, LOCK_WITHDRAWAL_REDISPATCH, "Withdrawal redispatch startup run", running, () ->
+            transferService.redispatchPendingWithdrawals(batchSize)
+                .map(count -> {
+                    if (count > 0) {
+                        log.info("Withdrawal redispatch startup run completed: {} events republished", count);
+                    }
+                    return (Void) null;
+                })));
 
-        vertx.setPeriodic(intervalMs, id -> transferService.redispatchPendingWithdrawals(batchSize)
-            .onSuccess(count -> {
-                if (count > 0) {
-                    log.info("Withdrawal redispatch scheduled run completed: {} events republished", count);
-                }
-            })
-            .onFailure(t -> log.warn("Withdrawal redispatch scheduled run failed", t)));
+        vertx.setPeriodic(intervalMs, id -> runExclusiveBackgroundTask(pool, LOCK_WITHDRAWAL_REDISPATCH, "Withdrawal redispatch scheduled run", running, () ->
+            transferService.redispatchPendingWithdrawals(batchSize)
+                .map(count -> {
+                    if (count > 0) {
+                        log.info("Withdrawal redispatch scheduled run completed: {} events republished", count);
+                    }
+                    return (Void) null;
+                })));
 
         log.info("Withdrawal redispatch scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
     }
 
-    private void startWaitingWithdrawalPromotionScheduler(TransferService transferService) {
+    private void startWaitingWithdrawalPromotionScheduler(TransferService transferService, PgPool pool) {
         long intervalMs = parseLongEnv("WAITING_WITHDRAWAL_PROMOTION_MS", 30_000L);
         int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("WAITING_WITHDRAWAL_PROMOTION_BATCH", 100L), 500L));
+        AtomicBoolean running = new AtomicBoolean(false);
 
-        vertx.setTimer(2_500L, id -> transferService.promoteWaitingWithdrawals(batchSize)
-            .onSuccess(count -> {
-                if (count > 0) {
-                    log.info("Waiting withdrawal promotion startup run completed: {} withdrawals promoted", count);
-                }
-            })
-            .onFailure(t -> log.warn("Waiting withdrawal promotion startup run failed", t)));
+        vertx.setTimer(2_500L, id -> runExclusiveBackgroundTask(pool, LOCK_WAITING_WITHDRAWAL_PROMOTION, "Waiting withdrawal promotion startup run", running, () ->
+            transferService.promoteWaitingWithdrawals(batchSize)
+                .map(count -> {
+                    if (count > 0) {
+                        log.info("Waiting withdrawal promotion startup run completed: {} withdrawals promoted", count);
+                    }
+                    return (Void) null;
+                })));
 
-        vertx.setPeriodic(intervalMs, id -> transferService.promoteWaitingWithdrawals(batchSize)
-            .onSuccess(count -> {
-                if (count > 0) {
-                    log.info("Waiting withdrawal promotion scheduled run completed: {} withdrawals promoted", count);
-                }
-            })
-            .onFailure(t -> log.warn("Waiting withdrawal promotion scheduled run failed", t)));
+        vertx.setPeriodic(intervalMs, id -> runExclusiveBackgroundTask(pool, LOCK_WAITING_WITHDRAWAL_PROMOTION, "Waiting withdrawal promotion scheduled run", running, () ->
+            transferService.promoteWaitingWithdrawals(batchSize)
+                .map(count -> {
+                    if (count > 0) {
+                        log.info("Waiting withdrawal promotion scheduled run completed: {} withdrawals promoted", count);
+                    }
+                    return (Void) null;
+                })));
 
         log.info("Waiting withdrawal promotion scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
     }
@@ -1211,23 +1231,20 @@ public class ApiVerticle extends AbstractVerticle {
      * - users.exp 기준 계산 레벨이 users.level보다 높을 때 자동 보정
      * - 레벨업 알림은 기존 dedupe 규칙(related_id=newLevel)으로 중복 방지
      */
-    private void startLevelSyncScheduler(LevelService levelService) {
+    private void startLevelSyncScheduler(LevelService levelService, PgPool pool) {
         long intervalMs = parseLongEnv("LEVEL_SYNC_SCHEDULER_MS", 300_000L);
         int batchSize = (int) Math.max(1L, Math.min(parseLongEnv("LEVEL_SYNC_SCHEDULER_BATCH", 300L), 2000L));
         AtomicBoolean running = new AtomicBoolean(false);
 
         Runnable runTask = () -> {
-            if (!running.compareAndSet(false, true)) {
-                return;
-            }
-            levelService.runLevelSyncBatch(batchSize)
-                .onSuccess(updatedCount -> {
-                    if (updatedCount > 0) {
-                        log.info("Level sync scheduled run completed: {} users updated", updatedCount);
-                    }
-                })
-                .onFailure(t -> log.warn("Level sync scheduled run failed", t))
-                .onComplete(ar -> running.set(false));
+            runExclusiveBackgroundTask(pool, LOCK_LEVEL_SYNC, "Level sync scheduled run", running, () ->
+                levelService.runLevelSyncBatch(batchSize)
+                    .map(updatedCount -> {
+                        if (updatedCount > 0) {
+                            log.info("Level sync scheduled run completed: {} users updated", updatedCount);
+                        }
+                        return (Void) null;
+                    }));
         };
 
         vertx.setTimer(3_000L, id -> runTask.run());
@@ -1235,25 +1252,22 @@ public class ApiVerticle extends AbstractVerticle {
         log.info("Level sync scheduler started (interval {} ms, batch {})", intervalMs, batchSize);
     }
 
-    private void startImportantNoticeDispatchScheduler(NoticeNotificationDispatchService noticeDispatchService) {
+    private void startImportantNoticeDispatchScheduler(NoticeNotificationDispatchService noticeDispatchService, PgPool pool) {
         long intervalMs = parseLongEnv("IMPORTANT_NOTICE_DISPATCH_MS", 30_000L);
         int noticeBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("IMPORTANT_NOTICE_DISPATCH_NOTICE_BATCH", 3L), 20L));
         int userBatchSize = (int) Math.max(1L, Math.min(parseLongEnv("IMPORTANT_NOTICE_DISPATCH_USER_BATCH", 500L), 5000L));
         AtomicBoolean running = new AtomicBoolean(false);
 
         Runnable runTask = () -> {
-            if (!running.compareAndSet(false, true)) {
-                return;
-            }
-            noticeDispatchService.runImportantNoticeDispatchBatch(noticeBatchSize, userBatchSize)
-                .onSuccess(result -> {
-                    if (result.getInsertedNotificationCount() > 0 || result.getScannedUserCount() > 0) {
-                        log.info("Important notice dispatch run completed: jobs={}, scannedUsers={}, insertedNotifications={}",
-                            result.getJobCount(), result.getScannedUserCount(), result.getInsertedNotificationCount());
-                    }
-                })
-                .onFailure(t -> log.warn("Important notice dispatch run failed", t))
-                .onComplete(ar -> running.set(false));
+            runExclusiveBackgroundTask(pool, LOCK_IMPORTANT_NOTICE_DISPATCH, "Important notice dispatch run", running, () ->
+                noticeDispatchService.runImportantNoticeDispatchBatch(noticeBatchSize, userBatchSize)
+                    .map(result -> {
+                        if (result.getInsertedNotificationCount() > 0 || result.getScannedUserCount() > 0) {
+                            log.info("Important notice dispatch run completed: jobs={}, scannedUsers={}, insertedNotifications={}",
+                                result.getJobCount(), result.getScannedUserCount(), result.getInsertedNotificationCount());
+                        }
+                        return (Void) null;
+                    }));
         };
 
         vertx.setTimer(4_000L, id -> runTask.run());
@@ -1304,6 +1318,68 @@ public class ApiVerticle extends AbstractVerticle {
             });
     }
 
+    private void runExclusiveBackgroundTask(PgPool pool,
+                                            long lockKey,
+                                            String taskName,
+                                            AtomicBoolean running,
+                                            Supplier<Future<Void>> taskSupplier) {
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
+        executeWithAdvisoryLock(pool, lockKey, taskName, taskSupplier)
+            .onFailure(t -> log.warn("{} failed", taskName, t))
+            .onComplete(ar -> running.set(false));
+    }
+
+    private Future<Void> executeWithAdvisoryLock(PgPool pool,
+                                                 long lockKey,
+                                                 String taskName,
+                                                 Supplier<Future<Void>> taskSupplier) {
+        return pool.getConnection()
+            .compose(connection -> connection
+                .query("SELECT pg_try_advisory_lock(" + lockKey + ") AS locked")
+                .execute()
+                .compose(rows -> {
+                    boolean locked = rows.iterator().hasNext()
+                        && Boolean.TRUE.equals(rows.iterator().next().getBoolean("locked"));
+                    if (!locked) {
+                        return closeConnectionQuietly(connection, taskName).mapEmpty();
+                    }
+
+                    Future<Void> taskFuture;
+                    try {
+                        taskFuture = taskSupplier.get();
+                    } catch (Throwable t) {
+                        taskFuture = Future.failedFuture(t);
+                    }
+
+                    return taskFuture.transform(taskResult -> releaseAdvisoryLock(connection, lockKey, taskName)
+                        .compose(v -> taskResult.succeeded()
+                            ? Future.<Void>succeededFuture()
+                            : Future.<Void>failedFuture(taskResult.cause())));
+                })
+                .recover(err -> closeConnectionQuietly(connection, taskName)
+                    .compose(v -> Future.<Void>failedFuture(err))));
+    }
+
+    private Future<Void> releaseAdvisoryLock(SqlConnection connection, long lockKey, String taskName) {
+        return connection.query("SELECT pg_advisory_unlock(" + lockKey + ")")
+            .execute()
+            .recover(err -> {
+                log.warn("Failed to release advisory lock for {}", taskName, err);
+                return Future.succeededFuture();
+            })
+            .compose(rows -> closeConnectionQuietly(connection, taskName));
+    }
+
+    private Future<Void> closeConnectionQuietly(SqlConnection connection, String taskName) {
+        return connection.close()
+            .recover(err -> {
+                log.warn("Failed to close scheduler lock connection for {}", taskName, err);
+                return Future.succeededFuture();
+            });
+    }
+
     private static long parseLongEnv(String key, long defaultValue) {
         String v = System.getenv(key);
         if (v == null || v.isBlank()) return defaultValue;
@@ -1312,6 +1388,14 @@ public class ApiVerticle extends AbstractVerticle {
         } catch (Exception ignored) {
             return defaultValue;
         }
+    }
+
+    private static boolean parseBooleanEnv(String key, boolean defaultValue) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(value.trim());
     }
 
     /**
