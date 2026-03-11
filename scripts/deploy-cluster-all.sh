@@ -99,7 +99,7 @@ prepare_temp_files() {
 }
 
 build_primary_bundle() {
-    COPYFILE_DISABLE=1 tar \
+    COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar \
         --exclude='.git' \
         --exclude='.gradle' \
         --exclude='build' \
@@ -116,7 +116,7 @@ build_primary_bundle() {
 }
 
 build_standby_bundle() {
-    COPYFILE_DISABLE=1 tar --exclude='._*' -czf "$STANDBY_BUNDLE" -C "$ROOT_DIR/ops/db-ha/standby" .
+    COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar --exclude='._*' -czf "$STANDBY_BUNDLE" -C "$ROOT_DIR/ops/db-ha/standby" .
 }
 
 prepare_primary_alert_env() {
@@ -175,7 +175,7 @@ set -euo pipefail
 deploy_dir="$1"
 
 sudo mkdir -p "$deploy_dir"
-sudo tar xzf /tmp/fox_coin-primary-bundle.tgz --no-same-owner -C "$deploy_dir"
+sudo tar xzf /tmp/fox_coin-primary-bundle.tgz --warning=no-unknown-keyword --no-same-owner -C "$deploy_dir"
 sudo chown -R "$(id -un)":"$(id -gn)" "$deploy_dir"
 
 cd "$deploy_dir"
@@ -229,10 +229,10 @@ env_path.write_text("\n".join(rendered) + "\n")
 overlay_path.unlink(missing_ok=True)
 PY
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE="docker compose"
+if sudo docker compose version >/dev/null 2>&1; then
+  COMPOSE="sudo docker compose"
 else
-  COMPOSE="docker-compose"
+  COMPOSE="sudo docker-compose"
 fi
 
 $COMPOSE -f docker-compose.prod.yml build app
@@ -292,10 +292,10 @@ sudo cp "$deploy_dir/pg-primary-tunnel.service" /etc/systemd/system/pg-primary-t
 sudo cp /tmp/pg-primary-tunnel.env /etc/default/pg-primary-tunnel
 rm -f /tmp/pg-primary-tunnel.env /tmp/fox_coin-standby-bundle.tgz
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE="docker compose"
+if sudo docker compose version >/dev/null 2>&1; then
+  COMPOSE="sudo docker compose"
 else
-  COMPOSE="docker-compose"
+  COMPOSE="sudo docker-compose"
 fi
 
 $COMPOSE -f "$deploy_dir/docker-compose.standby.yml" up -d
