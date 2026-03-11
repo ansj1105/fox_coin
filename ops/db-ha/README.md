@@ -23,3 +23,9 @@
 
 현재 prod처럼 PostgreSQL이 `127.0.0.1:5432`에만 바인딩되어 있으면 standby가 붙을 수 없습니다.
 반드시 VPC private IP 기준으로 primary의 5432를 standby에서 접근 가능하게 열고, Security Group은 standby IP만 허용하세요.
+
+임시 우회:
+
+직접 `5432/tcp`를 열 수 없는 경우, standby 호스트에서 `SSH tunnel -> primary postgres container` 경로로 복제를 유지할 수 있습니다.
+이때는 `standby/maintain-standby-tunnel.sh` 같은 감시 스크립트로 `foxya-postgres-standby` 컨테이너 PID 변경을 감지하고 tunnel을 자동 재부착해야 합니다.
+컨테이너 재시작 후 tunnel을 수동으로 다시 붙이는 방식은 운영상 안전하지 않습니다.
