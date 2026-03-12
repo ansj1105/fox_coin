@@ -1,19 +1,17 @@
 package com.foxya.coin.currency;
 
 import com.foxya.coin.common.BaseHandler;
-import com.foxya.coin.common.enums.UserRole;
-import com.foxya.coin.common.utils.AuthUtils;
-import com.foxya.coin.currency.dto.CoinPricesDto;
-import com.foxya.coin.currency.dto.ExchangeRatesDto;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.Json;
 import io.vertx.ext.auth.jwt.JWTAuth;
-import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
-import io.vertx.ext.web.handler.JWTAuthHandler;
+import io.vertx.ext.web.Router;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +38,8 @@ public class CurrencyHandler extends BaseHandler {
             .handler(this::getExchangeRates);
         router.get("/coin-prices")
             .handler(this::getCoinPrices);
+        router.get("/coin-prices/stream")
+            .handler(this::streamCoinPrices);
         
         return router;
     }
@@ -53,14 +53,92 @@ public class CurrencyHandler extends BaseHandler {
     }
 
     private void getCoinPrices(RoutingContext ctx) {
+        Set<String> codes = parseRequestedCodes(ctx);
+        log.info("코인 가격 조회 요청 - codes={}", codes);
+        response(ctx, currencyService.getCoinPrices(codes));
+    }
+
+    private void streamCoinPrices(RoutingContext ctx) {
+        Set<String> codes = parseRequestedCodes(ctx);
+        log.info("코인 가격 SSE 구독 요청 - codes={}", codes);
+
+        ctx.response()
+            .setChunked(true)
+            .setStatusCode(200)
+            .putHeader("Content-Type", "text/event-stream; charset=utf-8")
+            .putHeader("Cache-Control", "no-cache")
+            .putHeader("Connection", "keep-alive")
+            .putHeader("X-Accel-Buffering", "no");
+
+        AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicReference<String> subscriberIdRef = new AtomicReference<>();
+        String subscriberId = currencyService.subscribeCoinPrices(codes, dto -> {
+            if (closed.get()) {
+                return;
+            }
+            try {
+                ctx.response().write("event: coinPrices\n");
+                ctx.response().write("data: " + Json.encode(dto) + "\n\n");
+            } catch (Exception e) {
+                log.warn("코인 가격 SSE write 실패 - codes={}, error={}", codes, e.getMessage());
+                closeCoinPriceStream(ctx, subscriberIdRef.get(), closed, null);
+            }
+        });
+        subscriberIdRef.set(subscriberId);
+
+        long heartbeatTimerId = getVertx().setPeriodic(30_000L, id -> {
+            if (closed.get()) {
+                getVertx().cancelTimer(id);
+                return;
+            }
+            try {
+                ctx.response().write(": ping\n\n");
+            } catch (Exception e) {
+                log.warn("코인 가격 SSE heartbeat 실패 - codes={}, error={}", codes, e.getMessage());
+                closeCoinPriceStream(ctx, subscriberId, closed, id);
+            }
+        });
+
+        ctx.request().connection().closeHandler(v -> closeCoinPriceStream(ctx, subscriberId, closed, heartbeatTimerId));
+        ctx.request().connection().exceptionHandler(err -> closeCoinPriceStream(ctx, subscriberId, closed, heartbeatTimerId));
+        ctx.response().exceptionHandler(err -> closeCoinPriceStream(ctx, subscriberId, closed, heartbeatTimerId));
+        ctx.response().endHandler(v -> closeCoinPriceStream(ctx, subscriberId, closed, heartbeatTimerId));
+
+        currencyService.getCoinPrices(codes)
+            .onSuccess(dto -> {
+                if (closed.get()) {
+                    return;
+                }
+                ctx.response().write("event: coinPrices\n");
+                ctx.response().write("data: " + Json.encode(dto) + "\n\n");
+            })
+            .onFailure(err -> {
+                log.warn("코인 가격 SSE 초기 snapshot 로드 실패 - codes={}, error={}", codes, err.getMessage());
+                closeCoinPriceStream(ctx, subscriberId, closed, heartbeatTimerId);
+            });
+    }
+
+    private Set<String> parseRequestedCodes(RoutingContext ctx) {
         String codesParam = ctx.request().getParam("codes");
-        Set<String> codes = codesParam == null || codesParam.isBlank()
+        return codesParam == null || codesParam.isBlank()
             ? Set.of()
             : Arrays.stream(codesParam.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.toSet());
-        log.info("코인 가격 조회 요청 - codes={}", codes);
-        response(ctx, currencyService.getCoinPrices(codes));
+    }
+
+    private void closeCoinPriceStream(RoutingContext ctx, String subscriberId, AtomicBoolean closed, Long heartbeatTimerId) {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+
+        currencyService.unsubscribeCoinPrices(subscriberId);
+        if (heartbeatTimerId != null) {
+            getVertx().cancelTimer(heartbeatTimerId);
+        }
+        if (!ctx.response().ended()) {
+            ctx.response().end();
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.foxya.coin.currency;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.foxya.coin.common.HandlerTestBase;
 import com.foxya.coin.common.dto.ApiResponse;
+import com.foxya.coin.currency.dto.CoinPricesDto;
 import com.foxya.coin.currency.dto.ExchangeRatesDto;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class CurrencyHandlerTest extends HandlerTestBase {
     
     private final TypeReference<ApiResponse<ExchangeRatesDto>> refExchangeRates = new TypeReference<>() {};
+    private final TypeReference<ApiResponse<CoinPricesDto>> refCoinPrices = new TypeReference<>() {};
     
     public CurrencyHandlerTest() {
         super("/api/v1/currencies");
@@ -50,5 +52,30 @@ public class CurrencyHandlerTest extends HandlerTestBase {
                 })));
         }
     }
-}
 
+    @Nested
+    @DisplayName("코인 가격 조회 테스트")
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    class GetCoinPricesTest {
+
+        @Test
+        @Order(1)
+        @DisplayName("성공 - 코인 가격 조회 (인증 불필요)")
+        void successGetCoinPrices(VertxTestContext tc) {
+            reqGet(getUrl("/coin-prices?codes=BTC,ETH,KORI"))
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    log.info("Get coin prices response: {}", res.bodyAsJsonObject());
+                    CoinPricesDto coinPrices = expectSuccessAndGetResponse(res, refCoinPrices);
+
+                    assertThat(coinPrices.getPrices()).isNotNull();
+                    assertThat(coinPrices.getPrices()).containsKeys("BTC", "ETH", "KORI");
+                    assertThat(coinPrices.getUpdatedAt()).isNotNull();
+                    assertThat(coinPrices.getPrices().get("BTC").getUsdPrice()).isNotNull();
+                    assertThat(coinPrices.getPrices().get("ETH").getUsdPrice()).isNotNull();
+                    assertThat(coinPrices.getPrices().get("KORI").getUsdPrice()).isNotNull();
+
+                    tc.completeNow();
+                })));
+        }
+    }
+}

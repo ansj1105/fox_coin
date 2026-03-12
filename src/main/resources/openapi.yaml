@@ -5971,7 +5971,7 @@ paths:
   /api/v1/currencies/coin-prices:
     get:
       summary: 코인별 USD 가격 조회
-      description: 코인 가격을 조회합니다. 백엔드가 외부 가격 소스를 조회하고, 실패 시 마지막 DB 저장값을 반환합니다.
+      description: 코인 가격을 조회합니다. 백엔드가 스케줄러로 갱신해 DB에 저장한 최신 값을 반환합니다.
       tags: [System]
       parameters:
         - in: query
@@ -6010,6 +6010,29 @@ paths:
                   updatedAt: "2026-03-12T06:46:00Z"
         '401':
           description: 인증 실패
+
+  /api/v1/currencies/coin-prices/stream:
+    get:
+      summary: 코인별 USD 가격 SSE 스트림
+      description: DB에 저장된 코인 가격 스냅샷을 Server-Sent Events로 구독합니다. 서버는 스케줄러로 가격을 갱신한 뒤 변경분을 푸시합니다.
+      tags: [System]
+      parameters:
+        - in: query
+          name: codes
+          required: false
+          schema:
+            type: string
+          description: 구독할 코인 코드 목록. 쉼표로 구분합니다. 예: BTC,ETH,KORI
+      responses:
+        '200':
+          description: SSE 연결 성공
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event: coinPrices
+                data: {"prices":{"BTC":{"usdPrice":90000.0,"change24hPercent":3.4,"source":"COINGECKO","updatedAt":"2026-03-12T06:46:00Z"}},"updatedAt":"2026-03-12T06:46:00Z"}
 
   /api/v1/notices/{id}:
     get:

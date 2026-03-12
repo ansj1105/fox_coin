@@ -7,7 +7,6 @@ import com.foxya.coin.currency.dto.ExchangeRatesDto;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
@@ -23,8 +22,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Exchange rate source of truth: DB.
@@ -75,6 +76,7 @@ public class CurrencyService extends BaseService {
     // Prevent overlapping refresh jobs
     private final AtomicReference<Future<Void>> refreshInFlight = new AtomicReference<>(null);
     private final AtomicReference<Future<Void>> coinPriceRefreshInFlight = new AtomicReference<>(null);
+    private final ConcurrentHashMap<String, CoinPriceStreamSubscriber> coinPriceSubscribers = new ConcurrentHashMap<>();
 
     public CurrencyService(PgPool pool,
                            CurrencyRepository currencyRepository,
@@ -111,35 +113,21 @@ public class CurrencyService extends BaseService {
     }
 
     public Future<CoinPricesDto> getCoinPrices(Set<String> requestedCodes) {
+        return getCoinPricesFromDb(requestedCodes);
+    }
+
+    public String subscribeCoinPrices(Set<String> requestedCodes, Consumer<CoinPricesDto> listener) {
         Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
-        if (codes.isEmpty()) {
-            return Future.succeededFuture(CoinPricesDto.builder()
-                .prices(Map.of())
-                .updatedAt(Instant.now())
-                .build());
+        String subscriberId = UUID.randomUUID().toString();
+        coinPriceSubscribers.put(subscriberId, new CoinPriceStreamSubscriber(codes, listener));
+        return subscriberId;
+    }
+
+    public void unsubscribeCoinPrices(String subscriberId) {
+        if (subscriberId == null || subscriberId.isBlank()) {
+            return;
         }
-
-        return coinPriceRepository.getCoinPrices(pool, canonicalizeCoinPriceCodes(codes))
-            .compose(existing -> {
-                if (!needsCoinPriceRefresh(existing, codes)) {
-                    return Future.succeededFuture(applyCoinPriceAliases(existing, codes));
-                }
-
-                return refreshCoinPrices(codes)
-                    .compose(v -> coinPriceRepository.getCoinPrices(pool, canonicalizeCoinPriceCodes(codes)))
-                    .map(refreshed -> applyCoinPriceAliases(refreshed, codes))
-                    .recover(err -> {
-                        log.warn("Coin price refresh failed; serving DB values. Error: {}", err.getMessage());
-                        return Future.succeededFuture(applyCoinPriceAliases(existing, codes));
-                    });
-            })
-            .recover(err -> {
-                log.warn("Coin price DB read failed; serving empty values. Error: {}", err.getMessage());
-                return Future.succeededFuture(CoinPricesDto.builder()
-                    .prices(Map.of())
-                    .updatedAt(Instant.now())
-                    .build());
-            });
+        coinPriceSubscribers.remove(subscriberId);
     }
 
     /**
@@ -239,6 +227,7 @@ public class CurrencyService extends BaseService {
             .onComplete(ar -> {
                 coinPriceRefreshInFlight.set(null);
                 if (ar.succeeded()) {
+                    broadcastCoinPriceSnapshot();
                     promise.complete();
                 } else {
                     promise.fail(ar.cause());
@@ -634,6 +623,79 @@ public class CurrencyService extends BaseService {
         }
         return canonical;
     }
+
+    private Future<CoinPricesDto> getCoinPricesFromDb(Set<String> requestedCodes) {
+        Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
+        if (codes.isEmpty()) {
+            return Future.succeededFuture(CoinPricesDto.builder()
+                .prices(Map.of())
+                .updatedAt(Instant.now())
+                .build());
+        }
+
+        return coinPriceRepository.getCoinPrices(pool, canonicalizeCoinPriceCodes(codes))
+            .map(dto -> applyCoinPriceAliases(dto, codes))
+            .recover(err -> {
+                log.warn("Coin price DB read failed; serving empty values. Error: {}", err.getMessage());
+                return Future.succeededFuture(CoinPricesDto.builder()
+                    .prices(Map.of())
+                    .updatedAt(Instant.now())
+                    .build());
+            });
+    }
+
+    private void broadcastCoinPriceSnapshot() {
+        if (coinPriceSubscribers.isEmpty()) {
+            return;
+        }
+
+        Set<String> requestedCodes = new HashSet<>();
+        coinPriceSubscribers.values().forEach(subscriber -> requestedCodes.addAll(subscriber.codes()));
+        if (requestedCodes.isEmpty()) {
+            requestedCodes.addAll(normalizeCoinPriceCodes(Set.of()));
+        }
+
+        getCoinPricesFromDb(requestedCodes)
+            .onSuccess(snapshot -> {
+                coinPriceSubscribers.forEach((id, subscriber) -> {
+                    try {
+                        CoinPricesDto filtered = filterCoinPrices(snapshot, subscriber.codes());
+                        subscriber.listener().accept(applyCoinPriceAliases(filtered, subscriber.codes()));
+                    } catch (Exception e) {
+                        log.warn("Coin price SSE publish failed for subscriber {}: {}", id, e.getMessage());
+                    }
+                });
+            })
+            .onFailure(err -> log.warn("Coin price SSE snapshot load failed: {}", err.getMessage()));
+    }
+
+    private CoinPricesDto filterCoinPrices(CoinPricesDto dto, Set<String> requestedCodes) {
+        if (dto == null || dto.getPrices() == null || dto.getPrices().isEmpty()) {
+            return CoinPricesDto.builder()
+                .prices(Map.of())
+                .updatedAt(dto != null ? dto.getUpdatedAt() : Instant.now())
+                .build();
+        }
+
+        Set<String> canonicalCodes = canonicalizeCoinPriceCodes(requestedCodes);
+        Map<String, CoinPriceDto> filtered = new HashMap<>();
+        canonicalCodes.forEach(code -> {
+            CoinPriceDto item = dto.getPrices().get(code);
+            if (item != null) {
+                filtered.put(code, item);
+            }
+        });
+
+        return CoinPricesDto.builder()
+            .prices(filtered)
+            .updatedAt(dto.getUpdatedAt())
+            .build();
+    }
+
+    private record CoinPriceStreamSubscriber(
+        Set<String> codes,
+        Consumer<CoinPricesDto> listener
+    ) {}
 
     private static BigInteger decodeUint256(String hex) {
         if (hex == null || hex.isBlank()) {

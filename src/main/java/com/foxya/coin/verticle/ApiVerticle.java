@@ -140,6 +140,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -172,6 +173,7 @@ public class ApiVerticle extends AbstractVerticle {
     private static final long LOCK_LEVEL_SYNC = 10_010L;
     private static final long LOCK_IMPORTANT_NOTICE_DISPATCH = 10_011L;
     private static final long LOCK_DB_ALERT_MONITOR = 10_012L;
+    private static final long LOCK_COIN_PRICE_REFRESH = 10_013L;
     
     static {
         DatabindCodec.mapper()
@@ -421,6 +423,7 @@ public class ApiVerticle extends AbstractVerticle {
 
             // Exchange rate refresh scheduler: external providers -> DB(upsert). API reads from DB only.
             startExchangeRateRefreshScheduler(currencyService, retryQueuePublisher, appConfigRepository, pool);
+            startCoinPriceRefreshScheduler(currencyService, pool);
             startCountryCodeSyncOnce(countryCodeService, pool);
 
             // Re-dispatch pending withdrawals so external settlement is eventually processed.
@@ -1178,6 +1181,34 @@ public class ApiVerticle extends AbstractVerticle {
                 })));
 
         log.info("Exchange rate refresh scheduler started (interval {} ms)", intervalMs);
+    }
+
+    /**
+     * Coin price refresh scheduler.
+     * - Refreshes supported coin USD prices from external providers every minute.
+     * - Persists snapshots into DB.
+     * - SSE clients receive DB-backed updates after each successful refresh.
+     */
+    private void startCoinPriceRefreshScheduler(CurrencyService currencyService, PgPool pool) {
+        long intervalMs = parseLongEnv("COIN_PRICE_REFRESH_MS", 60_000L);
+        AtomicBoolean running = new AtomicBoolean(false);
+
+        vertx.setTimer(1500, id -> runExclusiveBackgroundTask(pool, LOCK_COIN_PRICE_REFRESH, "Coin price startup refresh", running, () ->
+            currencyService.refreshCoinPrices(Set.of())
+                .onSuccess(v -> log.info("Coin prices refreshed on startup"))
+                .recover(t -> {
+                    log.warn("Coin price startup refresh failed: {}", t.getMessage());
+                    return Future.failedFuture(t);
+                })));
+
+        vertx.setPeriodic(intervalMs, id -> runExclusiveBackgroundTask(pool, LOCK_COIN_PRICE_REFRESH, "Coin price scheduled refresh", running, () ->
+            currencyService.refreshCoinPrices(Set.of())
+                .recover(t -> {
+                    log.warn("Coin price scheduled refresh failed: {}", t.getMessage());
+                    return Future.failedFuture(t);
+                })));
+
+        log.info("Coin price refresh scheduler started (interval {} ms)", intervalMs);
     }
 
     /**
