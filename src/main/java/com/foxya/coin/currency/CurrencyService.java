@@ -1,20 +1,28 @@
 package com.foxya.coin.currency;
 
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.currency.dto.CoinPriceDto;
+import com.foxya.coin.currency.dto.CoinPricesDto;
 import com.foxya.coin.currency.dto.ExchangeRatesDto;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -29,16 +37,23 @@ public class CurrencyService extends BaseService {
 
     private final CurrencyRepository currencyRepository; // kept for other currency domain usage
     private final ExchangeRateRepository exchangeRateRepository;
+    private final CoinPriceRepository coinPriceRepository;
     private final WebClient webClient;
 
     // Providers
     private static final String DEFAULT_COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
     private static final String DEFAULT_COINPAPRIKA_API_URL = "https://api.coinpaprika.com/v1/tickers";
+    private static final String DEFAULT_TRONGRID_API_URL = "https://api.trongrid.io";
 
     private final String coingeckoApiUrl;
     private final String coinpaprikaApiUrl;
+    private final String trongridApiUrl;
 
     private static final long HTTP_TIMEOUT_MS = parseLongEnv("EXCHANGE_RATE_HTTP_TIMEOUT_MS", 10_000L);
+    private static final long COIN_PRICE_STALE_MS = parseLongEnv("COIN_PRICE_STALE_MS", 60_000L);
+    private static final String KORI_SUNSWAP_PAIR_ADDRESS = "TCHbWJUBZ9DVpaPb6QW9vb31yTSz7sfhQh";
+    private static final BigDecimal TRON_SUN_UNIT = new BigDecimal("1000000");
+    private static final Set<String> SUPPORTED_COIN_PRICE_CODES = Set.of("BTC", "ETH", "USDT", "TRX", "SOL", "KORI", "KORION");
 
     // Optional CoinGecko API keys (header-based)
     private static final String COINGECKO_DEMO_KEY = System.getenv("COINGECKO_DEMO_API_KEY"); // x-cg-demo-api-key
@@ -59,27 +74,33 @@ public class CurrencyService extends BaseService {
 
     // Prevent overlapping refresh jobs
     private final AtomicReference<Future<Void>> refreshInFlight = new AtomicReference<>(null);
+    private final AtomicReference<Future<Void>> coinPriceRefreshInFlight = new AtomicReference<>(null);
 
     public CurrencyService(PgPool pool,
                            CurrencyRepository currencyRepository,
                            ExchangeRateRepository exchangeRateRepository,
+                           CoinPriceRepository coinPriceRepository,
                            WebClient webClient) {
-        this(pool, currencyRepository, exchangeRateRepository, webClient, DEFAULT_COINGECKO_API_URL, DEFAULT_COINPAPRIKA_API_URL);
+        this(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, DEFAULT_COINGECKO_API_URL, DEFAULT_COINPAPRIKA_API_URL, DEFAULT_TRONGRID_API_URL);
     }
 
     // Visible for tests: lets unit tests point providers to a local mock server.
     CurrencyService(PgPool pool,
                     CurrencyRepository currencyRepository,
                     ExchangeRateRepository exchangeRateRepository,
+                    CoinPriceRepository coinPriceRepository,
                     WebClient webClient,
                     String coingeckoApiUrl,
-                    String coinpaprikaApiUrl) {
+                    String coinpaprikaApiUrl,
+                    String trongridApiUrl) {
         super(pool);
         this.currencyRepository = currencyRepository;
         this.exchangeRateRepository = exchangeRateRepository;
+        this.coinPriceRepository = coinPriceRepository;
         this.webClient = webClient;
         this.coingeckoApiUrl = (coingeckoApiUrl != null && !coingeckoApiUrl.isBlank()) ? coingeckoApiUrl.trim() : DEFAULT_COINGECKO_API_URL;
         this.coinpaprikaApiUrl = (coinpaprikaApiUrl != null && !coinpaprikaApiUrl.isBlank()) ? coinpaprikaApiUrl.trim() : DEFAULT_COINPAPRIKA_API_URL;
+        this.trongridApiUrl = (trongridApiUrl != null && !trongridApiUrl.isBlank()) ? trongridApiUrl.trim() : DEFAULT_TRONGRID_API_URL;
 
         // Seed cache with coarse defaults so internal calculations keep working even if DB is temporarily unavailable.
         cachedRates.put("ETH", DEFAULT_ETH_KRW);
@@ -87,6 +108,38 @@ public class CurrencyService extends BaseService {
         cachedRates.put("BTC", DEFAULT_BTC_KRW);
         cachedRates.put("TRX", DEFAULT_TRX_KRW);
         cachedRates.put("KRWT", RATE_KRWT);
+    }
+
+    public Future<CoinPricesDto> getCoinPrices(Set<String> requestedCodes) {
+        Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
+        if (codes.isEmpty()) {
+            return Future.succeededFuture(CoinPricesDto.builder()
+                .prices(Map.of())
+                .updatedAt(Instant.now())
+                .build());
+        }
+
+        return coinPriceRepository.getCoinPrices(pool, canonicalizeCoinPriceCodes(codes))
+            .compose(existing -> {
+                if (!needsCoinPriceRefresh(existing, codes)) {
+                    return Future.succeededFuture(applyCoinPriceAliases(existing, codes));
+                }
+
+                return refreshCoinPrices(codes)
+                    .compose(v -> coinPriceRepository.getCoinPrices(pool, canonicalizeCoinPriceCodes(codes)))
+                    .map(refreshed -> applyCoinPriceAliases(refreshed, codes))
+                    .recover(err -> {
+                        log.warn("Coin price refresh failed; serving DB values. Error: {}", err.getMessage());
+                        return Future.succeededFuture(applyCoinPriceAliases(existing, codes));
+                    });
+            })
+            .recover(err -> {
+                log.warn("Coin price DB read failed; serving empty values. Error: {}", err.getMessage());
+                return Future.succeededFuture(CoinPricesDto.builder()
+                    .prices(Map.of())
+                    .updatedAt(Instant.now())
+                    .build());
+            });
     }
 
     /**
@@ -165,6 +218,36 @@ public class CurrencyService extends BaseService {
         return created;
     }
 
+    public Future<Void> refreshCoinPrices(Set<String> requestedCodes) {
+        Future<Void> inFlight = coinPriceRefreshInFlight.get();
+        if (inFlight != null && !inFlight.isComplete()) {
+            return inFlight;
+        }
+
+        Promise<Void> promise = Promise.promise();
+        Future<Void> created = promise.future();
+
+        if (!coinPriceRefreshInFlight.compareAndSet(inFlight, created)) {
+            Future<Void> raced = coinPriceRefreshInFlight.get();
+            return raced != null ? raced : Future.succeededFuture();
+        }
+
+        Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
+
+        fetchCoinPricesFromProviders(codes)
+            .compose(prices -> coinPriceRepository.upsertCoinPrices(pool, prices))
+            .onComplete(ar -> {
+                coinPriceRefreshInFlight.set(null);
+                if (ar.succeeded()) {
+                    promise.complete();
+                } else {
+                    promise.fail(ar.cause());
+                }
+            });
+
+        return created;
+    }
+
     private Future<FetchResult> fetchFromProviders() {
         // Primary: CoinGecko (ethereum,tether vs krw)
         return fetchFromCoinGecko()
@@ -172,6 +255,160 @@ public class CurrencyService extends BaseService {
             .recover(err -> {
                 log.warn("CoinGecko fetch failed, trying CoinPaprika. Error: {}", err.getMessage());
                 return fetchFromCoinPaprika();
+            });
+    }
+
+    private Future<Map<String, CoinPriceDto>> fetchCoinPricesFromProviders(Set<String> requestedCodes) {
+        Set<String> codes = canonicalizeCoinPriceCodes(requestedCodes);
+        return fetchUsdPricesFromCoinGecko(codes)
+            .compose(prices -> {
+                if (!codes.contains("KORI")) {
+                    return Future.succeededFuture(prices);
+                }
+
+                BigDecimal trxUsd = prices.containsKey("TRX") ? prices.get("TRX").getUsdPrice() : null;
+                if (trxUsd == null) {
+                    return Future.succeededFuture(prices);
+                }
+
+                return fetchKoriPriceFromSunSwap(trxUsd)
+                    .map(koriPrice -> {
+                        if (koriPrice != null) {
+                            prices.put("KORI", koriPrice);
+                        }
+                        return prices;
+                    })
+                    .recover(err -> {
+                        log.warn("Failed to fetch KORI price from SunSwap: {}", err.getMessage());
+                        return Future.succeededFuture(prices);
+                    });
+            });
+    }
+
+    private Future<Map<String, CoinPriceDto>> fetchUsdPricesFromCoinGecko(Set<String> requestedCodes) {
+        Map<String, String> geckoIdMap = Map.of(
+            "BTC", "bitcoin",
+            "ETH", "ethereum",
+            "USDT", "tether",
+            "TRX", "tron",
+            "SOL", "solana"
+        );
+
+        List<String> ids = new ArrayList<>();
+        Map<String, String> reverseMap = new HashMap<>();
+        for (String code : requestedCodes) {
+            String canonical = "KORION".equals(code) ? "KORI" : code;
+            String geckoId = geckoIdMap.get(canonical);
+            if (geckoId == null) {
+                continue;
+            }
+            ids.add(geckoId);
+            reverseMap.put(geckoId, canonical);
+        }
+
+        if (ids.isEmpty()) {
+            return Future.succeededFuture(new HashMap<>());
+        }
+
+        String url = coingeckoApiUrl + "?ids=" + String.join(",", ids) + "&vs_currencies=usd&include_24hr_change=true";
+        var req = webClient.getAbs(url)
+            .timeout(HTTP_TIMEOUT_MS)
+            .putHeader("Accept", "application/json")
+            .putHeader("User-Agent", "foxya-coin-service/1.0");
+
+        if (COINGECKO_DEMO_KEY != null && !COINGECKO_DEMO_KEY.isBlank()) {
+            req.putHeader("x-cg-demo-api-key", COINGECKO_DEMO_KEY);
+        }
+        if (COINGECKO_PRO_KEY != null && !COINGECKO_PRO_KEY.isBlank()) {
+            req.putHeader("x-cg-pro-api-key", COINGECKO_PRO_KEY);
+        }
+
+        return req.send().compose(res -> {
+            if (res.statusCode() != 200) {
+                return Future.failedFuture("CoinGecko coin prices non-200: status=" + res.statusCode());
+            }
+
+            JsonObject json;
+            try {
+                json = res.bodyAsJsonObject();
+            } catch (Exception e) {
+                return Future.failedFuture("CoinGecko coin prices invalid JSON: " + e.getMessage());
+            }
+
+            Map<String, CoinPriceDto> prices = new HashMap<>();
+            for (String geckoId : ids) {
+                JsonObject item = json.getJsonObject(geckoId);
+                String code = reverseMap.get(geckoId);
+                if (item == null || code == null || item.getValue("usd") == null) {
+                    continue;
+                }
+
+                BigDecimal usd = extractNestedDecimal(json, geckoId, "usd");
+                BigDecimal change = extractNestedDecimal(json, geckoId, "usd_24h_change");
+                if (usd == null) {
+                    continue;
+                }
+
+                prices.put(code, CoinPriceDto.builder()
+                    .usdPrice(usd)
+                    .change24hPercent(change != null ? change : BigDecimal.ZERO)
+                    .source("COINGECKO")
+                    .updatedAt(Instant.now())
+                    .build());
+            }
+            return Future.succeededFuture(prices);
+        });
+    }
+
+    private Future<CoinPriceDto> fetchKoriPriceFromSunSwap(BigDecimal trxUsdPrice) {
+        String url = trongridApiUrl + "/wallet/triggerconstantcontract";
+        JsonObject payload = new JsonObject()
+            .put("owner_address", KORI_SUNSWAP_PAIR_ADDRESS)
+            .put("contract_address", KORI_SUNSWAP_PAIR_ADDRESS)
+            .put("function_selector", "getReserves()")
+            .put("visible", true);
+
+        return webClient.postAbs(url)
+            .timeout(HTTP_TIMEOUT_MS)
+            .putHeader("Accept", "application/json")
+            .putHeader("Content-Type", "application/json")
+            .putHeader("User-Agent", "foxya-coin-service/1.0")
+            .sendJsonObject(payload)
+            .compose(res -> {
+                if (res.statusCode() != 200) {
+                    return Future.failedFuture("TronGrid getReserves non-200: status=" + res.statusCode());
+                }
+
+                JsonObject json;
+                try {
+                    json = res.bodyAsJsonObject();
+                } catch (Exception e) {
+                    return Future.failedFuture("TronGrid getReserves invalid JSON: " + e.getMessage());
+                }
+
+                String raw = json.getJsonArray("constant_result") != null && !json.getJsonArray("constant_result").isEmpty()
+                    ? json.getJsonArray("constant_result").getString(0)
+                    : null;
+                if (raw == null || raw.isBlank() || raw.length() < 128) {
+                    return Future.failedFuture("TronGrid getReserves missing constant_result");
+                }
+
+                BigInteger reserve0 = decodeUint256(raw.substring(0, 64));
+                BigInteger reserve1 = decodeUint256(raw.substring(64, 128));
+                if (reserve0 == null || reserve1 == null || reserve0.signum() <= 0 || reserve1.signum() <= 0) {
+                    return Future.failedFuture("Invalid SunSwap reserves");
+                }
+
+                BigDecimal wtrxPerKori = new BigDecimal(reserve1)
+                    .divide(new BigDecimal(reserve0), 18, RoundingMode.HALF_UP);
+                BigDecimal usdPrice = wtrxPerKori.multiply(trxUsdPrice).setScale(10, RoundingMode.HALF_UP);
+
+                return Future.succeededFuture(CoinPriceDto.builder()
+                    .usdPrice(usdPrice)
+                    .change24hPercent(BigDecimal.ZERO)
+                    .source("SUNSWAP")
+                    .updatedAt(Instant.now())
+                    .build());
             });
     }
 
@@ -330,6 +567,80 @@ public class CurrencyService extends BaseService {
         }
         try {
             return new BigDecimal(cur.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean needsCoinPriceRefresh(CoinPricesDto dto, Set<String> requestedCodes) {
+        if (dto == null || dto.getPrices() == null) {
+            return true;
+        }
+
+        Instant now = Instant.now();
+        for (String requestedCode : requestedCodes) {
+            String lookupCode = "KORION".equals(requestedCode) ? "KORI" : requestedCode;
+            CoinPriceDto dtoItem = dto.getPrices().get(lookupCode);
+            if (dtoItem == null || dtoItem.getUpdatedAt() == null) {
+                return true;
+            }
+            if (dtoItem.getUpdatedAt().plusMillis(COIN_PRICE_STALE_MS).isBefore(now)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private CoinPricesDto applyCoinPriceAliases(CoinPricesDto dto, Set<String> requestedCodes) {
+        if (dto == null) {
+            return CoinPricesDto.builder().prices(Map.of()).updatedAt(Instant.now()).build();
+        }
+
+        Map<String, CoinPriceDto> prices = new HashMap<>(dto.getPrices() != null ? dto.getPrices() : Map.of());
+        if (requestedCodes.contains("KORION") && prices.containsKey("KORI")) {
+            prices.put("KORION", prices.get("KORI"));
+        }
+
+        return CoinPricesDto.builder()
+            .prices(prices)
+            .updatedAt(dto.getUpdatedAt())
+            .build();
+    }
+
+    private Set<String> normalizeCoinPriceCodes(Set<String> requestedCodes) {
+        if (requestedCodes == null || requestedCodes.isEmpty()) {
+            return Set.of("BTC", "ETH", "USDT", "TRX", "SOL", "KORI");
+        }
+
+        Set<String> normalized = new HashSet<>();
+        for (String code : requestedCodes) {
+            if (code == null || code.isBlank()) continue;
+            String upper = code.trim().toUpperCase();
+            if (SUPPORTED_COIN_PRICE_CODES.contains(upper)) {
+                normalized.add(upper);
+            }
+        }
+        return normalized;
+    }
+
+    private Set<String> canonicalizeCoinPriceCodes(Set<String> requestedCodes) {
+        Set<String> canonical = new HashSet<>();
+        for (String code : requestedCodes) {
+            if ("KORION".equals(code)) {
+                canonical.add("KORI");
+            } else {
+                canonical.add(code);
+            }
+        }
+        return canonical;
+    }
+
+    private static BigInteger decodeUint256(String hex) {
+        if (hex == null || hex.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigInteger(hex, 16);
         } catch (Exception e) {
             return null;
         }

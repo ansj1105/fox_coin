@@ -61,9 +61,11 @@ public class CurrencyServiceExchangeRateFetchTest {
                 null,
                 null,
                 repo,
+                new CoinPriceRepository(),
                 webClient,
                 base + "/api/v3/simple/price",
-                base + "/v1/tickers"
+                base + "/v1/tickers",
+                base
             );
 
             service.refreshExchangeRates().onComplete(tc.succeeding(v -> tc.verify(() -> {
@@ -145,9 +147,11 @@ public class CurrencyServiceExchangeRateFetchTest {
                 null,
                 null,
                 repo,
+                new CoinPriceRepository(),
                 webClient,
                 base + "/api/v3/simple/price",
-                base + "/v1/tickers"
+                base + "/v1/tickers",
+                base
             );
 
             service.refreshExchangeRates().onComplete(tc.succeeding(v -> tc.verify(() -> {

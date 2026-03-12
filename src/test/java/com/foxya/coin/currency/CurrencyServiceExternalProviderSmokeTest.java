@@ -43,9 +43,11 @@ public class CurrencyServiceExternalProviderSmokeTest {
             null,
             null,
             repo,
+            new CoinPriceRepository(),
             webClient,
             "https://api.coingecko.com/api/v3/simple/price",
-            "https://api.coinpaprika.com/v1/tickers"
+            "https://api.coinpaprika.com/v1/tickers",
+            "https://api.trongrid.io"
         );
 
         service.refreshExchangeRates().onComplete(tc.succeeding(v -> tc.verify(() -> {

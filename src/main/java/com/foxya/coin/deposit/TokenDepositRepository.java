@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import io.vertx.core.json.JsonObject;
 
 @Slf4j
 public class TokenDepositRepository extends BaseRepository {
@@ -120,6 +121,31 @@ public class TokenDepositRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("deposit_id", depositId))
             .map(rows -> fetchOne(tokenDepositMapper, rows))
             .onFailure(e -> log.error("토큰 입금 조회 실패 - depositId: {}", depositId));
+    }
+
+    /**
+     * sweep planner가 재큐잉할 COMPLETED 입금 후보 조회.
+     * sweep_status가 NULL 또는 REQUESTED인 건만 대상이다.
+     */
+    public Future<List<TokenDeposit>> listPendingSweepCandidates(SqlClient client, int limit) {
+        String sql = """
+            SELECT *
+            FROM token_deposits
+            WHERE deleted_at IS NULL
+              AND status = :status
+              AND (sweep_status IS NULL OR UPPER(sweep_status) = :sweep_status)
+            ORDER BY COALESCE(confirmed_at, created_at) ASC, id ASC
+            LIMIT :limit
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("status", TokenDeposit.STATUS_COMPLETED);
+        params.put("sweep_status", TokenDeposit.SWEEP_STATUS_REQUESTED);
+        params.put("limit", Math.max(1, Math.min(limit, 500)));
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(tokenDepositMapper, rows))
+            .onFailure(e -> log.error("Pending sweep candidate query failed", e));
     }
     
     /**

@@ -17,6 +17,8 @@ import com.foxya.coin.notification.utils.NotificationI18nUtils;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import io.vertx.core.Future;
+import io.vertx.core.CompositeFuture;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
 import io.vertx.redis.client.RedisAPI;
@@ -323,6 +325,98 @@ public class TokenDepositService extends BaseService {
             .recover(err -> {
                 log.warn("Sweep check failed - depositId: {}", deposit.getDepositId(), err);
                 return io.vertx.core.Future.succeededFuture(deposit);
+            });
+    }
+
+    public Future<List<JsonObject>> listPendingSweepRequests(int limit) {
+        if (walletRepository == null || currencyRepository == null) {
+            return Future.succeededFuture(java.util.Collections.emptyList());
+        }
+
+        return tokenDepositRepository.listPendingSweepCandidates(pool, limit)
+            .compose(deposits -> {
+                if (deposits == null || deposits.isEmpty()) {
+                    return Future.succeededFuture(java.util.Collections.emptyList());
+                }
+
+                List<Future<JsonObject>> futures = deposits.stream()
+                    .map(this::toSweepRequestPayload)
+                    .toList();
+
+                return CompositeFuture.all(new java.util.ArrayList<>(futures))
+                    .map(result -> futures.stream()
+                        .map(Future::result)
+                        .filter(java.util.Objects::nonNull)
+                        .toList());
+            });
+    }
+
+    private Future<JsonObject> toSweepRequestPayload(TokenDeposit deposit) {
+        if (deposit == null || deposit.getUserId() == null || deposit.getAmount() == null || deposit.getCurrencyId() == null) {
+            return Future.succeededFuture(null);
+        }
+
+        return currencyRepository.getCurrencyById(pool, deposit.getCurrencyId())
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.succeededFuture(null);
+                }
+
+                String chain = deposit.getNetwork();
+                String currencyCode = currency.getCode();
+
+                return isSweepEnabled(chain, currencyCode)
+                    .compose(enabled -> {
+                        if (!enabled) {
+                            return Future.succeededFuture(null);
+                        }
+
+                        return getSweepMinAmount(chain, currencyCode)
+                            .compose(minAmount -> {
+                                if (minAmount == null || deposit.getAmount().compareTo(minAmount) < 0) {
+                                    return Future.succeededFuture(null);
+                                }
+
+                                return getHotWalletUserId()
+                                    .compose(hotUserId -> {
+                                        if (hotUserId == null) {
+                                            return Future.succeededFuture(null);
+                                        }
+
+                                        return walletRepository.getWalletByUserIdAndCurrencyId(pool, deposit.getUserId(), deposit.getCurrencyId())
+                                            .compose(fromWallet -> {
+                                                if (fromWallet == null || fromWallet.getAddress() == null) {
+                                                    return Future.succeededFuture(null);
+                                                }
+
+                                                return walletRepository.getWalletByUserIdAndCurrencyId(pool, hotUserId, deposit.getCurrencyId())
+                                                    .map(toWallet -> {
+                                                        if (toWallet == null || toWallet.getAddress() == null) {
+                                                            return null;
+                                                        }
+
+                                                        return new JsonObject()
+                                                            .put("depositId", deposit.getDepositId())
+                                                            .put("userId", deposit.getUserId())
+                                                            .put("currencyId", deposit.getCurrencyId())
+                                                            .put("currencyCode", currencyCode)
+                                                            .put("chain", chain)
+                                                            .put("network", deposit.getNetwork())
+                                                            .put("amount", deposit.getAmount().toPlainString())
+                                                            .put("fromAddress", fromWallet.getAddress())
+                                                            .put("toAddress", toWallet.getAddress())
+                                                            .put("gasPayer", "ADMIN")
+                                                            .put("sweepStatus", deposit.getSweepStatus())
+                                                            .put("confirmedAt", deposit.getConfirmedAt() != null ? deposit.getConfirmedAt().toString() : null);
+                                                    });
+                                            });
+                                    });
+                            });
+                    });
+            })
+            .recover(err -> {
+                log.warn("Pending sweep payload build failed - depositId: {}", deposit.getDepositId(), err);
+                return Future.succeededFuture(null);
             });
     }
 

@@ -293,6 +293,75 @@ public class WalletService extends BaseService {
             });
     }
 
+    public Future<Wallet> syncInternalVirtualWallet(Long userId, Integer currencyId, String address, String privateKey) {
+        if (userId == null) {
+            return Future.failedFuture(new BadRequestException("userId is required."));
+        }
+        if (currencyId == null) {
+            return Future.failedFuture(new BadRequestException("currencyId is required."));
+        }
+        if (address == null || address.isBlank()) {
+            return Future.failedFuture(new BadRequestException("address is required."));
+        }
+        if (privateKey == null || privateKey.isBlank()) {
+            return Future.failedFuture(new BadRequestException("privateKey is required."));
+        }
+
+        String normalizedAddress = address.trim();
+        return currencyRepository.getCurrencyById(pool, currencyId)
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyId));
+                }
+
+                String encryptedPrivateKey = PrivateKeyEncryptionUtil.encrypt(privateKey);
+                return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currencyId)
+                    .compose(existingWallet -> {
+                        if (existingWallet == null) {
+                            return walletRepository.createWallet(pool, userId, currencyId, normalizedAddress, encryptedPrivateKey)
+                                .map(wallet -> Wallet.builder()
+                                    .id(wallet.getId())
+                                    .userId(wallet.getUserId())
+                                    .currencyId(wallet.getCurrencyId())
+                                    .currencyCode(currency.getCode())
+                                    .currencyName(currency.getName())
+                                    .currencySymbol(currency.getCode())
+                                    .network(currency.getChain())
+                                    .address(wallet.getAddress())
+                                    .balance(wallet.getBalance())
+                                    .lockedBalance(wallet.getLockedBalance())
+                                    .status(wallet.getStatus())
+                                    .createdAt(wallet.getCreatedAt())
+                                    .updatedAt(wallet.getUpdatedAt())
+                                    .build());
+                        }
+
+                        Future<Wallet> walletFuture = Future.succeededFuture(existingWallet);
+                        if (!normalizedAddress.equals(existingWallet.getAddress())) {
+                            walletFuture = walletFuture.compose(wallet -> walletRepository.updateWalletAddressById(pool, wallet.getId(), normalizedAddress));
+                        }
+
+                        return walletFuture
+                            .compose(wallet -> walletRepository.updatePrivateKeyById(pool, wallet.getId(), encryptedPrivateKey).map(v -> wallet))
+                            .map(wallet -> Wallet.builder()
+                                .id(wallet.getId())
+                                .userId(wallet.getUserId())
+                                .currencyId(wallet.getCurrencyId())
+                                .currencyCode(currency.getCode())
+                                .currencyName(currency.getName())
+                                .currencySymbol(currency.getCode())
+                                .network(currency.getChain())
+                                .address(normalizedAddress)
+                                .balance(wallet.getBalance())
+                                .lockedBalance(wallet.getLockedBalance())
+                                .status(wallet.getStatus())
+                                .createdAt(wallet.getCreatedAt())
+                                .updatedAt(wallet.getUpdatedAt())
+                                .build());
+                    });
+            });
+    }
+
     public Future<Wallet> createWalletWithAddress(Long userId, String currencyCode, String chain, String address) {
         if ("KRWT".equalsIgnoreCase(currencyCode)) {
             return Future.failedFuture(new BadRequestException("KRWT 지갑 생성은 아직 구현되지 않았습니다."));

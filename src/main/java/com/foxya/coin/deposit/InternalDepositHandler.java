@@ -49,6 +49,7 @@ public class InternalDepositHandler extends BaseHandler {
         router.post("/:depositId/complete").handler(this::completeDeposit);
         router.post("/complete-batch").handler(this::completeDepositBatch);
         router.get("/:depositId").handler(this::getDeposit);
+        router.get("/sweeps/pending").handler(this::getPendingSweeps);
         router.post("/:depositId/sweep/submit").handler(this::submitSweep);
         router.post("/:depositId/sweep/fail").handler(this::failSweep);
         return router;
@@ -231,6 +232,21 @@ public class InternalDepositHandler extends BaseHandler {
             return;
         }
         response(ctx, tokenDepositService.getTokenDepositByDepositId(depositId));
+    }
+
+    private void getPendingSweeps(RoutingContext ctx) {
+        int limit = 100;
+        try {
+            String raw = ctx.request().getParam("limit");
+            if (raw != null && !raw.isBlank()) {
+                limit = Integer.parseInt(raw);
+            }
+        } catch (NumberFormatException e) {
+            ctx.fail(400, new IllegalArgumentException("limit must be integer"));
+            return;
+        }
+
+        response(ctx, tokenDepositService.listPendingSweepRequests(limit));
     }
 
     private void submitSweep(RoutingContext ctx) {

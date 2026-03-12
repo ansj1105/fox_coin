@@ -35,6 +35,7 @@ import com.foxya.coin.user.UserService;
 import com.foxya.coin.user.UserExternalIdRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
+import com.foxya.coin.wallet.InternalWalletHandler;
 import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -108,6 +109,7 @@ import com.foxya.coin.common.DeviceGuard;
 import com.foxya.coin.currency.CurrencyHandler;
 import com.foxya.coin.currency.CurrencyService;
 import com.foxya.coin.currency.ExchangeRateRepository;
+import com.foxya.coin.currency.CoinPriceRepository;
 import com.foxya.coin.country.CountryCodeRepository;
 import com.foxya.coin.country.CountryCodeService;
 import com.foxya.coin.security.SecurityHandler;
@@ -346,7 +348,8 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Normalized comment.
         ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
-        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, webClient);
+        CoinPriceRepository coinPriceRepository = new CoinPriceRepository();
+        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient);
         CountryCodeRepository countryCodeRepository = new CountryCodeRepository();
         CountryCodeService countryCodeService = new CountryCodeService(pool, countryCodeRepository);
         
@@ -372,6 +375,8 @@ public class ApiVerticle extends AbstractVerticle {
             vertx, transferService, depositScannerApiKey);
         InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
             vertx, pool, appConfigRepository, depositScannerApiKey);
+        InternalWalletHandler internalWalletHandler = new InternalWalletHandler(
+            vertx, walletService, depositScannerApiKey);
         
         // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -545,6 +550,7 @@ public class ApiVerticle extends AbstractVerticle {
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/config", internalConfigHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/wallets", internalWalletHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/airdrop", airdropHandler.getRouter());
