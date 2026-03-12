@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -101,7 +102,7 @@ public class CoinPriceRepository extends BaseRepository {
         params.put("usd_price", dto.getUsdPrice());
         params.put("change_24h_percent", dto.getChange24hPercent());
         params.put("source", dto.getSource());
-        params.put("updated_at", LocalDateTime.now());
+        params.put("updated_at", OffsetDateTime.now(ZoneOffset.UTC));
 
         String sql = QueryBuilder.insert("coin_prices", params, null);
         return query(client, sql, params).mapEmpty();
@@ -118,7 +119,7 @@ public class CoinPriceRepository extends BaseRepository {
         params.put("usd_price", dto.getUsdPrice());
         params.put("change_24h_percent", dto.getChange24hPercent());
         params.put("source", dto.getSource());
-        params.put("updated_at", LocalDateTime.now());
+        params.put("updated_at", OffsetDateTime.now(ZoneOffset.UTC));
         return query(client, sql, params).mapEmpty();
     }
 
