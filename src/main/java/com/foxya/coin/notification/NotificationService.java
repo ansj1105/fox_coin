@@ -71,6 +71,14 @@ public class NotificationService extends BaseService {
         return retryQueuePublisher;
     }
 
+    public PgPool getPool() {
+        return pool;
+    }
+
+    public UserRepository getUserRepository() {
+        return userRepository;
+    }
+
     private Future<Notification> createNotificationInternal(Long userId, NotificationType type, String title, String message,
                                                             Long relatedId, String metadata, boolean swallowInsertFailure) {
         JsonNode metadataNode = parseMetadata(metadata);

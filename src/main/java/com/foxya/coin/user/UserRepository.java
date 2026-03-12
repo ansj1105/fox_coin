@@ -2,6 +2,7 @@ package com.foxya.coin.user;
 
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
+import io.vertx.sqlclient.Row;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.common.utils.DateUtils;
@@ -13,7 +14,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class UserRepository extends BaseRepository {
@@ -506,5 +509,49 @@ public class UserRepository extends BaseRepository {
         return query(client, built, Collections.singletonMap("email", email))
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("이메일로 회원 조회 실패 (send-temp-password) - email: {}", email, throwable));
+    }
+
+    public Future<Long> countActiveUsers(SqlClient client) {
+        String sql = """
+            SELECT COUNT(*) AS total
+            FROM users
+            WHERE deleted_at IS NULL
+            """;
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build())
+            .map(rows -> {
+                Row row = rows.iterator().next();
+                Long total = getLongColumnValue(row, "total");
+                return total == null ? 0L : total;
+            })
+            .onFailure(throwable -> log.error("활성 사용자 수 조회 실패", throwable));
+    }
+
+    public Future<List<Long>> getActiveUserIdsAfter(SqlClient client, Long afterUserId, int limit) {
+        String sql = """
+            SELECT id
+            FROM users
+            WHERE deleted_at IS NULL
+              AND id > #{afterUserId}
+            ORDER BY id ASC
+            LIMIT #{limit}
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("afterUserId", afterUserId == null ? 0L : afterUserId);
+        params.put("limit", Math.max(1, Math.min(limit, 5000)));
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> {
+                List<Long> userIds = new ArrayList<>();
+                for (Row row : rows) {
+                    Long userId = getLongColumnValue(row, "id");
+                    if (userId != null && userId > 0L) {
+                        userIds.add(userId);
+                    }
+                }
+                return userIds;
+            })
+            .onFailure(throwable -> log.error("활성 사용자 ID 조회 실패 - afterUserId: {}, limit: {}", afterUserId, limit, throwable));
     }
 }

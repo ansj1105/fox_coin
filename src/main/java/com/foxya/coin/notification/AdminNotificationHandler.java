@@ -6,7 +6,9 @@ import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.retry.BulkNotificationJob;
 import com.foxya.coin.retry.RetryQueuePublisher;
+import com.foxya.coin.user.UserRepository;
 import io.vertx.core.Future;
+import io.vertx.pgclient.PgPool;
 import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.enums.NotificationType;
 import io.vertx.core.Vertx;
@@ -28,15 +30,31 @@ import java.util.stream.Collectors;
 
 @Slf4j
 public class AdminNotificationHandler extends BaseHandler {
+    private static final int BROADCAST_USER_BATCH_SIZE = 500;
 
+    private final PgPool pool;
     private final NotificationService notificationService;
     private final RetryQueuePublisher retryQueuePublisher;
+    private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
 
     public AdminNotificationHandler(Vertx vertx, NotificationService notificationService, RetryQueuePublisher retryQueuePublisher, JWTAuth jwtAuth) {
+        this(
+            vertx,
+            notificationService != null ? notificationService.getPool() : null,
+            notificationService,
+            retryQueuePublisher,
+            notificationService != null ? notificationService.getUserRepository() : null,
+            jwtAuth
+        );
+    }
+
+    public AdminNotificationHandler(Vertx vertx, PgPool pool, NotificationService notificationService, RetryQueuePublisher retryQueuePublisher, UserRepository userRepository, JWTAuth jwtAuth) {
         super(vertx);
+        this.pool = pool;
         this.notificationService = notificationService;
         this.retryQueuePublisher = retryQueuePublisher;
+        this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
     }
 
@@ -52,6 +70,10 @@ public class AdminNotificationHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
             .handler(this::createBulkTestNotification);
+        router.post("/test/broadcast")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
+            .handler(this::createBroadcastTestNotification);
         router.get("/test/bulk/:requestId/status")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
@@ -176,6 +198,67 @@ public class AdminNotificationHandler extends BaseHandler {
         );
     }
 
+    private void createBroadcastTestNotification(RoutingContext ctx) {
+        if (retryQueuePublisher == null) {
+            ctx.fail(503, new BadRequestException("Redis가 비활성화되어 전체 알림 기능을 사용할 수 없습니다."));
+            return;
+        }
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new BadRequestException("요청 본문이 필요합니다."));
+            return;
+        }
+
+        String title = body.getString("title");
+        String message = body.getString("message");
+        if (title == null || title.isBlank() || message == null || message.isBlank()) {
+            ctx.fail(400, new BadRequestException("title, message 값이 필요합니다."));
+            return;
+        }
+
+        NotificationType type = parseNotificationTypeOrFail(ctx, body.getString("type", NotificationType.NOTICE.name()));
+        if (type == null) return;
+
+        int maxRetries = body.getInteger("maxRetries", BulkNotificationJob.DEFAULT_MAX_RETRIES);
+        maxRetries = Math.max(1, Math.min(maxRetries, 10));
+        final int finalMaxRetries = maxRetries;
+        Long relatedId = body.getLong("relatedId");
+        String metadata = normalizeMetadata(body.getValue("metadata"));
+        Long adminId = AuthUtils.getUserIdOf(ctx.user());
+        String requestId = UUID.randomUUID().toString().replace("-", "");
+
+        log.info("Admin broadcast notification enqueue request: adminId={}, requestId={}, type={}",
+            adminId, requestId, type);
+
+        response(ctx,
+            userRepository.countActiveUsers(pool)
+                .compose(totalUsers -> {
+                    int total = totalUsers == null ? 0 : (int) Math.min(totalUsers, Integer.MAX_VALUE);
+                    return retryQueuePublisher.initBulkNotificationStatus(requestId, adminId, total)
+                        .compose(v -> enqueueBroadcastJobs(
+                            requestId,
+                            adminId,
+                            type,
+                            title,
+                            message,
+                            relatedId,
+                            metadata,
+                            finalMaxRetries,
+                            0L
+                        ))
+                        .compose(result -> retryQueuePublisher.getBulkNotificationStatus(requestId)
+                            .map(status -> new JsonObject()
+                                .put("requestId", requestId)
+                                .put("total", total)
+                                .put("enqueued", result.enqueued())
+                                .put("enqueueFailed", result.enqueueFailed())
+                                .put("status", status)
+                            ));
+                }),
+            result -> result
+        );
+    }
+
     private JsonObject toResponse(Notification notification) {
         return new JsonObject()
             .put("created", notification != null)
@@ -246,6 +329,37 @@ public class AdminNotificationHandler extends BaseHandler {
                 .map(next -> next.plusFailed()));
     }
 
+    private Future<BulkEnqueueResult> enqueueBroadcastJobs(String requestId,
+                                                           Long adminId,
+                                                           NotificationType type,
+                                                           String title,
+                                                           String message,
+                                                           Long relatedId,
+                                                           String metadata,
+                                                           int maxRetries,
+                                                           Long afterUserId) {
+        return userRepository.getActiveUserIdsAfter(pool, afterUserId, BROADCAST_USER_BATCH_SIZE)
+            .compose(userIds -> {
+                if (userIds == null || userIds.isEmpty()) {
+                    return Future.succeededFuture(new BulkEnqueueResult(0, 0));
+                }
+
+                Long nextCursor = userIds.get(userIds.size() - 1);
+                return enqueueBulkJobs(userIds, 0, requestId, adminId, type, title, message, relatedId, metadata, maxRetries)
+                    .compose(current -> enqueueBroadcastJobs(
+                        requestId,
+                        adminId,
+                        type,
+                        title,
+                        message,
+                        relatedId,
+                        metadata,
+                        maxRetries,
+                        nextCursor
+                    ).map(next -> current.merge(next)));
+            });
+    }
+
     private Long toPositiveLong(Object value) {
         if (value == null) return null;
         if (value instanceof Number number) {
@@ -270,6 +384,13 @@ public class AdminNotificationHandler extends BaseHandler {
 
         private BulkEnqueueResult plusFailed() {
             return new BulkEnqueueResult(enqueued, enqueueFailed + 1);
+        }
+
+        private BulkEnqueueResult merge(BulkEnqueueResult other) {
+            return new BulkEnqueueResult(
+                enqueued + (other == null ? 0 : other.enqueued),
+                enqueueFailed + (other == null ? 0 : other.enqueueFailed)
+            );
         }
     }
 }
