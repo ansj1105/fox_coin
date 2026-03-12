@@ -48,6 +48,9 @@ public final class PrivateKeyEncryptionUtil {
         if (encryptedValue == null || encryptedValue.isBlank()) {
             throw new IllegalArgumentException("Encrypted private key must be provided.");
         }
+        if (!isEncryptedPayload(encryptedValue)) {
+            return encryptedValue;
+        }
         try {
             byte[] data = hexToBytes(encryptedValue);
             Exception lastError = null;
@@ -153,6 +156,23 @@ public final class PrivateKeyEncryptionUtil {
             builder.append(String.format("%02x", b));
         }
         return builder.toString();
+    }
+
+    private static boolean isEncryptedPayload(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim();
+        int minEncryptedHexLength = (IV_LENGTH_BYTES + TAG_LENGTH_BYTES + 1) * 2;
+        if (normalized.length() < minEncryptedHexLength || (normalized.length() % 2 != 0)) {
+            return false;
+        }
+        for (int i = 0; i < normalized.length(); i += 1) {
+            if (Character.digit(normalized.charAt(i), 16) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static byte[] hexToBytes(String value) {

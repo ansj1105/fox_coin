@@ -42,6 +42,24 @@ class PrivateKeyEncryptionUtilTest {
         assertThat(PrivateKeyEncryptionUtil.decrypt(legacyEncrypted)).isEqualTo("legacy");
     }
 
+    @Test
+    void decrypt_returnsPlainEthPrivateKeyAsIs() {
+        System.setProperty("ENCRYPTION_KEY", PRIMARY_KEY);
+
+        String plainPrivateKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        assertThat(PrivateKeyEncryptionUtil.decrypt(plainPrivateKey)).isEqualTo(plainPrivateKey);
+    }
+
+    @Test
+    void decrypt_returnsPlainPrivateKeyWithPrefixAsIs() {
+        System.setProperty("ENCRYPTION_KEY", PRIMARY_KEY);
+
+        String plainPrivateKey = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        assertThat(PrivateKeyEncryptionUtil.decrypt(plainPrivateKey)).isEqualTo(plainPrivateKey);
+    }
+
     private String encryptLegacyNodeFormat(String plainText, String key) {
         try {
             byte[] iv = new byte[16];
