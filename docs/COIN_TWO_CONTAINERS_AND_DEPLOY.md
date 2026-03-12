@@ -83,6 +83,16 @@ curl -sf http://localhost/health && echo " nginx->api OK" || echo " check nginx"
 
 (스크립트가 위와 같은 순서로 app → app2 무중단 업데이트를 수행하도록 되어 있음)
 
+TRON worker 배포는 별도 진입점을 사용합니다.
+
+```bash
+./scripts/deploy-tron-service.sh
+# 또는
+./scripts/deploy.sh update-tron
+```
+
+자세한 이유와 절차는 [TRON_SERVICE_DEPLOY_RUNBOOK.md](./TRON_SERVICE_DEPLOY_RUNBOOK.md)를 참고하세요.
+
 ### 롤백
 
 이전에 백업해 둔 이미지 태그로 되돌립니다.

@@ -83,7 +83,7 @@ usage() {
     echo "  deploy      - 애플리케이션 배포 (전체 up)"
     echo "  update      - 코드 업데이트 후 무중단 재배포 (app → app2 순)"
     echo "  rollback    - 이전 이미지로 롤백 (app, app2 둘 다)"
-    echo "  update-tron - TRON 서비스 무중단 재배포 (tron-service → tron-service2 순)"
+    echo "  update-tron - TRON 서비스 배포 스크립트 실행 (coin_publish 동기화 + env 검증 + 재배포)"
     echo "  rollback-tron - TRON 서비스 이전 이미지로 롤백"
     echo "  status      - 서비스 상태 확인"
     echo "  logs        - 로그 확인"
@@ -223,26 +223,11 @@ update() {
     fi
 }
 
-# TRON 서비스 업데이트 (무중단: tron-service → tron-service2 순)
+# TRON 서비스 업데이트 (coin_publish 동기화 + env 검증 + 재배포)
 update_tron() {
-    log_info "TRON 서비스 업데이트 시작 (무중단: tron-service → tron-service2)..."
+    log_info "TRON 서비스 배포 스크립트 실행"
     cd "${DEPLOY_DIR}"
-    BACKUP_TAG=$(date +%Y%m%d_%H%M%S)
-    docker tag foxya-tron-service:latest foxya-tron-service:backup_${BACKUP_TAG} 2>/dev/null || true
-    log_info "이미지 빌드 중... (context: \${TRON_SERVICE_PATH:-/var/www/coin_publish})"
-    docker-compose -f ${COMPOSE_FILE} build tron-service
-    log_info "tron-service 재시작 중..."
-    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service
-    sleep 20
-    if ! docker-compose -f ${COMPOSE_FILE} exec -T tron-service node -e 'require("http").get("http://localhost:3000/health", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on("error", () => process.exit(1))' 2>/dev/null; then
-        log_warning "tron-service 헬스 확인 실패. 로그 확인 권장."
-    else
-        log_success "tron-service 정상 기동"
-    fi
-    log_info "tron-service2 재시작 중..."
-    docker-compose -f ${COMPOSE_FILE} up -d --no-deps tron-service2
-    sleep 15
-    log_success "TRON 업데이트 완료 (두 컨테이너 모두 새 이미지)"
+    ./scripts/deploy-tron-service.sh
 }
 
 # TRON 서비스 롤백
