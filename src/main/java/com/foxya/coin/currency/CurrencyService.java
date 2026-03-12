@@ -16,6 +16,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -223,7 +225,9 @@ public class CurrencyService extends BaseService {
         Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
 
         fetchCoinPricesFromProviders(codes)
-            .compose(prices -> coinPriceRepository.upsertCoinPrices(pool, prices))
+            .compose(this::applyDerived24hChanges)
+            .compose(prices -> coinPriceRepository.upsertCoinPrices(pool, prices)
+                .compose(v -> coinPriceRepository.upsertDailyClosePrices(pool, prices, LocalDate.now(ZoneOffset.UTC))))
             .onComplete(ar -> {
                 coinPriceRefreshInFlight.set(null);
                 if (ar.succeeded()) {
@@ -394,11 +398,63 @@ public class CurrencyService extends BaseService {
 
                 return Future.succeededFuture(CoinPriceDto.builder()
                     .usdPrice(usdPrice)
-                    .change24hPercent(BigDecimal.ZERO)
+                    .change24hPercent(null)
                     .source("SUNSWAP")
                     .updatedAt(Instant.now())
                     .build());
             });
+    }
+
+    private Future<Map<String, CoinPriceDto>> applyDerived24hChanges(Map<String, CoinPriceDto> prices) {
+        if (prices == null || prices.isEmpty()) {
+            return Future.succeededFuture(prices);
+        }
+
+        Set<String> missingChangeCodes = prices.entrySet().stream()
+            .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+            .filter(entry -> entry.getValue().getUsdPrice() != null)
+            .filter(entry -> entry.getValue().getChange24hPercent() == null)
+            .map(Map.Entry::getKey)
+            .collect(java.util.stream.Collectors.toSet());
+
+        if (missingChangeCodes.isEmpty()) {
+            return Future.succeededFuture(prices);
+        }
+
+        LocalDate previousCloseDate = LocalDate.now(ZoneOffset.UTC).minusDays(1);
+        return coinPriceRepository.getDailyClosePrices(pool, missingChangeCodes, previousCloseDate)
+            .map(previousCloses -> {
+                for (String code : missingChangeCodes) {
+                    CoinPriceDto dto = prices.get(code);
+                    if (dto == null) {
+                        continue;
+                    }
+                    BigDecimal previousCloseUsd = previousCloses.get(code);
+                    dto.setChange24hPercent(calculateChange24hPercent(previousCloseUsd, dto.getUsdPrice()));
+                }
+                return prices;
+            })
+            .recover(err -> {
+                log.warn("Failed to derive 24h coin price changes from previous daily closes: {}", err.getMessage());
+                missingChangeCodes.forEach(code -> {
+                    CoinPriceDto dto = prices.get(code);
+                    if (dto != null && dto.getChange24hPercent() == null) {
+                        dto.setChange24hPercent(BigDecimal.ZERO);
+                    }
+                });
+                return Future.succeededFuture(prices);
+            });
+    }
+
+    static BigDecimal calculateChange24hPercent(BigDecimal previousCloseUsd, BigDecimal currentUsd) {
+        if (currentUsd == null || previousCloseUsd == null || previousCloseUsd.signum() == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        return currentUsd.subtract(previousCloseUsd)
+            .divide(previousCloseUsd, 8, RoundingMode.HALF_UP)
+            .multiply(new BigDecimal("100"))
+            .setScale(8, RoundingMode.HALF_UP);
     }
 
     private Future<FetchResult> fetchFromCoinGecko() {
