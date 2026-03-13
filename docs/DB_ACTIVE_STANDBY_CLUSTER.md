@@ -84,6 +84,8 @@ DB_ADMIN_SERVICE=postgres
 3. `db-proxy`가 새 Primary에 붙도록 `DB_PRIMARY_HOST`, `DB_STANDBY_HOST`를 맞춘 뒤 재기동
 4. 앱은 `DB_HOST=db-proxy` 그대로 유지
 
+다른 서버의 서비스가 `db-proxy`에 직접 붙어야 하면 `DB_PROXY_BIND_ADDRESS=0.0.0.0`로 바꾸고, Security Group은 필요한 소스 IP만 허용합니다.
+
 수동 승격만 있는 경우:
 
 1. Standby에서 `promote` 수행
