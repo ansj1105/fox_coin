@@ -349,7 +349,33 @@ public class UserService extends BaseService {
                     .gender(user.getGender())
                     .country(user.getCountryCode())
                     .appReviewRewarded(Boolean.TRUE.equals(user.getAppReviewRewarded()))
+                    .reviewPromptDismissed(Boolean.TRUE.equals(user.getReviewPromptDismissed()))
+                    .reviewPromptLastShownAt(user.getReviewPromptLastShownAt())
                     .build());
+            });
+    }
+
+    public Future<JsonObject> updateReviewPromptState(Long userId, JsonObject body) {
+        Boolean dismissed = body != null ? body.getBoolean("dismissed") : null;
+        boolean markShown = body != null && Boolean.TRUE.equals(body.getBoolean("markShown"));
+
+        if (dismissed == null && !markShown) {
+            return Future.failedFuture(new BadRequestException("dismissed 또는 markShown 값이 필요합니다."));
+        }
+
+        return userRepository.updateReviewPromptState(pool, userId, dismissed, markShown)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                JsonObject response = new JsonObject()
+                    .put("reviewPromptDismissed", Boolean.TRUE.equals(user.getReviewPromptDismissed()));
+                if (user.getReviewPromptLastShownAt() != null) {
+                    response.put("reviewPromptLastShownAt", user.getReviewPromptLastShownAt().toString());
+                } else {
+                    response.putNull("reviewPromptLastShownAt");
+                }
+                return Future.succeededFuture(response);
             });
     }
 

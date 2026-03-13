@@ -79,6 +79,12 @@ public class UserHandler extends BaseHandler {
             .handler(patchMeValidation(parser))
             .handler(this::patchMe);
 
+        router.patch("/me/review-prompt")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(reviewPromptValidation(parser))
+            .handler(this::patchReviewPrompt);
+
         router.post("/me/profile-image")
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -182,6 +188,17 @@ public class UserHandler extends BaseHandler {
                     .optionalProperty("phone", stringSchema().with(maxLength(20)))
                     .optionalProperty("gender", stringSchema().with(maxLength(1)))
                     .optionalProperty("country", stringSchema().with(minLength(2), maxLength(3)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> reviewPromptValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .optionalProperty("dismissed", booleanSchema())
+                    .optionalProperty("markShown", booleanSchema())
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -311,6 +328,11 @@ public class UserHandler extends BaseHandler {
     private void patchMe(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         response(ctx, userService.updateMe(userId, ctx.getBodyAsJson()), v -> null);
+    }
+
+    private void patchReviewPrompt(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.updateReviewPromptState(userId, ctx.getBodyAsJson()));
     }
 
     private void uploadProfileImage(RoutingContext ctx) {

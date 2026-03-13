@@ -47,6 +47,8 @@ public class UserRepository extends BaseRepository {
         .isTest(getIntegerColumnValue(row, "is_test"))
         .referralAirdropRewarded(getBooleanColumnValue(row, "referral_airdrop_rewarded"))
         .appReviewRewarded(getBooleanColumnValue(row, "app_review_rewarded"))
+        .reviewPromptDismissed(getBooleanColumnValue(row, "review_prompt_dismissed"))
+        .reviewPromptLastShownAt(getLocalDateTimeColumnValue(row, "review_prompt_last_shown_at"))
         .isWarning(getIntegerColumnValue(row, "is_warning"))
         .isMiningSuspended(getIntegerColumnValue(row, "is_mining_suspended"))
         .isAccountBlocked(getIntegerColumnValue(row, "is_account_blocked"))
@@ -356,6 +358,39 @@ public class UserRepository extends BaseRepository {
         String sql = "UPDATE users SET " + setClause + " WHERE id = #{id}";
         String q = QueryBuilder.selectStringQuery(sql).build();
         return query(client, q, updates).map(v -> null);
+    }
+
+    public Future<User> updateReviewPromptState(
+        SqlClient client,
+        Long userId,
+        Boolean reviewPromptDismissed,
+        boolean markShown
+    ) {
+        Map<String, Object> updates = new HashMap<>();
+        if (reviewPromptDismissed != null) {
+            updates.put("review_prompt_dismissed", reviewPromptDismissed);
+        }
+        if (markShown) {
+            updates.put("review_prompt_last_shown_at", DateUtils.now());
+        }
+        if (updates.isEmpty()) {
+            return getUserById(client, userId);
+        }
+
+        updates.put("id", userId);
+        updates.put("updated_at", DateUtils.now());
+
+        String setClause = updates.keySet().stream()
+            .filter(k -> !"id".equals(k))
+            .map(k -> k + " = #{" + k + "}")
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("updated_at = #{updated_at}");
+
+        String sql = "UPDATE users SET " + setClause + " WHERE id = #{id} AND deleted_at IS NULL RETURNING *";
+        String q = QueryBuilder.selectStringQuery(sql).build();
+        return query(client, q, updates)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("리뷰 프롬프트 상태 업데이트 실패 - userId: {}", userId, throwable));
     }
     
     /**

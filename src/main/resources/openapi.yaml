@@ -3728,6 +3728,14 @@ paths:
                           appReviewRewarded:
                             type: boolean
                             description: 앱 리뷰 보상 지급 완료 여부 (false=미완료, true=완료)
+                          reviewPromptDismissed:
+                            type: boolean
+                            description: 리뷰 유도 팝업 다시 보지 않기 여부
+                          reviewPromptLastShownAt:
+                            type: string
+                            format: date-time
+                            nullable: true
+                            description: 리뷰 유도 팝업 마지막 노출 시각
         '401':
           description: 인증 실패
     patch:
@@ -3775,6 +3783,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '401':
+          description: 인증 실패
+
+  /api/v1/users/me/review-prompt:
+    patch:
+      summary: 리뷰 유도 팝업 상태 업데이트
+      description: Security 진입 시 리뷰 유도 팝업 마지막 노출 시각(markShown) 또는 다시 보지 않기(dismissed)를 업데이트합니다.
+      tags: [User]
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dismissed:
+                  type: boolean
+                  description: true면 다시 보지 않기로 설정
+                markShown:
+                  type: boolean
+                  description: true면 마지막 노출 시각을 현재 시각으로 기록
+              additionalProperties: false
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          reviewPromptDismissed:
+                            type: boolean
+                          reviewPromptLastShownAt:
+                            type: string
+                            format: date-time
+                            nullable: true
+        '400':
+          description: dismissed 또는 markShown 누락
         '401':
           description: 인증 실패
 
