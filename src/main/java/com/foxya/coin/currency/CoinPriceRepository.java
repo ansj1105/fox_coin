@@ -175,6 +175,9 @@ public class CoinPriceRepository extends BaseRepository {
     }
 
     private Future<Void> upsertDailyClosePrice(SqlClient client, String currencyCode, CoinPriceDto dto, LocalDate closeDate) {
+        OffsetDateTime sourceUpdatedAt = dto.getUpdatedAt() != null
+            ? dto.getUpdatedAt().atOffset(ZoneOffset.UTC)
+            : null;
         String sql = """
             INSERT INTO coin_price_daily_closes (currency_code, close_date, usd_close_price, source_price_updated_at, updated_at)
             VALUES ($1, $2, $3, $4, now())
@@ -184,7 +187,7 @@ public class CoinPriceRepository extends BaseRepository {
                 updated_at = now()
             """;
         return client.preparedQuery(sql)
-            .execute(Tuple.of(currencyCode, closeDate, dto.getUsdPrice(), dto.getUpdatedAt()))
+            .execute(Tuple.of(currencyCode, closeDate, dto.getUsdPrice(), sourceUpdatedAt))
             .mapEmpty();
     }
 
