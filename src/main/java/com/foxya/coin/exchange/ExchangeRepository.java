@@ -5,6 +5,7 @@ import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.exchange.entities.Exchange;
 import com.foxya.coin.exchange.entities.ExchangeSetting;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
+import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import com.foxya.coin.utils.QueryBuilder;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -80,6 +82,26 @@ public class ExchangeRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("exchange_id", exchangeId))
             .map(rows -> fetchOne(exchangeMapper, rows))
             .onFailure(e -> log.error("환전 조회 실패 - exchangeId: {}", exchangeId));
+    }
+
+    public Future<List<Exchange>> getExchangesByUserId(SqlClient client, Long userId, int limit, int offset) {
+        String sql = QueryBuilder
+            .select("exchanges")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+        params.put("offset", offset);
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(exchangeMapper, rows))
+            .onFailure(e -> log.error("환전 목록 조회 실패 - userId: {}", userId, e));
     }
 
     public Future<ExchangeSetting> getActiveExchangeSetting(SqlClient client) {
