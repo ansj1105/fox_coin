@@ -293,7 +293,7 @@ public class WalletService extends BaseService {
             });
     }
 
-    public Future<Wallet> syncInternalVirtualWallet(Long userId, Integer currencyId, String address, String privateKey) {
+    public Future<Wallet> syncInternalVirtualWallet(Long userId, Integer currencyId, String address, String privateKey, Boolean verified) {
         if (userId == null) {
             return Future.failedFuture(new BadRequestException("userId is required."));
         }
@@ -303,9 +303,6 @@ public class WalletService extends BaseService {
         if (address == null || address.isBlank()) {
             return Future.failedFuture(new BadRequestException("address is required."));
         }
-        if (privateKey == null || privateKey.isBlank()) {
-            return Future.failedFuture(new BadRequestException("privateKey is required."));
-        }
 
         String normalizedAddress = address.trim();
         return currencyRepository.getCurrencyById(pool, currencyId)
@@ -314,11 +311,34 @@ public class WalletService extends BaseService {
                     return Future.failedFuture(new NotFoundException("통화를 찾을 수 없습니다: " + currencyId));
                 }
 
-                String encryptedPrivateKey = PrivateKeyEncryptionUtil.encrypt(privateKey);
+                String encryptedPrivateKey = privateKey == null || privateKey.isBlank()
+                    ? null
+                    : PrivateKeyEncryptionUtil.encrypt(privateKey);
                 return walletRepository.getWalletByUserIdAndCurrencyId(pool, userId, currencyId)
                     .compose(existingWallet -> {
                         if (existingWallet == null) {
+                            if (encryptedPrivateKey == null) {
+                                return Future.failedFuture(new BadRequestException("privateKey is required for first sync."));
+                            }
                             return walletRepository.createWallet(pool, userId, currencyId, normalizedAddress, encryptedPrivateKey)
+                                .compose(wallet -> {
+                                    if (verified == null || !verified) {
+                                        return Future.succeededFuture(wallet);
+                                    }
+                                    return walletRepository.updateVerifiedById(pool, wallet.getId(), true).map(v -> Wallet.builder()
+                                        .id(wallet.getId())
+                                        .userId(wallet.getUserId())
+                                        .currencyId(wallet.getCurrencyId())
+                                        .address(wallet.getAddress())
+                                        .privateKey(wallet.getPrivateKey())
+                                        .balance(wallet.getBalance())
+                                        .lockedBalance(wallet.getLockedBalance())
+                                        .verified(true)
+                                        .status(wallet.getStatus())
+                                        .createdAt(wallet.getCreatedAt())
+                                        .updatedAt(wallet.getUpdatedAt())
+                                        .build());
+                                })
                                 .map(wallet -> Wallet.builder()
                                     .id(wallet.getId())
                                     .userId(wallet.getUserId())
@@ -330,6 +350,7 @@ public class WalletService extends BaseService {
                                     .address(wallet.getAddress())
                                     .balance(wallet.getBalance())
                                     .lockedBalance(wallet.getLockedBalance())
+                                    .verified(Boolean.TRUE.equals(verified))
                                     .status(wallet.getStatus())
                                     .createdAt(wallet.getCreatedAt())
                                     .updatedAt(wallet.getUpdatedAt())
@@ -340,9 +361,28 @@ public class WalletService extends BaseService {
                         if (!normalizedAddress.equals(existingWallet.getAddress())) {
                             walletFuture = walletFuture.compose(wallet -> walletRepository.updateWalletAddressById(pool, wallet.getId(), normalizedAddress));
                         }
+                        if (encryptedPrivateKey != null) {
+                            walletFuture = walletFuture
+                                .compose(wallet -> walletRepository.updatePrivateKeyById(pool, wallet.getId(), encryptedPrivateKey).map(v -> wallet));
+                        }
+                        if (verified != null && !verified.equals(existingWallet.getVerified())) {
+                            walletFuture = walletFuture
+                                .compose(wallet -> walletRepository.updateVerifiedById(pool, wallet.getId(), verified).map(v -> Wallet.builder()
+                                    .id(wallet.getId())
+                                    .userId(wallet.getUserId())
+                                    .currencyId(wallet.getCurrencyId())
+                                    .address(wallet.getAddress())
+                                    .privateKey(wallet.getPrivateKey())
+                                    .balance(wallet.getBalance())
+                                    .lockedBalance(wallet.getLockedBalance())
+                                    .verified(verified)
+                                    .status(wallet.getStatus())
+                                    .createdAt(wallet.getCreatedAt())
+                                    .updatedAt(wallet.getUpdatedAt())
+                                    .build()));
+                        }
 
                         return walletFuture
-                            .compose(wallet -> walletRepository.updatePrivateKeyById(pool, wallet.getId(), encryptedPrivateKey).map(v -> wallet))
                             .map(wallet -> Wallet.builder()
                                 .id(wallet.getId())
                                 .userId(wallet.getUserId())
@@ -354,6 +394,7 @@ public class WalletService extends BaseService {
                                 .address(normalizedAddress)
                                 .balance(wallet.getBalance())
                                 .lockedBalance(wallet.getLockedBalance())
+                                .verified(verified != null ? verified : wallet.getVerified())
                                 .status(wallet.getStatus())
                                 .createdAt(wallet.getCreatedAt())
                                 .updatedAt(wallet.getUpdatedAt())

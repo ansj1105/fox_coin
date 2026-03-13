@@ -62,13 +62,14 @@ public class InternalWalletHandler extends BaseHandler {
         Integer currencyId = body.getInteger("currencyId");
         String address = body.getString("address");
         String privateKey = body.getString("privateKey");
+        Boolean verified = body.getBoolean("verified");
 
-        if (userId == null || currencyId == null || address == null || address.isBlank() || privateKey == null || privateKey.isBlank()) {
-            ctx.fail(400, new IllegalArgumentException("userId, currencyId, address, privateKey required"));
+        if (userId == null || currencyId == null || address == null || address.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("userId, currencyId, address required"));
             return;
         }
 
         log.info("Internal wallet sync: userId={}, currencyId={}, address={}", userId, currencyId, address);
-        response(ctx, walletService.syncInternalVirtualWallet(userId, currencyId, address, privateKey));
+        response(ctx, walletService.syncInternalVirtualWallet(userId, currencyId, address, privateKey, verified));
     }
 }

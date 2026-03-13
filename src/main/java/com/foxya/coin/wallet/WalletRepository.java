@@ -30,6 +30,7 @@ public class WalletRepository extends BaseRepository {
         .privateKey(getStringColumnValue(row, "private_key"))
         .balance(getBigDecimalColumnValue(row, "balance"))
         .lockedBalance(getBigDecimalColumnValue(row, "locked_balance"))
+        .verified(getBooleanColumnValue(row, "verified"))
         .status(getStringColumnValue(row, "status"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
@@ -140,6 +141,7 @@ public class WalletRepository extends BaseRepository {
         params.put("private_key", privateKey);
         params.put("balance", java.math.BigDecimal.ZERO);
         params.put("locked_balance", java.math.BigDecimal.ZERO);
+        params.put("verified", false);
         params.put("status", "ACTIVE");
         
         String sql = QueryBuilder.insert("user_wallets", params, "*");
@@ -186,6 +188,23 @@ public class WalletRepository extends BaseRepository {
         return query(client, sql, params)
             .<Void>map(rows -> null)
             .onFailure(throwable -> log.error("지갑 개인키 업데이트 실패 - walletId: {}", walletId, throwable));
+    }
+
+    public Future<Void> updateVerifiedById(SqlClient client, Long walletId, boolean verified) {
+        String sql = QueryBuilder
+            .update("user_wallets", "verified", "updated_at")
+            .where("id", Op.Equal, "walletId")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("walletId", walletId);
+        params.put("verified", verified);
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("지갑 verified 업데이트 실패 - walletId: {}", walletId, throwable));
     }
 
     public Future<Wallet> updateWalletAddressById(SqlClient client, Long walletId, String address) {

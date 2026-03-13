@@ -28,6 +28,7 @@ public class Wallet {
     private String privateKey;
     private BigDecimal balance;
     private BigDecimal lockedBalance;
+    private Boolean verified;
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
