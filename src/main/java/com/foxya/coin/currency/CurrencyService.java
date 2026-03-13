@@ -423,13 +423,27 @@ public class CurrencyService extends BaseService {
 
         LocalDate previousCloseDate = LocalDate.now(ZoneOffset.UTC).minusDays(1);
         return coinPriceRepository.getDailyClosePrices(pool, missingChangeCodes, previousCloseDate)
-            .map(previousCloses -> {
+            .compose(previousCloses -> {
+                Set<String> fallbackCodes = missingChangeCodes.stream()
+                    .filter(code -> !previousCloses.containsKey(code))
+                    .collect(java.util.stream.Collectors.toSet());
+                if (fallbackCodes.isEmpty()) {
+                    return Future.succeededFuture(previousCloses);
+                }
+                return coinPriceRepository.getLatestDailyClosePricesBefore(pool, fallbackCodes, previousCloseDate.plusDays(1))
+                    .map(fallbackCloses -> {
+                        Map<String, BigDecimal> merged = new HashMap<>(previousCloses);
+                        merged.putAll(fallbackCloses);
+                        return merged;
+                    });
+            })
+            .map(referenceCloses -> {
                 for (String code : missingChangeCodes) {
                     CoinPriceDto dto = prices.get(code);
                     if (dto == null) {
                         continue;
                     }
-                    BigDecimal previousCloseUsd = previousCloses.get(code);
+                    BigDecimal previousCloseUsd = referenceCloses.get(code);
                     dto.setChange24hPercent(calculateChange24hPercent(previousCloseUsd, dto.getUsdPrice()));
                 }
                 return prices;
