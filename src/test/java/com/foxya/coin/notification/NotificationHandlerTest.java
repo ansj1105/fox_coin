@@ -7,6 +7,7 @@ import com.foxya.coin.notification.dto.NotificationListResponseDto;
 import com.foxya.coin.notification.dto.UnreadCountResponseDto;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -217,15 +218,38 @@ public class NotificationHandlerTest extends HandlerTestBase {
         @DisplayName("성공 - 알림 전체 삭제")
         void successDeleteAll(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
+            String insertSql = """
+                INSERT INTO notifications (user_id, type, title, message, is_read, related_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, false, $5, NOW(), NOW())
+                """;
 
-            reqDelete(getUrl("/"))
-                .bearerTokenAuthentication(accessToken)
-                .send(tc.succeeding(res -> tc.verify(() -> {
-                    expectSuccess(res);
-                    assertThat(res.bodyAsJsonObject().getString("status")).isEqualTo("OK");
-                    assertThat(res.bodyAsJsonObject().getJsonObject("data").getString("status")).isEqualTo("OK");
-                    tc.completeNow();
-                })));
+            sqlClient.preparedQuery(insertSql)
+                .executeBatch(java.util.List.of(
+                    Tuple.of(1L, "NOTICE", "중요 공지", "삭제되면 안 되는 공지", 9001L),
+                    Tuple.of(1L, "NOTICE", "일반 공지", "삭제되어야 하는 공지", 9002L),
+                    Tuple.of(1L, "LEVEL_UP", "레벨 업", "삭제되어야 하는 일반 알림", 9003L)
+                ))
+                .onFailure(tc::failNow)
+                .onSuccess(rows -> reqDelete(getUrl("/"))
+                    .bearerTokenAuthentication(accessToken)
+                    .send(tc.succeeding(res -> {
+                        tc.verify(() -> {
+                            expectSuccess(res);
+                            assertThat(res.bodyAsJsonObject().getString("status")).isEqualTo("OK");
+                            assertThat(res.bodyAsJsonObject().getJsonObject("data").getString("status")).isEqualTo("OK");
+                        });
+
+                        reqGet(getUrl("/?limit=50"))
+                            .bearerTokenAuthentication(accessToken)
+                            .send(tc.succeeding(listRes -> tc.verify(() -> {
+                                NotificationListResponseDto data = expectSuccessAndGetResponse(listRes, refNotificationList);
+                                assertThat(data.getNotifications())
+                                    .extracting(NotificationListResponseDto.NotificationInfo::getTitle)
+                                    .contains("중요 공지")
+                                    .doesNotContain("일반 공지", "레벨 업");
+                                tc.completeNow();
+                            })));
+                    })));
         }
 
         @Test
@@ -240,4 +264,3 @@ public class NotificationHandlerTest extends HandlerTestBase {
         }
     }
 }
-

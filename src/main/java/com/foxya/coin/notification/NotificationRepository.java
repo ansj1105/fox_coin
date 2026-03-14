@@ -250,11 +250,25 @@ public class NotificationRepository extends BaseRepository {
      * 사용자의 모든 알림 Soft Delete
      */
     public Future<Void> softDeleteNotificationsByUserId(SqlClient client, Long userId) {
-        String sql = QueryBuilder
-            .update("notifications", "deleted_at", "updated_at")
-            .where("user_id", com.foxya.coin.utils.BaseQueryBuilder.Op.Equal, "user_id")
-            .andWhere("deleted_at", com.foxya.coin.utils.BaseQueryBuilder.Op.IsNull)
-            .build();
+        String sql = """
+            UPDATE notifications
+               SET deleted_at = #{deleted_at},
+                   updated_at = #{updated_at}
+             WHERE user_id = #{user_id}
+               AND deleted_at IS NULL
+               AND NOT (
+                   type = 'NOTICE'
+                   AND (
+                       LOWER(COALESCE(metadata->>'important', 'false')) = 'true'
+                       OR LOWER(COALESCE(metadata->>'isImportant', 'false')) = 'true'
+                       OR LOWER(COALESCE(metadata->>'noticeImportant', 'false')) = 'true'
+                       OR LOWER(COALESCE(metadata->>'is_important', 'false')) = 'true'
+                       OR UPPER(COALESCE(metadata->>'priority', '')) = 'IMPORTANT'
+                       OR LOWER(COALESCE(title, '')) LIKE '%[important]%'
+                       OR COALESCE(title, '') LIKE '%중요%'
+                   )
+               )
+            """;
         
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
