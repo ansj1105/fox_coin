@@ -72,7 +72,7 @@ DB_ADMIN_PORT=5432
 DB_PRIMARY_HOST=172.31.71.66
 DB_PRIMARY_PORT=5432
 DB_STANDBY_HOST=172.31.89.103
-DB_STANDBY_PORT=5432
+DB_STANDBY_PORT=15432
 DB_ADMIN_MODE=network
 DB_ADMIN_HOST=172.31.71.66
 DB_ADMIN_PORT=5432
@@ -84,8 +84,10 @@ SYNC_STANDBY_NAME=db_standby
 주의:
 
 1. 예전 `.env`에 `DB_STANDBY_PORT=15432`가 들어가 있었다면 그 값은 app 서버의 `db-proxy` 바인딩 포트와 섞인 것입니다.
-2. 실제 standby PostgreSQL에 붙을 때는 `5432`가 맞습니다.
-3. `REPL_PASSWORD`만 아직 별도 시크릿으로 정해서 넣어야 합니다.
+2. 현재 운영 standby는 `foxya-postgres-standby`를 호스트 `15432 -> 컨테이너 5432`로 공개합니다.
+3. 그래서 app 서버 `db-proxy`가 standby를 볼 때는 `DB_STANDBY_PORT=15432`가 맞습니다.
+4. standby 컨테이너 내부 PostgreSQL 자체 포트는 여전히 `5432`입니다.
+5. `REPL_PASSWORD`만 아직 별도 시크릿으로 정해서 넣어야 합니다.
 
 단일 컨테이너 임시운영에서는 아래처럼 둘 수 있습니다.
 

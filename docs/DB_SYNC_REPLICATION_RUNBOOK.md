@@ -155,7 +155,7 @@ DB_USER=foxya
 DB_PRIMARY_HOST=172.31.71.66
 DB_PRIMARY_PORT=5432
 DB_STANDBY_HOST=172.31.89.103
-DB_STANDBY_PORT=5432
+DB_STANDBY_PORT=15432
 DB_ADMIN_MODE=network
 DB_ADMIN_HOST=172.31.71.66
 DB_ADMIN_PORT=5432
@@ -165,6 +165,12 @@ SYNC_STANDBY_NAME=db_standby
 ```
 
 여기서 아직 사람이 넣어야 하는 값은 `REPL_PASSWORD` 하나입니다.
+
+현재 운영 standby는 SSH tunnel + Docker standby 컨테이너를 쓰므로:
+
+1. standby 호스트 외부 공개 포트는 `15432`
+2. standby 컨테이너 내부 PostgreSQL 포트는 `5432`
+3. app 서버의 `db-proxy`는 `172.31.89.103:15432`를 바라봐야 합니다.
 
 ## 지금 서버에서 왜 아직 이중화가 아닌가
 
