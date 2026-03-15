@@ -23,6 +23,28 @@ Primary   Standby
     replication
 ```
 
+현재 운영에서 더 권장하는 배치는 아래입니다.
+
+```text
+instanceA (main/app)
+  - foxya-api
+  - foxya-api-2
+  - foxya-tron-service
+  - db-proxy
+  - postgres-standby
+
+instanceB (db)
+  - postgres-primary
+  - pg-primary-tunnel
+```
+
+핵심은 "스토리지는 각 인스턴스가 따로 가진다" 입니다.
+
+1. instanceA, instanceB가 같은 EBS를 같이 쓰는 구조는 권장하지 않습니다.
+2. PostgreSQL은 각 인스턴스의 로컬 디스크/EBS에 따로 저장하고 WAL replication으로만 맞춥니다.
+3. 앱은 항상 `db-proxy`만 보고, 실제 primary/standby는 뒤에서만 바뀌게 둡니다.
+4. 지금 운영은 이 구조의 축소판이며, app 서버 local postgres가 standby 역할을 합니다.
+
 권장 서버 배치:
 
 1. `db-primary` EC2: PostgreSQL Primary
@@ -115,6 +137,34 @@ DB_ADMIN_SERVICE=postgres
 2. `.env`의 `DB_PRIMARY_HOST`, `DB_STANDBY_HOST`, `DB_ADMIN_HOST` 갱신
 3. `docker compose -f docker-compose.prod.yml up -d db-proxy`
 4. `./scripts/deploy.sh backup-db` 또는 `psql -c "SELECT pg_is_in_recovery()"`로 Primary 여부 확인
+
+## 백업 / 마이그레이션 경로
+
+운영 중에는 아래 원칙을 고정합니다.
+
+1. 백업은 항상 `DB_ADMIN_HOST=<현재 Primary>` 에서만 실행
+2. Flyway/DDL도 항상 `DB_ADMIN_HOST=<현재 Primary>` 에서만 실행
+3. Standby에는 절대 백업 restore 테스트 외 쓰기 작업을 하지 않음
+4. 앱 연결은 계속 `DB_HOST=db-proxy`
+
+현재 failover 이후 기준값 예시는 아래입니다.
+
+```bash
+DB_HOST=db-proxy
+DB_PORT=5432
+DB_PRIMARY_HOST=172.31.89.103
+DB_PRIMARY_PORT=15432
+DB_STANDBY_HOST=postgres
+DB_STANDBY_PORT=5432
+DB_ADMIN_HOST=172.31.89.103
+DB_ADMIN_PORT=15432
+```
+
+즉 아주 쉽게 말하면:
+
+- 앱은 `db-proxy`만 본다
+- 백업/마이그레이션 도구는 "지금 실제 본체 DB"만 본다
+- standby는 읽기/복제 대기만 한다
 
 ## 점검 명령
 

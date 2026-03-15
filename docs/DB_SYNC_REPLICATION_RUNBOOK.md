@@ -210,3 +210,59 @@ PGDATA=/var/lib/postgresql/15/main ./ops/db-ha/scripts/promote-standby.sh
 1. 2노드만으로 자동 failover를 켜면 split-brain 위험이 있습니다.
 2. 자동 failover가 꼭 필요하면 witness를 추가하고 Patroni/repmgr로 확장하세요.
 3. 가능하면 장기적으로는 AWS RDS Multi-AZ가 더 안전합니다.
+
+## Failback 절차
+
+failover 이후 원래 primary를 다시 standby로 붙일 때는 아래 순서를 따릅니다.
+
+### 상황
+
+- 새 primary: 현재 승격된 standby
+- 새 standby: 예전 primary를 basebackup으로 다시 붙인 노드
+
+### 순서
+
+1. 새 primary에서 replication user / slot 준비
+
+```bash
+PGHOST=<new-primary-host> \
+PGPORT=<new-primary-port> \
+PGUSER=foxya \
+PGDATABASE=postgres \
+REPL_USER=replicator \
+REPL_PASSWORD='<replication-password>' \
+REPLICATION_SLOT=fox_coin_standby_1 \
+./ops/db-ha/scripts/configure-primary-replication.sh
+```
+
+2. 새 primary `pg_hba.conf`에 예전 primary host를 replication 허용
+3. 예전 primary postgres 데이터 볼륨을 비우고 basebackup으로 재구성
+4. 예전 primary를 standby로 기동
+5. 새 primary에서 `pg_stat_replication.sync_state = sync` 확인
+6. app 서버 `.env`를 아래처럼 유지
+
+```bash
+DB_PRIMARY_HOST=<new-primary-host>
+DB_PRIMARY_PORT=<new-primary-port>
+DB_STANDBY_HOST=<rebuilt-local-standby-host-or-service>
+DB_STANDBY_PORT=<rebuilt-local-standby-port>
+DB_ADMIN_HOST=<new-primary-host>
+DB_ADMIN_PORT=<new-primary-port>
+```
+
+### 이번 실제 복구 기준 예시
+
+```bash
+DB_PRIMARY_HOST=172.31.89.103
+DB_PRIMARY_PORT=15432
+DB_STANDBY_HOST=postgres
+DB_STANDBY_PORT=5432
+DB_ADMIN_HOST=172.31.89.103
+DB_ADMIN_PORT=15432
+```
+
+핵심은:
+
+1. failover는 "예비를 본체로 올리는 것"
+2. failback은 "옛 본체를 새 예비로 다시 붙이는 것"
+3. 둘 다 끝나야 다시 진짜 이중화가 완성됩니다.

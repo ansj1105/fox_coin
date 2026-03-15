@@ -16,6 +16,12 @@
 **DB Active-Standby 구조**는 **[DB_ACTIVE_STANDBY_CLUSTER.md](./DB_ACTIVE_STANDBY_CLUSTER.md)**를 참고하세요. 단일 `postgres` 컨테이너만으로는 서버 장애를 막지 못합니다.
 실제 동기 복제 구축 절차는 **[DB_SYNC_REPLICATION_RUNBOOK.md](./DB_SYNC_REPLICATION_RUNBOOK.md)**를 기준으로 진행하세요.
 
+현재 운영 기준 권장 구조:
+
+1. `instanceA`: app + db-proxy + local standby
+2. `instanceB`: remote primary
+3. 앱은 항상 `db-proxy`로만 붙고, 백업/DDL/Flyway는 항상 `DB_ADMIN_HOST=<현재 primary>`로만 실행
+
 ---
 
 ## 사전 준비
