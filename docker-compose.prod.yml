@@ -351,7 +351,7 @@ services:
       - REDIS_HOST=redis
       - NODE_ENV=production
       - TZ=Asia/Seoul
-      - COIN_SERVICE_URL=${COIN_SERVICE_URL:-http://app:8080}
+      - COIN_SERVICE_URL=${COIN_SERVICE_URL:-http://foxya-api:8080}
     networks:
       - coin-shared
     depends_on:
