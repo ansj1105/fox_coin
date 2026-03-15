@@ -365,6 +365,12 @@ services:
         condition: service_healthy
     volumes:
       - ./logs/tron-worker:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep 'node src/workers/deposit-index.js' | grep -v grep >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     deploy:
       resources:
         limits:
