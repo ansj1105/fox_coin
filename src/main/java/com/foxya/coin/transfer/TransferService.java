@@ -85,6 +85,8 @@ public class TransferService extends BaseService {
     private static final String WITHDRAW_COMPLETED_MESSAGE = "출금이 완료되었습니다.";
     private static final String WITHDRAW_COMPLETED_TITLE_KEY = "notifications.withdrawCompleted.title";
     private static final String WITHDRAW_COMPLETED_MESSAGE_KEY = "notifications.withdrawCompleted.message";
+    private static final boolean LEGACY_WITHDRAWAL_STREAM_ENABLED =
+        Boolean.parseBoolean(System.getenv().getOrDefault("LEGACY_WITHDRAWAL_STREAM_ENABLED", "false"));
 
     public TransferService(PgPool pool,
                           TransferRepository transferRepository,
@@ -579,7 +581,7 @@ public class TransferService extends BaseService {
             log.info("Normalized log message", transferId);
             
             // Normalized comment.
-            if (dispatchEvent && eventPublisher != null) {
+            if (dispatchEvent && eventPublisher != null && LEGACY_WITHDRAWAL_STREAM_ENABLED) {
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("transferId", transferId);
                 payload.put("userId", userId);
@@ -590,6 +592,8 @@ public class TransferService extends BaseService {
                 
                 eventPublisher.publishToStream(EventType.WITHDRAWAL_REQUESTED, payload)
                     .onFailure(e -> log.error("Normalized log message", e.getMessage()));
+            } else if (dispatchEvent && !LEGACY_WITHDRAWAL_STREAM_ENABLED) {
+                log.info("Legacy withdrawal stream dispatch disabled for transferId={}", transferId);
             }
             
             return Future.succeededFuture(TransferResponseDto.builder()
@@ -632,7 +636,7 @@ public class TransferService extends BaseService {
      * Promote waiting withdrawals when hot wallet liquidity is sufficient.
      */
     public Future<Integer> promoteWaitingWithdrawals(int limit) {
-        if (eventPublisher == null) {
+        if (eventPublisher == null || !LEGACY_WITHDRAWAL_STREAM_ENABLED) {
             return Future.succeededFuture(0);
         }
         int safeLimit = Math.max(1, Math.min(limit, 500));
@@ -677,7 +681,7 @@ public class TransferService extends BaseService {
     }
 
     public Future<Integer> redispatchPendingWithdrawals(int limit) {
-        if (eventPublisher == null) {
+        if (eventPublisher == null || !LEGACY_WITHDRAWAL_STREAM_ENABLED) {
             return Future.succeededFuture(0);
         }
         int safeLimit = Math.max(1, Math.min(limit, 500));

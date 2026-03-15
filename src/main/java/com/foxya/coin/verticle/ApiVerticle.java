@@ -444,9 +444,18 @@ public class ApiVerticle extends AbstractVerticle {
             startCoinPriceRefreshScheduler(currencyService, pool);
             startCountryCodeSyncOnce(countryCodeService, pool);
 
-            // Re-dispatch pending withdrawals so external settlement is eventually processed.
-            startWithdrawalRedispatchScheduler(transferService, pool);
-            startWaitingWithdrawalPromotionScheduler(transferService, pool);
+            boolean legacyWithdrawalRedispatchEnabled = parseBooleanEnv("LEGACY_WITHDRAWAL_REDISPATCH_ENABLED", false);
+            boolean legacyWaitingWithdrawalPromotionEnabled = parseBooleanEnv("LEGACY_WAITING_WITHDRAWAL_PROMOTION_ENABLED", false);
+            if (legacyWithdrawalRedispatchEnabled) {
+                startWithdrawalRedispatchScheduler(transferService, pool);
+            } else {
+                log.info("Legacy withdrawal redispatch scheduler disabled for this API instance");
+            }
+            if (legacyWaitingWithdrawalPromotionEnabled) {
+                startWaitingWithdrawalPromotionScheduler(transferService, pool);
+            } else {
+                log.info("Legacy waiting withdrawal promotion scheduler disabled for this API instance");
+            }
             startLevelSyncScheduler(levelService, pool);
             startImportantNoticeDispatchScheduler(noticeNotificationDispatchService, pool);
             startDbAlertMonitor(dbAlertMonitorService, pool);
