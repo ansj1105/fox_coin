@@ -339,7 +339,7 @@ services:
     image: foxya-tron-service:${TRON_VERSION:-latest}
     container_name: foxya-tron-worker
     restart: unless-stopped
-    command: ["npm", "run", "worker"]
+    command: ["npm", "run", "worker:deposit"]
     env_file:
       - .env
     environment:

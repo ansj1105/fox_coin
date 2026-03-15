@@ -1,5 +1,11 @@
 # 출금(송금) 추적 흐름
 
+> 2026-03 기준 운영 기준
+>
+> - `coin_publish`는 입금 스캐너 전용으로 축소한다.
+> - 실제 출금 상태머신/브로드캐스트/재시도는 `korion-service(coin_manage)` 기준으로 운영한다.
+> - 아래 문서는 레거시 `coin_publish` 출금 흐름을 설명하는 참고 문서이며, 신규 운영 기준으로는 출금 worker 소유권을 더 이상 `coin_publish`에 두지 않는다.
+
 출금 요청은 코인 서비스(Java)에서 `external_transfers`에 PENDING으로 생성되고, Redis `withdrawal:requested` 스트림으로 이벤트가 발행된다.  
 coin_publish의 **WithdrawalWorker**가 이벤트를 소비해 온체인 전송을 실행한 뒤, **내부 API**로 제출(txHash)을 알리고, **ConfirmationWorker** 스케줄러가 주기적으로 컨펌 수를 확인해 완료 시 내부 API로 컨펌 처리한다.
 
