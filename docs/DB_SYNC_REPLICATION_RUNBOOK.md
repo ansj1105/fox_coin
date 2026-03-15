@@ -145,6 +145,45 @@ DB_ADMIN_PORT=5432
 docker compose -f docker-compose.prod.yml up -d db-proxy app app2 tron-service tron-service2
 ```
 
+현재 운영 기준으로 바로 대입 가능한 후보값은 아래입니다.
+
+```bash
+DB_HOST=db-proxy
+DB_PORT=5432
+DB_NAME=coin_system_cloud
+DB_USER=foxya
+DB_PRIMARY_HOST=172.31.71.66
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=172.31.89.103
+DB_STANDBY_PORT=5432
+DB_ADMIN_MODE=network
+DB_ADMIN_HOST=172.31.71.66
+DB_ADMIN_PORT=5432
+REPL_USER=replicator
+REPLICATION_SLOT=fox_coin_standby_1
+SYNC_STANDBY_NAME=db_standby
+```
+
+여기서 아직 사람이 넣어야 하는 값은 `REPL_PASSWORD` 하나입니다.
+
+## 지금 서버에서 왜 아직 이중화가 아닌가
+
+현재 메인 서버에서 확인된 값은 아래와 같습니다.
+
+```sql
+show synchronous_commit;        -- local
+show synchronous_standby_names; -- ''
+select * from pg_stat_replication; -- 0 rows
+```
+
+뜻:
+
+1. Primary가 "standby에 같이 저장됐는지" 기다리지 않습니다.
+2. Primary가 "어느 standby를 동기 대상으로 볼지"도 비어 있습니다.
+3. 실제 붙어 있는 standby 세션도 없습니다.
+
+즉 예비 DB 서버 주소는 적혀 있지만, 아직 "실시간으로 같이 받아 적는 상태"는 아닙니다.
+
 ## 장애조치
 
 Primary 장애 시 standby에서:

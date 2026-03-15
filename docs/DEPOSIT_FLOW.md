@@ -52,6 +52,7 @@
 
 - **coin_publish** 저장소에 입금 스캔 스케줄러가 구현되어 있습니다.
   - `src/workers/DepositScanWorker.js`: 주기적으로 watch-addresses 조회 → 체인(TRON/ETH/BTC) 입금 tx 조회 → register, 컨펌 후 complete 호출.
-  - `npm run worker` 실행 시 WithdrawalWorker, ConfirmationWorker와 함께 DepositScanWorker가 기동됩니다.
-  - 환경 변수: `COIN_SERVICE_URL`, `COIN_SERVICE_INTERNAL_API_KEY`, `DEPOSIT_SCAN_INTERVAL_MS`, `DEPOSIT_REQUIRED_CONFIRMATIONS`.
+  - 운영 기준 실행 명령은 `npm run worker:deposit` 입니다.
+  - 누락분 재반영은 `npm run backfill:deposits -- --hours 720 --limit 30 --networks TRON` 처럼 별도 실행합니다.
+  - 환경 변수: `COIN_SERVICE_URL`, `COIN_SERVICE_INTERNAL_API_KEY`, `DEPOSIT_SCAN_INTERVAL_MS`, `DEPOSIT_REQUIRED_CONFIRMATIONS`, `DEPOSIT_SCAN_LIMIT`, `DEPOSIT_BACKFILL_NETWORKS`.
 - **foxya_coin_service** 쪽에는 내부 API만 제공. 인증: 헤더 `X-Internal-Api-Key` = `DEPOSIT_SCANNER_API_KEY` 또는 `depositScanner.apiKey`.

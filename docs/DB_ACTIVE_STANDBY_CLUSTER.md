@@ -66,6 +66,27 @@ DB_ADMIN_HOST=10.0.10.10
 DB_ADMIN_PORT=5432
 ```
 
+현재 운영 서버에서 확인된 후보값은 아래와 같습니다.
+
+```bash
+DB_PRIMARY_HOST=172.31.71.66
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=172.31.89.103
+DB_STANDBY_PORT=5432
+DB_ADMIN_MODE=network
+DB_ADMIN_HOST=172.31.71.66
+DB_ADMIN_PORT=5432
+REPL_USER=replicator
+REPLICATION_SLOT=fox_coin_standby_1
+SYNC_STANDBY_NAME=db_standby
+```
+
+주의:
+
+1. 예전 `.env`에 `DB_STANDBY_PORT=15432`가 들어가 있었다면 그 값은 app 서버의 `db-proxy` 바인딩 포트와 섞인 것입니다.
+2. 실제 standby PostgreSQL에 붙을 때는 `5432`가 맞습니다.
+3. `REPL_PASSWORD`만 아직 별도 시크릿으로 정해서 넣어야 합니다.
+
 단일 컨테이너 임시운영에서는 아래처럼 둘 수 있습니다.
 
 ```bash
