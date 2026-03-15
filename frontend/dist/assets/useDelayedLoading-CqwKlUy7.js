@@ -1,0 +1,1 @@
+import{r as o}from"./vendor-CasRSrqI.js";const n=(e,t=250)=>{const[r,s]=o.useState(!1);return o.useEffect(()=>{if(e){const a=setTimeout(()=>{s(!0)},t);return()=>clearTimeout(a)}else s(!1)},[e,t]),r};export{n as u};

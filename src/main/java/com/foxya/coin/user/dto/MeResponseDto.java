@@ -20,4 +20,6 @@ public class MeResponseDto {
     private String gender;
     private String country;
     private Boolean appReviewRewarded;
+    private Boolean reviewPromptDismissed;
+    private java.time.LocalDateTime reviewPromptLastShownAt;
 }

@@ -1,0 +1,1 @@
+import{C as s,B as t}from"./index-VOxGZYl8.js";const i=()=>typeof s<"u"&&s.isNativePlatform();function p(a,o,r,n){if(!i()){window.location.href=a;return}const e=()=>t.removeAllListeners().catch(()=>null);(async()=>{e(),await t.addListener("browserFinished",()=>{e(),n?.()})})().then(()=>{t.open({url:a}).catch(()=>{e(),n?.()})})}export{p as o};

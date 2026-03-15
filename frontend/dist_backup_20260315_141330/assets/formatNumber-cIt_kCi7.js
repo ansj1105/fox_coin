@@ -1,0 +1,1 @@
+const c=(t,r=6)=>isNaN(t)||!isFinite(t)?"0.000000":t.toFixed(r),N=t=>{if(isNaN(t)||!isFinite(t))return"0";const r=Math.abs(t),a=t<0?"-":"",e=r.toFixed(4).split("."),i=e[1]?e[1].replace(/0+$/,""):"",s=parseInt(e[0]).toLocaleString("ko-KR");return a+(i?s+"."+i:s)},f=t=>isNaN(t)||!isFinite(t)?"0":t.toLocaleString("ko-KR");export{N as a,f as b,c as f};

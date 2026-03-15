@@ -1,0 +1,1 @@
+import{_ as a}from"./capacitor-BXtJScxj.js";let t=null;function o(){return t||(t=a(()=>import("./ethers-BkWBiT1O.js").then(n=>n.i),[])),t}async function i(){const{Mnemonic:n,randomBytes:e}=await o();return n.fromEntropy(e(16)).phrase}async function c(n){const{Mnemonic:e}=await o();return e.isValidMnemonic(n)}export{i as g,c as v};

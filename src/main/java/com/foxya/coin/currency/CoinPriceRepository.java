@@ -109,6 +109,42 @@ public class CoinPriceRepository extends BaseRepository {
             .onFailure(t -> log.warn("Failed to load coin daily close prices: {}", t.getMessage()));
     }
 
+    public Future<Map<String, BigDecimal>> getLatestDailyClosePricesBefore(SqlClient client, Set<String> currencyCodes, LocalDate beforeDate) {
+        if (currencyCodes == null || currencyCodes.isEmpty() || beforeDate == null) {
+            return Future.succeededFuture(Collections.emptyMap());
+        }
+
+        List<Future> futures = new ArrayList<>();
+        for (String code : currencyCodes) {
+            String sql = """
+                SELECT currency_code, usd_close_price
+                FROM coin_price_daily_closes
+                WHERE currency_code = $1
+                  AND close_date < $2
+                ORDER BY close_date DESC
+                LIMIT 1
+                """;
+            futures.add(client.preparedQuery(sql).execute(Tuple.of(code, beforeDate)));
+        }
+
+        return CompositeFuture.all(futures)
+            .map(cf -> {
+                Map<String, BigDecimal> closes = new HashMap<>();
+                for (int i = 0; i < cf.size(); i++) {
+                    Iterable<Row> rows = cf.resultAt(i);
+                    for (Row row : rows) {
+                        String code = row.getString("currency_code");
+                        BigDecimal closePrice = row.getBigDecimal("usd_close_price");
+                        if (code != null && closePrice != null) {
+                            closes.put(code, closePrice);
+                        }
+                    }
+                }
+                return closes;
+            })
+            .onFailure(t -> log.warn("Failed to load latest available coin daily close prices: {}", t.getMessage()));
+    }
+
     public Future<Void> upsertDailyClosePrices(PgPool pool, Map<String, CoinPriceDto> prices, LocalDate closeDate) {
         if (prices == null || prices.isEmpty() || closeDate == null) {
             return Future.succeededFuture();
@@ -175,6 +211,9 @@ public class CoinPriceRepository extends BaseRepository {
     }
 
     private Future<Void> upsertDailyClosePrice(SqlClient client, String currencyCode, CoinPriceDto dto, LocalDate closeDate) {
+        OffsetDateTime sourceUpdatedAt = dto.getUpdatedAt() != null
+            ? dto.getUpdatedAt().atOffset(ZoneOffset.UTC)
+            : null;
         String sql = """
             INSERT INTO coin_price_daily_closes (currency_code, close_date, usd_close_price, source_price_updated_at, updated_at)
             VALUES ($1, $2, $3, $4, now())
@@ -184,7 +223,7 @@ public class CoinPriceRepository extends BaseRepository {
                 updated_at = now()
             """;
         return client.preparedQuery(sql)
-            .execute(Tuple.of(currencyCode, closeDate, dto.getUsdPrice(), dto.getUpdatedAt()))
+            .execute(Tuple.of(currencyCode, closeDate, dto.getUsdPrice(), sourceUpdatedAt))
             .mapEmpty();
     }
 

@@ -34,6 +34,10 @@ public class User {
     private Boolean referralAirdropRewarded;
     /** 앱 리뷰 보상 지급 완료 여부 (false=미완료, true=완료) */
     private Boolean appReviewRewarded;
+    /** 리뷰 유도 팝업 다시 보지 않기 여부 */
+    private Boolean reviewPromptDismissed;
+    /** 리뷰 유도 팝업 마지막 노출 시각 */
+    private LocalDateTime reviewPromptLastShownAt;
     /** 경고 여부 (0=해제, 1=경고). V41/coin_system V46 */
     private Integer isWarning;
     /** 채굴정지 여부 (0=해제, 1=정지). V41/coin_system V46 */

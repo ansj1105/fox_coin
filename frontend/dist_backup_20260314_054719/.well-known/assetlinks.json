@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.korion.wallet",
+      "sha256_cert_fingerprints": [
+        "15:ED:61:61:74:9A:86:88:65:27:BA:59:61:AD:49:C4:F5:A6:B0:E8:38:FE:1D:43:03:A0:3F:96:04:A7:38:07"
+      ]
+    }
+  }
+]

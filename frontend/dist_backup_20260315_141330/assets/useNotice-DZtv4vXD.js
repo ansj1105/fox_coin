@@ -1,0 +1,1 @@
+import{a as o}from"./query-FEJrhHkb.js";import{u as s,i as r,n}from"./index-B32EVlyk.js";const m=e=>{const{useDummyData:a}=s();return o({queryKey:["notice",e,a],queryFn:async()=>{if(a)return r(e);const t=await n.getNotice(e);if(t.status==="OK"&&t.data)return t.data;throw new Error(t.message||"Failed to load notice")},enabled:!!e,staleTime:6e4})};export{m as u};

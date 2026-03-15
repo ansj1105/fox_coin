@@ -1,0 +1,7 @@
+# Google app-ads.txt crawler (AdMob/AdSense 검증용)
+User-agent: Google-adstxt
+Disallow:
+
+# 다른 크롤러는 기본 허용 (필요 시 Disallow 추가)
+User-agent: *
+Allow: /

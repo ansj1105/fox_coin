@@ -4,6 +4,7 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.payment.entities.PaymentDeposit;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
+import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import com.foxya.coin.utils.QueryBuilder;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
@@ -11,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -66,6 +68,41 @@ public class PaymentDepositRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("deposit_id", depositId))
             .map(rows -> fetchOne(paymentDepositMapper, rows))
             .onFailure(e -> log.error("결제 입금 조회 실패 - depositId: {}", depositId));
+    }
+
+    public Future<List<PaymentDeposit>> getPaymentDepositsByUserId(SqlClient client, Long userId, Integer currencyId, int limit, int offset) {
+        String sql;
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+
+        if (currencyId != null) {
+            sql = QueryBuilder
+                .select("payment_deposits")
+                .where("user_id", Op.Equal, "user_id")
+                .andWhere("currency_id", Op.Equal, "currency_id")
+                .andWhere("deleted_at", Op.IsNull)
+                .orderBy("created_at", Sort.DESC)
+                .limitRefactoring()
+                .offsetRefactoring()
+                .build();
+            params.put("currency_id", currencyId);
+        } else {
+            sql = QueryBuilder
+                .select("payment_deposits")
+                .where("user_id", Op.Equal, "user_id")
+                .andWhere("deleted_at", Op.IsNull)
+                .orderBy("created_at", Sort.DESC)
+                .limitRefactoring()
+                .offsetRefactoring()
+                .build();
+        }
+
+        params.put("limit", limit);
+        params.put("offset", offset);
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(paymentDepositMapper, rows))
+            .onFailure(e -> log.error("결제 입금 목록 조회 실패 - userId: {}", userId, e));
     }
     
     /**
@@ -129,4 +166,3 @@ public class PaymentDepositRepository extends BaseRepository {
             .onFailure(throwable -> log.error("결제 입금 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

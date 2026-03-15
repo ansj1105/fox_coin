@@ -101,7 +101,22 @@ public class ExternalTransferMockTest {
         
         // TransferService 초기화 (Mock EventPublisher 주입)
         AppConfigRepository appConfigRepository = new AppConfigRepository();
-        transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, mockEventPublisher, null, null, null, appConfigRepository);
+        transferService = new TransferService(
+            pool,
+            transferRepository,
+            userRepository,
+            currencyRepository,
+            walletRepository,
+            mockEventPublisher,
+            null,
+            null,
+            null,
+            appConfigRepository,
+            null,
+            null,
+            null,
+            null
+        );
         
         tc.completeNow();
     }

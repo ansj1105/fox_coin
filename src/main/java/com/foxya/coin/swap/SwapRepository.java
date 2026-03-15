@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -69,6 +70,26 @@ public class SwapRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("swap_id", swapId))
             .map(rows -> fetchOne(swapMapper, rows))
             .onFailure(e -> log.error("스왑 조회 실패 - swapId: {}", swapId));
+    }
+
+    public Future<List<Swap>> getSwapsByUserId(SqlClient client, Long userId, int limit, int offset) {
+        String sql = QueryBuilder
+            .select("swaps")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .orderBy("created_at", Sort.DESC)
+            .limitRefactoring()
+            .offsetRefactoring()
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+        params.put("offset", offset);
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(swapMapper, rows))
+            .onFailure(e -> log.error("스왑 목록 조회 실패 - userId: {}", userId, e));
     }
     
     /**
@@ -132,4 +153,3 @@ public class SwapRepository extends BaseRepository {
             .onFailure(throwable -> log.error("스왑 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

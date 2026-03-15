@@ -11,11 +11,19 @@ import com.foxya.coin.common.enums.TransactionType;
 import com.foxya.coin.common.utils.OrderNumberUtils;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.currency.entities.Currency;
+import com.foxya.coin.deposit.TokenDepositRepository;
+import com.foxya.coin.deposit.entities.TokenDeposit;
+import com.foxya.coin.exchange.ExchangeRepository;
+import com.foxya.coin.exchange.entities.Exchange;
 import com.foxya.coin.event.EventPublisher;
 import com.foxya.coin.event.EventType;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.notification.utils.NotificationI18nUtils;
+import com.foxya.coin.payment.PaymentDepositRepository;
+import com.foxya.coin.payment.entities.PaymentDeposit;
+import com.foxya.coin.swap.SwapRepository;
+import com.foxya.coin.swap.entities.Swap;
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.InternalTransferRequestDto;
 import com.foxya.coin.transfer.dto.TransferHistoryResponseDto;
@@ -33,6 +41,8 @@ import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -60,6 +70,10 @@ public class TransferService extends BaseService {
     private final RedisAPI redisApi;
     private final NotificationService notificationService;
     private final AirdropRepository airdropRepository;
+    private final TokenDepositRepository tokenDepositRepository;
+    private final PaymentDepositRepository paymentDepositRepository;
+    private final SwapRepository swapRepository;
+    private final ExchangeRepository exchangeRepository;
 
     // Normalized comment.
     private static final BigDecimal INTERNAL_FEE_RATE = new BigDecimal("0.001");
@@ -78,7 +92,7 @@ public class TransferService extends BaseService {
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -88,7 +102,7 @@ public class TransferService extends BaseService {
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher,
                           RedisAPI redisApi) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -99,7 +113,7 @@ public class TransferService extends BaseService {
                           EventPublisher eventPublisher,
                           RedisAPI redisApi,
                           NotificationService notificationService) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -111,7 +125,7 @@ public class TransferService extends BaseService {
                           RedisAPI redisApi,
                           NotificationService notificationService,
                           AirdropRepository airdropRepository) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -123,7 +137,11 @@ public class TransferService extends BaseService {
                           RedisAPI redisApi,
                           NotificationService notificationService,
                           AirdropRepository airdropRepository,
-                          AppConfigRepository appConfigRepository) {
+                          AppConfigRepository appConfigRepository,
+                          TokenDepositRepository tokenDepositRepository,
+                          PaymentDepositRepository paymentDepositRepository,
+                          SwapRepository swapRepository,
+                          ExchangeRepository exchangeRepository) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
@@ -134,6 +152,10 @@ public class TransferService extends BaseService {
         this.redisApi = redisApi;
         this.notificationService = notificationService;
         this.airdropRepository = airdropRepository;
+        this.tokenDepositRepository = tokenDepositRepository;
+        this.paymentDepositRepository = paymentDepositRepository;
+        this.swapRepository = swapRepository;
+        this.exchangeRepository = exchangeRepository;
     }
     
     /**
@@ -843,15 +865,39 @@ public class TransferService extends BaseService {
       * Normalized comment.
      */
     public Future<TransferHistoryResponseDto> getTransferHistory(Long userId, int limit, int offset) {
+        int fetchSize = Math.max(limit + offset, limit * 4);
         Future<List<AirdropTransfer>> airdropFuture = (airdropRepository != null)
-            ? airdropRepository.getTransfersByUserId(pool, userId, limit * 2, 0)
+            ? airdropRepository.getTransfersByUserId(pool, userId, fetchSize, 0)
+            : Future.succeededFuture(List.of());
+        Future<List<TokenDeposit>> tokenDepositFuture = tokenDepositRepository != null
+            ? tokenDepositRepository.getTokenDepositsByUserId(pool, userId, null, fetchSize, 0)
+            : Future.succeededFuture(List.of());
+        Future<List<PaymentDeposit>> paymentDepositFuture = paymentDepositRepository != null
+            ? paymentDepositRepository.getPaymentDepositsByUserId(pool, userId, null, fetchSize, 0)
+            : Future.succeededFuture(List.of());
+        Future<List<Swap>> swapFuture = swapRepository != null
+            ? swapRepository.getSwapsByUserId(pool, userId, fetchSize, 0)
+            : Future.succeededFuture(List.of());
+        Future<List<Exchange>> exchangeFuture = exchangeRepository != null
+            ? exchangeRepository.getExchangesByUserId(pool, userId, fetchSize, 0)
             : Future.succeededFuture(List.of());
 
-        return transferRepository.getInternalTransfersByUserId(pool, userId, limit, offset)
+        return transferRepository.getInternalTransfersByUserId(pool, userId, fetchSize, 0)
             .compose(internalTransfers ->
-                transferRepository.getExternalTransfersByUserId(pool, userId, limit, offset)
+                transferRepository.getExternalTransfersByUserId(pool, userId, fetchSize, 0)
                     .compose(externalTransfers ->
-                        airdropFuture.compose(airdropTransfers -> {
+                        Future.all(List.of(
+                            airdropFuture,
+                            tokenDepositFuture,
+                            paymentDepositFuture,
+                            swapFuture,
+                            exchangeFuture
+                        )).compose(auxResults -> {
+                            List<AirdropTransfer> airdropTransfers = airdropFuture.result();
+                            List<TokenDeposit> tokenDeposits = tokenDepositFuture.result();
+                            List<PaymentDeposit> paymentDeposits = paymentDepositFuture.result();
+                            List<Swap> swaps = swapFuture.result();
+                            List<Exchange> exchanges = exchangeFuture.result();
                             // Normalized comment.
                             List<Future<TransferResponseDto>> internalDtos = internalTransfers.stream()
                                 .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
@@ -895,6 +941,102 @@ public class TransferService extends BaseService {
                                         .build()))
                                 .collect(Collectors.toList());
 
+                            List<Future<TransferResponseDto>> tokenDepositDtos = tokenDeposits.stream()
+                                .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                    .map(currency -> TransferResponseDto.builder()
+                                        .transferId(t.getDepositId())
+                                        .transferType("INTERNAL")
+                                        .transactionType(TransactionType.TOKEN_DEPOSIT.getValue())
+                                        .orderNumber(t.getOrderNumber())
+                                        .senderId(t.getUserId())
+                                        .currencyCode(currency.getCode())
+                                        .amount(t.getAmount())
+                                        .fee(BigDecimal.ZERO)
+                                        .status(t.getStatus())
+                                        .network(t.getNetwork())
+                                        .senderAddress(t.getSenderAddress())
+                                        .toAddress(t.getToAddress())
+                                        .createdAt(t.getCreatedAt())
+                                        .completedAt(t.getConfirmedAt())
+                                        .build()))
+                                .collect(Collectors.toList());
+
+                            List<Future<TransferResponseDto>> paymentDepositDtos = paymentDeposits.stream()
+                                .map(t -> currencyRepository.getCurrencyById(pool, t.getCurrencyId())
+                                    .map(currency -> TransferResponseDto.builder()
+                                        .transferId(t.getDepositId())
+                                        .transferType("INTERNAL")
+                                        .transactionType(TransactionType.PAYMENT_DEPOSIT.getValue())
+                                        .orderNumber(t.getOrderNumber())
+                                        .senderId(t.getUserId())
+                                        .currencyCode(currency.getCode())
+                                        .amount(t.getAmount())
+                                        .fee(BigDecimal.ZERO)
+                                        .status(t.getStatus())
+                                        .depositMethod(t.getDepositMethod())
+                                        .paymentAmount(t.getPaymentAmount())
+                                        .createdAt(t.getCreatedAt())
+                                        .completedAt(t.getCompletedAt())
+                                        .build()))
+                                .collect(Collectors.toList());
+
+                            List<Future<TransferResponseDto>> swapDtos = swaps.stream()
+                                .map(t -> Future.all(List.of(
+                                        currencyRepository.getCurrencyById(pool, t.getFromCurrencyId()),
+                                        currencyRepository.getCurrencyById(pool, t.getToCurrencyId())
+                                    ))
+                                    .map(results -> {
+                                        Currency fromCurrency = (Currency) results.resultAt(0);
+                                        Currency toCurrency = (Currency) results.resultAt(1);
+                                        return TransferResponseDto.builder()
+                                            .transferId(t.getSwapId())
+                                            .transferType("INTERNAL")
+                                            .transactionType(TransactionType.SWAP.getValue())
+                                            .orderNumber(t.getOrderNumber())
+                                            .senderId(t.getUserId())
+                                            .currencyCode(fromCurrency.getCode())
+                                            .fromCurrencyCode(fromCurrency.getCode())
+                                            .toCurrencyCode(toCurrency.getCode())
+                                            .amount(t.getFromAmount())
+                                            .fromAmount(t.getFromAmount())
+                                            .toAmount(t.getToAmount())
+                                            .fee(BigDecimal.ZERO)
+                                            .status(t.getStatus())
+                                            .network(t.getNetwork())
+                                            .createdAt(t.getCreatedAt())
+                                            .completedAt(t.getCompletedAt())
+                                            .build();
+                                    }))
+                                .collect(Collectors.toList());
+
+                            List<Future<TransferResponseDto>> exchangeDtos = exchanges.stream()
+                                .map(t -> Future.all(List.of(
+                                        currencyRepository.getCurrencyById(pool, t.getFromCurrencyId()),
+                                        currencyRepository.getCurrencyById(pool, t.getToCurrencyId())
+                                    ))
+                                    .map(results -> {
+                                        Currency fromCurrency = (Currency) results.resultAt(0);
+                                        Currency toCurrency = (Currency) results.resultAt(1);
+                                        return TransferResponseDto.builder()
+                                            .transferId(t.getExchangeId())
+                                            .transferType("INTERNAL")
+                                            .transactionType(TransactionType.EXCHANGE.getValue())
+                                            .orderNumber(t.getOrderNumber())
+                                            .senderId(t.getUserId())
+                                            .currencyCode(fromCurrency.getCode())
+                                            .fromCurrencyCode(fromCurrency.getCode())
+                                            .toCurrencyCode(toCurrency.getCode())
+                                            .amount(t.getFromAmount())
+                                            .fromAmount(t.getFromAmount())
+                                            .toAmount(t.getToAmount())
+                                            .fee(BigDecimal.ZERO)
+                                            .status(t.getStatus())
+                                            .createdAt(t.getCreatedAt())
+                                            .completedAt(t.getCompletedAt())
+                                            .build();
+                                    }))
+                                .collect(Collectors.toList());
+
                             Set<String> internalOrderNumbers = internalTransfers.stream()
                                 .map(InternalTransfer::getOrderNumber)
                                 .filter(o -> o != null && !o.isEmpty())
@@ -924,26 +1066,34 @@ public class TransferService extends BaseService {
                                         .build()))
                                 .collect(Collectors.toList());
 
-                            List<Future<TransferResponseDto>> allDtos = new java.util.ArrayList<>();
+                            List<Future<TransferResponseDto>> allDtos = new ArrayList<>();
                             allDtos.addAll(internalDtos);
                             allDtos.addAll(externalDtos);
+                            allDtos.addAll(tokenDepositDtos);
+                            allDtos.addAll(paymentDepositDtos);
+                            allDtos.addAll(swapDtos);
+                            allDtos.addAll(exchangeDtos);
                             allDtos.addAll(airdropDtos);
 
                             return Future.all(allDtos)
                                 .map(results -> {
                                     List<TransferResponseDto> allTransfers = results.list();
                                     allTransfers.sort((a, b) -> {
-                                        if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
-                                        if (a.getCreatedAt() == null) return 1;
-                                        if (b.getCreatedAt() == null) return -1;
-                                        return b.getCreatedAt().compareTo(a.getCreatedAt());
+                                        LocalDateTime aTime = a.getCreatedAt() != null ? a.getCreatedAt() : a.getCompletedAt();
+                                        LocalDateTime bTime = b.getCreatedAt() != null ? b.getCreatedAt() : b.getCompletedAt();
+                                        if (aTime == null && bTime == null) return 0;
+                                        if (aTime == null) return 1;
+                                        if (bTime == null) return -1;
+                                        return bTime.compareTo(aTime);
                                     });
+                                    int total = allTransfers.size();
                                     List<TransferResponseDto> limited = allTransfers.stream()
+                                        .skip(offset)
                                         .limit(limit)
                                         .collect(Collectors.toList());
                                     return TransferHistoryResponseDto.builder()
                                         .transfers(limited)
-                                        .total(limited.size())
+                                        .total(total)
                                         .limit(limit)
                                         .offset(offset)
                                         .build();
@@ -1022,4 +1172,3 @@ public class TransferService extends BaseService {
             });
     }
 }
-

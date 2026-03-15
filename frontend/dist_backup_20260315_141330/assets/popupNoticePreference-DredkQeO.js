@@ -1,0 +1,1 @@
+const t="popupNoticeEnabled";function o(){return typeof localStorage>"u"?!0:localStorage.getItem(t)!=="false"}function n(e){localStorage.setItem(t,e?"true":"false")}function a(e){return!e}export{o as g,n as s,a as t};

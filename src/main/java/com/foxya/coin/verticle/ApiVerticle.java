@@ -320,19 +320,14 @@ public class ApiVerticle extends AbstractVerticle {
             virtualWalletMappingRepository,
             appConfigRepository
         );
-        TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, appConfigRepository);
-        ReferralService referralService = new ReferralService(
-            pool, referralRepository, userRepository, emailVerificationRepository, transferService,
-            referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService);
+        TransferService transferService;
+        ReferralService referralService;
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
         LevelService levelService = new LevelService(
             pool, userRepository, miningRepository, notificationService);
-        MiningService miningService = new MiningService(
-            pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
-            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
-            notificationService, subscriptionService);
+        MiningService miningService;
         NoticeService noticeService = new NoticeService(
             pool, noticeRepository);
         NoticeNotificationDispatchRepository noticeNotificationDispatchRepository = new NoticeNotificationDispatchRepository();
@@ -367,6 +362,29 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService, walletRepository, appConfigRepository);
+        transferService = new TransferService(
+            pool,
+            transferRepository,
+            userRepository,
+            currencyRepository,
+            walletRepository,
+            eventPublisher,
+            redisApi,
+            notificationService,
+            airdropRepository,
+            appConfigRepository,
+            tokenDepositRepository,
+            paymentDepositRepository,
+            swapRepository,
+            exchangeRepository
+        );
+        referralService = new ReferralService(
+            pool, referralRepository, userRepository, emailVerificationRepository, transferService,
+            referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService);
+        miningService = new MiningService(
+            pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
+            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
+            notificationService, subscriptionService);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");

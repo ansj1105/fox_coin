@@ -1,0 +1,1 @@
+import{r}from"./vendor-yvtfdiE2.js";function u(t=""){const[e,s]=r.useState(t),[a,c]=r.useState(t),o=r.useCallback(()=>{c(e.trim())},[e]);return{searchKeywordInput:e,setSearchKeywordInput:s,searchKeyword:a,handleSearch:o}}export{u};
