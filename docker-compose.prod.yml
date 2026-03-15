@@ -335,6 +335,46 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  tron-worker:
+    image: foxya-tron-service:${TRON_VERSION:-latest}
+    container_name: foxya-tron-worker
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=${DB_HOST:-db-proxy}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-coin_system_cloud}
+      - DB_USER=${DB_USER:-foxya}
+      - DB_PASSWORD=${DB_PASSWORD:-change-this-in-production}
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=Asia/Seoul
+      - COIN_SERVICE_URL=${COIN_SERVICE_URL:-http://app:8080}
+    networks:
+      - coin-shared
+    depends_on:
+      db-proxy:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+      tron-service:
+        condition: service_started
+    volumes:
+      - ./logs/tron-worker:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   # ==================== Prometheus (Metrics Collection) ====================
   prometheus:
     image: prom/prometheus:latest
