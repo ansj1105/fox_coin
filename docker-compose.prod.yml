@@ -360,9 +360,9 @@ services:
       redis:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
       tron-service:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./logs/tron-worker:/app/logs
     deploy:
