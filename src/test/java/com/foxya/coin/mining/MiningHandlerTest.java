@@ -295,6 +295,48 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(11)
+        @DisplayName("성공 - INTERNAL/TRON KORI 지갑이 함께 있으면 totalBalance는 합산값을 반환")
+        void successGetMiningInfoSumsAllKoriWallets(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            String insertTronKoriCurrencySql = """
+                INSERT INTO currency (code, name, chain, is_active, created_at, updated_at)
+                VALUES ('KORI', 'Kori Token', 'TRON', true, NOW(), NOW())
+                ON CONFLICT (code, chain) DO NOTHING
+                """;
+            String insertTronKoriWalletSql = """
+                INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at)
+                VALUES (
+                    1,
+                    (SELECT id FROM currency WHERE code = 'KORI' AND chain = 'TRON'),
+                    'TTESTUSERKORITRON001',
+                    234.567000000000000000,
+                    0.000000000000000000,
+                    'ACTIVE',
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (user_id, currency_id) DO UPDATE
+                SET balance = EXCLUDED.balance,
+                    locked_balance = EXCLUDED.locked_balance,
+                    status = EXCLUDED.status,
+                    updated_at = NOW()
+                """;
+
+            sqlClient.query(insertTronKoriCurrencySql)
+                .execute()
+                .compose(rows -> sqlClient.query(insertTronKoriWalletSql).execute())
+                .compose(rows -> reqGet(getUrl("/info"))
+                    .bearerTokenAuthentication(accessToken)
+                    .send())
+                .onComplete(tc.succeeding(res -> tc.verify(() -> {
+                    MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
+                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1234.567000000000000000"));
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(12)
         @DisplayName("친구 초대 시 채굴 효율 연동 - validDirectReferralCount >= 1 이면 inviteBonusMultiplier >= 1.03")
         void inviteBonusLinkedToMiningEfficiency(VertxTestContext tc) {
             // referrer_user(5): 시드에서 피추천인이 있을 수 있음. validDirectReferralCount >= 1 이면 배율 >= 1.03
@@ -314,7 +356,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
 
         @Test
-        @Order(12)
+        @Order(13)
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/info"))

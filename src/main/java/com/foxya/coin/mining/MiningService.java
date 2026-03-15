@@ -254,18 +254,11 @@ public class MiningService extends BaseService {
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
                     .map(wallets -> {
                         if (wallets == null || wallets.isEmpty()) return BigDecimal.ZERO;
-                        Wallet internalKori = null;
-                        Wallet anyKori = null;
-                        for (Wallet wallet : wallets) {
-                            if (!"KORI".equalsIgnoreCase(wallet.getCurrencyCode())) continue;
-                            anyKori = wallet;
-                            if ("INTERNAL".equalsIgnoreCase(wallet.getNetwork())) {
-                                internalKori = wallet;
-                                break;
-                            }
-                        }
-                        Wallet target = internalKori != null ? internalKori : anyKori;
-                        return target != null && target.getBalance() != null ? target.getBalance() : BigDecimal.ZERO;
+                        return wallets.stream()
+                            .filter(wallet -> "KORI".equalsIgnoreCase(wallet.getCurrencyCode()))
+                            .map(Wallet::getBalance)
+                            .filter(balance -> balance != null)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
                     });
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
                 Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
