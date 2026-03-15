@@ -2,6 +2,8 @@ package com.foxya.coin.notification.utils;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
@@ -14,6 +16,7 @@ public final class NotificationMessageLocalizer {
     private static final Locale KOREAN_LOCALE = Locale.KOREAN;
     private static final Locale DEFAULT_LOCALE = Locale.ENGLISH;
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{([a-zA-Z0-9_]+)}");
+    private static final Pattern DECIMAL_PATTERN = Pattern.compile("^-?\\d+(\\.\\d+)?$");
 
     private NotificationMessageLocalizer() {
     }
@@ -78,10 +81,34 @@ public final class NotificationMessageLocalizer {
             String replacement = "";
             if (valueNode != null && !valueNode.isNull()) {
                 replacement = valueNode.isTextual() ? valueNode.asText() : valueNode.toString();
+                replacement = formatNotificationValue(key, replacement);
             }
             matcher.appendReplacement(resolved, Matcher.quoteReplacement(replacement));
         }
         matcher.appendTail(resolved);
         return resolved.toString();
+    }
+
+    private static String formatNotificationValue(String key, String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        if (!isAmountLikeKey(key) || !DECIMAL_PATTERN.matcher(value.trim()).matches()) {
+            return value;
+        }
+
+        BigDecimal decimal = new BigDecimal(value.trim()).setScale(6, RoundingMode.DOWN).stripTrailingZeros();
+        if (decimal.scale() < 0) {
+            decimal = decimal.setScale(0);
+        }
+        return decimal.toPlainString();
+    }
+
+    private static boolean isAmountLikeKey(String key) {
+        return "amount".equals(key)
+            || "fromAmount".equals(key)
+            || "toAmount".equals(key)
+            || "fee".equals(key)
+            || "paymentAmount".equals(key);
     }
 }
