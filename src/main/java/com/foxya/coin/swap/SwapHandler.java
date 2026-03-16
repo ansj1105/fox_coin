@@ -79,6 +79,9 @@ public class SwapHandler extends BaseHandler {
                     .requiredProperty("fromCurrencyCode", stringSchema().with(minLength(1), maxLength(10)))
                     .requiredProperty("toCurrencyCode", stringSchema().with(minLength(1), maxLength(10)))
                     .requiredProperty("fromAmount", numberSchema())
+                    .optionalProperty("quotedExchangeRate", numberSchema())
+                    .optionalProperty("quotedToAmount", numberSchema())
+                    .optionalProperty("maxSlippageBps", intSchema())
                     .requiredProperty("network", stringSchema().with(minLength(1), maxLength(20)))
                     .allowAdditionalProperties(false)
             ))
@@ -161,4 +164,3 @@ public class SwapHandler extends BaseHandler {
         response(ctx, swapService.getSwapInfo(currencyCode));
     }
 }
-

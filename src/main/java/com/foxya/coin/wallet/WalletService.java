@@ -15,6 +15,9 @@ import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 import org.web3j.crypto.Credentials;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -57,7 +60,8 @@ public class WalletService extends BaseService {
      */
     public Future<List<Wallet>> getUserWallets(Long userId) {
         return ensureSharedTronWallets(userId)
-            .compose(v -> walletRepository.getWalletsByUserId(pool, userId));
+            .compose(v -> walletRepository.getWalletsByUserId(pool, userId))
+            .map(this::normalizeWalletsForClient);
     }
     
     /**
@@ -844,6 +848,69 @@ public class WalletService extends BaseService {
                         return createdWallets;
                     });
             });
+    }
+
+    /**
+     * Expose KORI as a single logical asset to clients:
+     * keep the TRON wallet/address for deposits while surfacing the INTERNAL balance.
+     */
+    private List<Wallet> normalizeWalletsForClient(List<Wallet> wallets) {
+        if (wallets == null || wallets.isEmpty()) {
+            return wallets;
+        }
+
+        Wallet koriTron = null;
+        Wallet koriInternal = null;
+        List<Wallet> normalized = new ArrayList<>();
+
+        for (Wallet wallet : wallets) {
+            if (wallet == null) {
+                continue;
+            }
+
+            boolean isKori = "KORI".equalsIgnoreCase(wallet.getCurrencyCode());
+            boolean isTron = "TRON".equalsIgnoreCase(wallet.getNetwork());
+            boolean isInternal = "INTERNAL".equalsIgnoreCase(wallet.getNetwork());
+
+            if (isKori && isTron) {
+                koriTron = wallet;
+                continue;
+            }
+            if (isKori && isInternal) {
+                koriInternal = wallet;
+                continue;
+            }
+
+            normalized.add(wallet);
+        }
+
+        if (koriTron != null) {
+            BigDecimal effectiveBalance = koriInternal != null && koriInternal.getBalance() != null
+                ? koriInternal.getBalance()
+                : koriTron.getBalance();
+            normalized.add(Wallet.builder()
+                .id(koriTron.getId())
+                .userId(koriTron.getUserId())
+                .currencyId(koriTron.getCurrencyId())
+                .currencyCode(koriTron.getCurrencyCode())
+                .currencyName(koriTron.getCurrencyName())
+                .currencySymbol(koriTron.getCurrencySymbol())
+                .network(koriTron.getNetwork())
+                .address(koriTron.getAddress())
+                .privateKey(koriTron.getPrivateKey())
+                .balance(effectiveBalance)
+                .lockedBalance(koriInternal != null ? koriInternal.getLockedBalance() : koriTron.getLockedBalance())
+                .verified(koriTron.getVerified())
+                .status(koriTron.getStatus())
+                .createdAt(koriTron.getCreatedAt())
+                .updatedAt(koriTron.getUpdatedAt())
+                .build());
+        } else if (koriInternal != null) {
+            normalized.add(koriInternal);
+        }
+
+        normalized.sort(Comparator.comparing(Wallet::getId, Comparator.nullsLast(Comparator.naturalOrder())));
+        return normalized;
     }
 
 }

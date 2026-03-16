@@ -25,8 +25,16 @@ public class SwapRequestDto {
     
     @JsonProperty("fromAmount")
     private BigDecimal fromAmount;
-    
+
+    @JsonProperty("quotedExchangeRate")
+    private BigDecimal quotedExchangeRate;
+
+    @JsonProperty("quotedToAmount")
+    private BigDecimal quotedToAmount;
+
+    @JsonProperty("maxSlippageBps")
+    private Integer maxSlippageBps;
+
     @JsonProperty("network")
     private String network;
 }
-

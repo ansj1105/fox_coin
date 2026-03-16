@@ -64,6 +64,11 @@ public class SwapHandlerTest extends HandlerTestBase {
                     assertThat(response.getToCurrencyCode()).isEqualTo("USDT");
                     assertThat(response.getFromAmount()).isNotNull();
                     assertThat(response.getToAmount()).isNotNull();
+                    assertThat(response.getExchangeRate()).isNotNull();
+                    assertThat(response.getFeeRate()).isNotNull();
+                    assertThat(response.getFeeAmount()).isNotNull();
+                    assertThat(response.getSpread()).isNotNull();
+                    assertThat(response.getSpreadAmount()).isNotNull();
                     assertThat(response.getNetwork()).isEqualTo("Ether");
                     assertThat(response.getStatus()).isEqualTo("COMPLETED");
                     
@@ -109,6 +114,30 @@ public class SwapHandlerTest extends HandlerTestBase {
                     tc.completeNow();
                 })));
         }
+
+        @Test
+        @Order(4)
+        @DisplayName("실패 - 만료된 quote로 실행")
+        void failExpiredQuote(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(TESTUSER_ID);
+
+            JsonObject requestBody = new JsonObject()
+                .put("fromCurrencyCode", "ETH")
+                .put("toCurrencyCode", "USDT")
+                .put("fromAmount", 0.1)
+                .put("quotedExchangeRate", 999999)
+                .put("quotedToAmount", 99999)
+                .put("maxSlippageBps", 0)
+                .put("network", "Ether");
+
+            reqPost(getUrl("/"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(requestBody)
+                .onComplete(tc.succeeding(res -> tc.verify(() -> {
+                    expectError(res, 400);
+                    tc.completeNow();
+                })));
+        }
     }
     
     @Nested
@@ -144,6 +173,9 @@ public class SwapHandlerTest extends HandlerTestBase {
                             assertThat(response).isNotNull();
                             assertThat(response.getSwapId()).isEqualTo(created.getSwapId());
                             assertThat(response.getOrderNumber()).isEqualTo(created.getOrderNumber());
+                            assertThat(response.getExchangeRate()).isNotNull();
+                            assertThat(response.getFeeAmount()).isNotNull();
+                            assertThat(response.getSpreadAmount()).isNotNull();
                             
                             tc.completeNow();
                         })));

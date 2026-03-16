@@ -27,6 +27,11 @@ public class SwapRepository extends BaseRepository {
         .toCurrencyId(getIntegerColumnValue(row, "to_currency_id"))
         .fromAmount(getBigDecimalColumnValue(row, "from_amount"))
         .toAmount(getBigDecimalColumnValue(row, "to_amount"))
+        .exchangeRate(getBigDecimalColumnValue(row, "exchange_rate"))
+        .feeRate(getBigDecimalColumnValue(row, "fee_rate"))
+        .feeAmount(getBigDecimalColumnValue(row, "fee_amount"))
+        .spreadRate(getBigDecimalColumnValue(row, "spread_rate"))
+        .spreadAmount(getBigDecimalColumnValue(row, "spread_amount"))
         .network(getStringColumnValue(row, "network"))
         .status(getStringColumnValue(row, "status"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
@@ -47,6 +52,11 @@ public class SwapRepository extends BaseRepository {
         params.put("to_currency_id", swap.getToCurrencyId());
         params.put("from_amount", swap.getFromAmount());
         params.put("to_amount", swap.getToAmount());
+        params.put("exchange_rate", swap.getExchangeRate());
+        params.put("fee_rate", swap.getFeeRate());
+        params.put("fee_amount", swap.getFeeAmount());
+        params.put("spread_rate", swap.getSpreadRate());
+        params.put("spread_amount", swap.getSpreadAmount());
         params.put("network", swap.getNetwork());
         params.put("status", swap.getStatus());
         

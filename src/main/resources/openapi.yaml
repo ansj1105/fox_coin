@@ -850,6 +850,18 @@ components:
           format: decimal
           description: FROM 금액
           example: 1.0
+        quotedExchangeRate:
+          type: number
+          format: decimal
+          description: 직전 quote에서 받은 환율. execute 시 가격 하락 보호용
+        quotedToAmount:
+          type: number
+          format: decimal
+          description: 직전 quote에서 받은 예상 수령량. execute 시 가격 하락 보호용
+        maxSlippageBps:
+          type: integer
+          description: 허용 슬리피지 bps (예: 50 = 0.50%)
+          example: 50
         network:
           type: string
           description: 네트워크
@@ -872,6 +884,24 @@ components:
           type: number
           format: decimal
         toAmount:
+          type: number
+          format: decimal
+        exchangeRate:
+          type: number
+          format: decimal
+        fee:
+          type: number
+          format: decimal
+        feeRate:
+          type: number
+          format: decimal
+        feeAmount:
+          type: number
+          format: decimal
+        spread:
+          type: number
+          format: decimal
+        spreadAmount:
           type: number
           format: decimal
         network:

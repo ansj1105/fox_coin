@@ -24,7 +24,7 @@ DB_USER="${DB_USER:-foxya}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 
 # 마이그레이션 파일 경로 (호스트)
-MIGRATION_DIR="${1:-./src/main/resources/db/migration}"
+MIGRATION_DIR="${1:-${MIGRATION_DIR:-./src/main/resources/db/migration}}"
 
 if [ ! -d "$MIGRATION_DIR" ]; then
     echo -e "${RED}Error: 마이그레이션 디렉토리를 찾을 수 없습니다: $MIGRATION_DIR${NC}"
@@ -35,7 +35,7 @@ fi
 echo -e "${YELLOW}Flyway 컨테이너에서 migration 실행...${NC}"
 
 docker run --rm \
-    -v "$(pwd)/src/main/resources/db/migration:/flyway/sql" \
+    -v "$(cd "${MIGRATION_DIR}" && pwd):/flyway/sql" \
     flyway/flyway:10.4.1 \
     -url=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME} \
     -user=${DB_USER} \

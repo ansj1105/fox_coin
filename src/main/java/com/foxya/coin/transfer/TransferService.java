@@ -304,6 +304,22 @@ public class TransferService extends BaseService {
      * Use external-chain wallet first; fallback to INTERNAL wallet when external wallet is missing.
      */
     private Future<Wallet> resolvePreferredWalletForWithdrawal(Long userId, Currency externalCurrency) {
+        if ("KORI".equalsIgnoreCase(externalCurrency.getCode())) {
+            return currencyRepository.getCurrencyByCodeAndChain(pool, externalCurrency.getCode(), INTERNAL_CHAIN)
+                .compose(internalCurrency -> {
+                    if (internalCurrency == null) {
+                        return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId());
+                    }
+                    return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, internalCurrency.getId())
+                        .compose(internalWallet -> {
+                            if (internalWallet != null) {
+                                return Future.succeededFuture(internalWallet);
+                            }
+                            return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId());
+                        });
+                });
+        }
+
         return transferRepository.getWalletByUserIdAndCurrencyId(pool, userId, externalCurrency.getId())
             .compose(externalWallet -> {
                 if (externalWallet != null) {

@@ -25,6 +25,11 @@ public class Swap {
     private Integer toCurrencyId;
     private BigDecimal fromAmount;
     private BigDecimal toAmount;
+    private BigDecimal exchangeRate;
+    private BigDecimal feeRate;
+    private BigDecimal feeAmount;
+    private BigDecimal spreadRate;
+    private BigDecimal spreadAmount;
     private String network;            // Ether, TRON 등
     private String status;              // PENDING, COMPLETED, FAILED
     private LocalDateTime createdAt;
@@ -37,4 +42,3 @@ public class Swap {
     public static final String STATUS_COMPLETED = "COMPLETED";
     public static final String STATUS_FAILED = "FAILED";
 }
-

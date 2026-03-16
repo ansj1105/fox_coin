@@ -53,11 +53,16 @@ public class SwapResponseDto {
     
     @JsonProperty("feeRate")
     private BigDecimal feeRate;
-    
+
+    @JsonProperty("feeAmount")
+    private BigDecimal feeAmount;
+
     @JsonProperty("spread")
     private BigDecimal spread;
-    
+
+    @JsonProperty("spreadAmount")
+    private BigDecimal spreadAmount;
+
     @JsonProperty("message")
     private String message;
 }
-

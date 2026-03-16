@@ -50,6 +50,7 @@ public class SwapService extends BaseService {
     private static final BigDecimal DEFAULT_MIN_SWAP_AMOUNT_KRWT = new BigDecimal("1000.0");
     private static final String DEFAULT_PRICE_SOURCE = "DB_MARKET";
     private static final String DEFAULT_PRICE_NOTE = "Realtime price source: DB market price";
+    private static final int DEFAULT_MAX_SLIPPAGE_BPS = 50;
 
     private static final String CFG_SWAP_FEE_BPS = "swap.fee_bps";
     private static final String CFG_SWAP_SPREAD_BPS = "swap.spread_bps";
@@ -144,7 +145,8 @@ public class SwapService extends BaseService {
                                         toCurrency,
                                         fromWallet,
                                         request.getFromAmount(),
-                                        quote.toAmount(),
+                                        quote,
+                                        request,
                                         request.getNetwork(),
                                         requestIp
                                     ).compose(this::createSwapCompletedNotification));
@@ -188,11 +190,14 @@ public class SwapService extends BaseService {
                                                            Currency toCurrency,
                                                            Wallet fromWallet,
                                                            BigDecimal fromAmount,
-                                                           BigDecimal toAmount,
+                                                           ComputedSwapQuote quote,
+                                                           SwapRequestDto request,
                                                            String network,
                                                            String requestIp) {
         String swapId = UUID.randomUUID().toString();
         String orderNumber = OrderNumberUtils.generateOrderNumber();
+
+        validateQuotedExecution(request, quote);
 
         return pool.withTransaction(client ->
             transferRepository.deductBalance(client, fromWallet.getId(), fromAmount)
@@ -207,7 +212,7 @@ public class SwapService extends BaseService {
                                 return Future.failedFuture(new NotFoundException("Destination wallet not found."));
                             }
 
-                            return transferRepository.addBalance(client, toWallet.getId(), toAmount)
+                            return transferRepository.addBalance(client, toWallet.getId(), quote.toAmount())
                                 .compose(updatedToWallet -> {
                                     Swap swap = Swap.builder()
                                         .swapId(swapId)
@@ -216,7 +221,12 @@ public class SwapService extends BaseService {
                                         .fromCurrencyId(fromCurrency.getId())
                                         .toCurrencyId(toCurrency.getId())
                                         .fromAmount(fromAmount)
-                                        .toAmount(toAmount)
+                                        .toAmount(quote.toAmount())
+                                        .exchangeRate(quote.exchangeRate())
+                                        .feeRate(quote.feeRate())
+                                        .feeAmount(quote.feeAmount())
+                                        .spreadRate(quote.spreadRate())
+                                        .spreadAmount(quote.spreadAmount())
                                         .network(network)
                                         .status(Swap.STATUS_COMPLETED)
                                         .build();
@@ -229,6 +239,12 @@ public class SwapService extends BaseService {
                                             .toCurrencyCode(toCurrency.getCode())
                                             .fromAmount(createdSwap.getFromAmount())
                                             .toAmount(createdSwap.getToAmount())
+                                            .exchangeRate(createdSwap.getExchangeRate())
+                                            .fee(createdSwap.getFeeRate())
+                                            .feeRate(createdSwap.getFeeRate())
+                                            .feeAmount(createdSwap.getFeeAmount())
+                                            .spread(createdSwap.getSpreadRate())
+                                            .spreadAmount(createdSwap.getSpreadAmount())
                                             .network(createdSwap.getNetwork())
                                             .status(createdSwap.getStatus())
                                             .createdAt(createdSwap.getCreatedAt())
@@ -307,6 +323,12 @@ public class SwapService extends BaseService {
                                 .toCurrencyCode(toCurrency.getCode())
                                 .fromAmount(swap.getFromAmount())
                                 .toAmount(swap.getToAmount())
+                                .exchangeRate(swap.getExchangeRate())
+                                .fee(swap.getFeeRate())
+                                .feeRate(swap.getFeeRate())
+                                .feeAmount(swap.getFeeAmount())
+                                .spread(swap.getSpreadRate())
+                                .spreadAmount(swap.getSpreadAmount())
                                 .network(swap.getNetwork())
                                 .status(swap.getStatus())
                                 .createdAt(swap.getCreatedAt())
@@ -521,5 +543,38 @@ public class SwapService extends BaseService {
 
     private String defaultIfBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private void validateQuotedExecution(SwapRequestDto request, ComputedSwapQuote quote) {
+        if (request == null || quote == null) {
+            return;
+        }
+
+        BigDecimal quotedToAmount = request.getQuotedToAmount();
+        BigDecimal quotedExchangeRate = request.getQuotedExchangeRate();
+        if (quotedToAmount == null && quotedExchangeRate == null) {
+            return;
+        }
+
+        int slippageBps = request.getMaxSlippageBps() != null
+            ? Math.max(0, Math.min(10000, request.getMaxSlippageBps()))
+            : DEFAULT_MAX_SLIPPAGE_BPS;
+        BigDecimal slippageRate = BigDecimal.valueOf(slippageBps)
+            .divide(new BigDecimal("10000"), 8, RoundingMode.HALF_UP);
+
+        if (quotedExchangeRate != null) {
+            BigDecimal minimumRate = quotedExchangeRate.multiply(BigDecimal.ONE.subtract(slippageRate));
+            if (quote.exchangeRate().compareTo(minimumRate) < 0) {
+                throw new BadRequestException("Swap quote expired. Please refresh the quote.");
+            }
+        }
+
+        if (quotedToAmount != null) {
+            BigDecimal minimumToAmount = quotedToAmount.multiply(BigDecimal.ONE.subtract(slippageRate))
+                .setScale(18, RoundingMode.DOWN);
+            if (quote.toAmount().compareTo(minimumToAmount) < 0) {
+                throw new BadRequestException("Swap quote expired. Please refresh the quote.");
+            }
+        }
     }
 }
