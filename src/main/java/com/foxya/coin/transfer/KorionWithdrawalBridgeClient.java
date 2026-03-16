@@ -3,10 +3,12 @@ package com.foxya.coin.transfer;
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -15,6 +17,18 @@ import java.util.stream.Collectors;
 public class KorionWithdrawalBridgeClient implements WithdrawalBridgeClient {
 
     private static final Set<String> SUPPORTED_CHAINS = Set.of("TRON");
+    private static final Set<Integer> RETRYABLE_STATUS_CODES = Set.of(408, 429, 500, 502, 503, 504);
+    private static final Set<String> RETRYABLE_ERROR_MARKERS = Set.of(
+        "timeout",
+        "timed out",
+        "connection refused",
+        "connection reset",
+        "connection was closed",
+        "connect exception",
+        "temporarily unavailable"
+    );
+    private static final long REQUEST_TIMEOUT_MS = 10_000L;
+    private static final int MAX_ATTEMPTS = 2;
 
     private final WebClient webClient;
     private final String requestUrl;
@@ -57,35 +71,74 @@ public class KorionWithdrawalBridgeClient implements WithdrawalBridgeClient {
             .put("toAddress", request.getToAddress())
             .put("clientIp", requestIp);
 
-        return webClient.postAbs(requestUrl)
-            .putHeader("Content-Type", "application/json")
-            .putHeader("Idempotency-Key", transferId)
-            .sendJsonObject(payload)
-            .compose(response -> {
-                if (response.statusCode() != 200 && response.statusCode() != 201) {
-                    String body = response.bodyAsString();
-                    return Future.failedFuture(
-                        "coin_manage withdrawal request failed - status: " + response.statusCode() + ", body: " + body
-                    );
-                }
-
-                JsonObject body = response.bodyAsJsonObject();
-                JsonObject withdrawal = body != null ? body.getJsonObject("withdrawal") : null;
-                String withdrawalId = withdrawal != null
-                    ? withdrawal.getString("withdrawalId", withdrawal.getString("id"))
-                    : null;
-
-                if (withdrawalId == null || withdrawalId.isBlank()) {
-                    return Future.failedFuture("coin_manage withdrawal response missing withdrawalId");
-                }
-
-                log.info("coin_manage withdrawal bridge success - transferId: {}, withdrawalId: {}", transferId, withdrawalId);
-                return Future.succeededFuture(withdrawalId);
-            })
+        return requestWithdrawal(userId, transferId, payload, 1)
             .recover(error -> {
                 log.error("coin_manage withdrawal bridge failed - transferId: {}", transferId, error);
                 return Future.failedFuture(error);
             });
+    }
+
+    private Future<String> requestWithdrawal(Long userId, String transferId, JsonObject payload, int attempt) {
+        return webClient.postAbs(requestUrl)
+            .timeout(REQUEST_TIMEOUT_MS)
+            .putHeader("Content-Type", "application/json")
+            .putHeader("Idempotency-Key", transferId)
+            .sendJsonObject(payload)
+            .compose(response -> handleResponse(transferId, response, attempt))
+            .recover(error -> {
+                if (attempt < MAX_ATTEMPTS && isRetryableTransportError(error)) {
+                    log.warn("coin_manage withdrawal bridge retry - transferId: {}, attempt: {}", transferId, attempt + 1, error);
+                    return requestWithdrawal(userId, transferId, payload, attempt + 1);
+                }
+                return Future.failedFuture(error);
+            });
+    }
+
+    private Future<String> handleResponse(String transferId, HttpResponse<?> response, int attempt) {
+        if (response.statusCode() != 200 && response.statusCode() != 201) {
+            String body = response.bodyAsString();
+            String message = "coin_manage withdrawal request failed - status: " + response.statusCode() + ", body: " + body;
+            return Future.failedFuture(message);
+        }
+
+        JsonObject body = response.bodyAsJsonObject();
+        JsonObject withdrawal = body != null ? body.getJsonObject("withdrawal") : null;
+        String withdrawalId = withdrawal != null
+            ? withdrawal.getString("withdrawalId", withdrawal.getString("id"))
+            : null;
+
+        if (withdrawalId == null || withdrawalId.isBlank()) {
+            return Future.failedFuture("coin_manage withdrawal response missing withdrawalId");
+        }
+
+        log.info("coin_manage withdrawal bridge success - transferId: {}, withdrawalId: {}", transferId, withdrawalId);
+        return Future.succeededFuture(withdrawalId);
+    }
+
+    private boolean isRetryableTransportError(Throwable error) {
+        String message = collectMessages(error).toLowerCase(Locale.ROOT);
+        for (String marker : RETRYABLE_ERROR_MARKERS) {
+            if (message.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String collectMessages(Throwable error) {
+        Set<Throwable> visited = new HashSet<>();
+        StringBuilder builder = new StringBuilder();
+        Throwable current = error;
+        while (current != null && visited.add(current)) {
+            if (current.getMessage() != null && !current.getMessage().isBlank()) {
+                if (builder.length() > 0) {
+                    builder.append(" | ");
+                }
+                builder.append(current.getMessage());
+            }
+            current = current.getCause();
+        }
+        return builder.toString();
     }
 
     private static String normalizeUrl(String baseUrl, String path) {
