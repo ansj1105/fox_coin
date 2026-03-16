@@ -354,7 +354,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         SwapRepository swapRepository = new SwapRepository();
         SwapService swapService = new SwapService(
-            pool, swapRepository, currencyRepository, currencyService, transferRepository, notificationService);
+            pool, swapRepository, currencyRepository, appConfigRepository, currencyService, transferRepository, notificationService);
         ExchangeRepository exchangeRepository = new ExchangeRepository();
         ExchangeService exchangeService = new ExchangeService(
             pool, exchangeRepository, currencyRepository, transferRepository, userRepository, notificationService);

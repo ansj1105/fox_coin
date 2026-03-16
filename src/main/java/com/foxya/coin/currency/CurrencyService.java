@@ -118,6 +118,33 @@ public class CurrencyService extends BaseService {
         return getCoinPricesFromDb(requestedCodes);
     }
 
+    public Future<BigDecimal> getSwapExchangeRate(String fromCurrencyCode, String toCurrencyCode) {
+        String fromCode = normalizeSwapPriceCode(fromCurrencyCode);
+        String toCode = normalizeSwapPriceCode(toCurrencyCode);
+        if (fromCode == null || toCode == null) {
+            return Future.failedFuture("Currency code is required.");
+        }
+        if (fromCode.equals(toCode)) {
+            return Future.succeededFuture(BigDecimal.ONE);
+        }
+        if ("KRWT".equals(fromCode) || "KRWT".equals(toCode)) {
+            return Future.succeededFuture(getExchangeRate(fromCode, toCode));
+        }
+
+        return getCoinPricesFromDb(Set.of(fromCode, toCode))
+            .map(dto -> {
+                BigDecimal fromUsdPrice = extractSwapUsdPrice(dto, fromCode);
+                BigDecimal toUsdPrice = extractSwapUsdPrice(dto, toCode);
+                if (fromUsdPrice != null
+                    && toUsdPrice != null
+                    && fromUsdPrice.compareTo(BigDecimal.ZERO) > 0
+                    && toUsdPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    return fromUsdPrice.divide(toUsdPrice, 18, RoundingMode.HALF_UP);
+                }
+                return getExchangeRate(fromCode, toCode);
+            });
+    }
+
     public String subscribeCoinPrices(Set<String> requestedCodes, Consumer<CoinPricesDto> listener) {
         Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
         String subscriberId = UUID.randomUUID().toString();
@@ -682,6 +709,14 @@ public class CurrencyService extends BaseService {
         return normalized;
     }
 
+    private String normalizeSwapPriceCode(String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank()) {
+            return null;
+        }
+        String normalized = currencyCode.trim().toUpperCase();
+        return "KORION".equals(normalized) ? "KORI" : normalized;
+    }
+
     private Set<String> canonicalizeCoinPriceCodes(Set<String> requestedCodes) {
         Set<String> canonical = new HashSet<>();
         for (String code : requestedCodes) {
@@ -712,6 +747,14 @@ public class CurrencyService extends BaseService {
                     .updatedAt(Instant.now())
                     .build());
             });
+    }
+
+    private BigDecimal extractSwapUsdPrice(CoinPricesDto dto, String currencyCode) {
+        if (dto == null || dto.getPrices() == null || currencyCode == null) {
+            return null;
+        }
+        CoinPriceDto item = dto.getPrices().get(currencyCode);
+        return item != null ? item.getUsdPrice() : null;
     }
 
     private void broadcastCoinPriceSnapshot() {

@@ -277,6 +277,8 @@ public class SwapHandlerTest extends HandlerTestBase {
                     assertThat(info.getSpread()).isNotNull();
                     assertThat(info.getPriceSource()).isNotNull();
                     assertThat(info.getNote()).isNotNull();
+                    assertThat(info.getMinSwapAmount()).isNotNull();
+                    assertThat(info.getMinSwapAmount()).containsKey("KORI");
                     
                     tc.completeNow();
                 })));
@@ -317,4 +319,3 @@ public class SwapHandlerTest extends HandlerTestBase {
         }
     }
 }
-

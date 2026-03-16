@@ -1,5 +1,6 @@
 package com.foxya.coin.swap;
 
+import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.exceptions.NotFoundException;
@@ -18,6 +19,7 @@ import com.foxya.coin.swap.dto.SwapResponseDto;
 import com.foxya.coin.swap.entities.Swap;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.wallet.entities.Wallet;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
@@ -39,15 +41,23 @@ public class SwapService extends BaseService {
     private final CurrencyService currencyService;
     private final TransferRepository transferRepository;
     private final NotificationService notificationService;
+    private final AppConfigRepository appConfigRepository;
 
-    private static final BigDecimal SWAP_FEE_RATE = new BigDecimal("0.002");
-    private static final BigDecimal SWAP_SPREAD_RATE = new BigDecimal("0.003");
-    private static final BigDecimal MIN_SWAP_AMOUNT = new BigDecimal("0.000001");
-    private static final BigDecimal MIN_SWAP_AMOUNT_KRWT = new BigDecimal("1000.0");
+    private static final BigDecimal DEFAULT_SWAP_FEE_RATE = new BigDecimal("0.002");
+    private static final BigDecimal DEFAULT_SWAP_SPREAD_RATE = new BigDecimal("0.003");
+    private static final BigDecimal DEFAULT_MIN_SWAP_AMOUNT = new BigDecimal("0.000001");
+    private static final BigDecimal DEFAULT_MIN_SWAP_AMOUNT_KORI = new BigDecimal("1000.0");
+    private static final BigDecimal DEFAULT_MIN_SWAP_AMOUNT_KRWT = new BigDecimal("1000.0");
+    private static final String DEFAULT_PRICE_SOURCE = "DB_MARKET";
+    private static final String DEFAULT_PRICE_NOTE = "Realtime price source: DB market price";
 
-    private static final BigDecimal RATE_ETH = new BigDecimal("5000000.0");
-    private static final BigDecimal RATE_USDT = new BigDecimal("1300.0");
-    private static final BigDecimal RATE_KRWT = BigDecimal.ONE;
+    private static final String CFG_SWAP_FEE_BPS = "swap.fee_bps";
+    private static final String CFG_SWAP_SPREAD_BPS = "swap.spread_bps";
+    private static final String CFG_SWAP_MIN_AMOUNT_DEFAULT = "swap.min_amount.default";
+    private static final String CFG_SWAP_MIN_AMOUNT_KORI = "swap.min_amount.KORI";
+    private static final String CFG_SWAP_MIN_AMOUNT_KRWT = "swap.min_amount.KRWT";
+    private static final String CFG_SWAP_PRICE_SOURCE = "swap.price_source";
+    private static final String CFG_SWAP_PRICE_NOTE = "swap.price_note";
 
     private static final String INTERNAL_CHAIN = "INTERNAL";
     private static final String SWAP_COMPLETED_TITLE = "스왑 완료";
@@ -56,24 +66,40 @@ public class SwapService extends BaseService {
     private static final String SWAP_COMPLETED_MESSAGE_KEY = "notifications.swapCompleted.message";
 
     private record ResolvedSwapWallet(Currency currency, Wallet wallet) {}
+    private record SwapConfig(BigDecimal feeRate,
+                              BigDecimal spreadRate,
+                              BigDecimal defaultMinAmount,
+                              BigDecimal koriMinAmount,
+                              BigDecimal krwtMinAmount,
+                              String priceSource,
+                              String note) {}
+    private record ComputedSwapQuote(BigDecimal exchangeRate,
+                                     BigDecimal feeRate,
+                                     BigDecimal feeAmount,
+                                     BigDecimal spreadRate,
+                                     BigDecimal spreadAmount,
+                                     BigDecimal toAmount) {}
 
     public SwapService(PgPool pool,
                        SwapRepository swapRepository,
                        CurrencyRepository currencyRepository,
+                       AppConfigRepository appConfigRepository,
                        CurrencyService currencyService,
                        TransferRepository transferRepository) {
-        this(pool, swapRepository, currencyRepository, currencyService, transferRepository, null);
+        this(pool, swapRepository, currencyRepository, appConfigRepository, currencyService, transferRepository, null);
     }
 
     public SwapService(PgPool pool,
                        SwapRepository swapRepository,
                        CurrencyRepository currencyRepository,
+                       AppConfigRepository appConfigRepository,
                        CurrencyService currencyService,
                        TransferRepository transferRepository,
                        NotificationService notificationService) {
         super(pool);
         this.swapRepository = swapRepository;
         this.currencyRepository = currencyRepository;
+        this.appConfigRepository = appConfigRepository;
         this.currencyService = currencyService;
         this.transferRepository = transferRepository;
         this.notificationService = notificationService;
@@ -86,49 +112,43 @@ public class SwapService extends BaseService {
         log.info("Swap request - userId: {}, fromCurrency: {}, toCurrency: {}, fromAmount: {}, network: {}",
             userId, request.getFromCurrencyCode(), request.getToCurrencyCode(), request.getFromAmount(), request.getNetwork());
 
-        if (request.getFromAmount() == null || request.getFromAmount().compareTo(MIN_SWAP_AMOUNT) < 0) {
-            return Future.failedFuture(new BadRequestException("Minimum swap amount is " + MIN_SWAP_AMOUNT));
-        }
-
         if (request.getFromCurrencyCode() == null || request.getToCurrencyCode() == null) {
             return Future.failedFuture(new BadRequestException("Currency code is required."));
         }
 
-        if (request.getFromCurrencyCode().equals(request.getToCurrencyCode())) {
+        String fromCurrencyCode = normalizeCurrencyCode(request.getFromCurrencyCode());
+        String toCurrencyCode = normalizeCurrencyCode(request.getToCurrencyCode());
+        if (fromCurrencyCode.equals(toCurrencyCode)) {
             return Future.failedFuture(new BadRequestException("Cannot swap to the same currency."));
         }
 
-        return resolvePreferredSwapWallet(userId, request.getFromCurrencyCode(), request.getNetwork(), "FROM")
-            .compose(fromResolved ->
-                resolvePreferredSwapWallet(userId, request.getToCurrencyCode(), request.getNetwork(), "TO")
-                    .compose(toResolved -> {
-                        Currency fromCurrency = fromResolved.currency();
-                        Currency toCurrency = toResolved.currency();
-                        Wallet fromWallet = fromResolved.wallet();
+        return loadSwapConfig()
+            .compose(config -> validateMinimumAmount(request.getFromAmount(), fromCurrencyCode, config)
+                .compose(v -> resolvePreferredSwapWallet(userId, fromCurrencyCode, request.getNetwork(), "FROM")
+                    .compose(fromResolved ->
+                        resolvePreferredSwapWallet(userId, toCurrencyCode, request.getNetwork(), "TO")
+                            .compose(toResolved -> {
+                                Currency fromCurrency = fromResolved.currency();
+                                Currency toCurrency = toResolved.currency();
+                                Wallet fromWallet = fromResolved.wallet();
 
-                        BigDecimal exchangeRate = currencyService.getExchangeRate(request.getFromCurrencyCode(), request.getToCurrencyCode());
-                        BigDecimal feeAmount = request.getFromAmount().multiply(SWAP_FEE_RATE).setScale(18, RoundingMode.DOWN);
-                        BigDecimal spreadAmount = request.getFromAmount().multiply(exchangeRate).multiply(SWAP_SPREAD_RATE).setScale(18, RoundingMode.DOWN);
-                        BigDecimal toAmount = request.getFromAmount().multiply(exchangeRate)
-                            .subtract(feeAmount)
-                            .subtract(spreadAmount)
-                            .setScale(18, RoundingMode.DOWN);
+                                if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
+                                    return Future.failedFuture(new BadRequestException("Insufficient balance."));
+                                }
 
-                        if (fromWallet.getBalance().compareTo(request.getFromAmount()) < 0) {
-                            return Future.failedFuture(new BadRequestException("Insufficient balance."));
-                        }
-
-                        return executeSwapTransaction(
-                            userId,
-                            fromCurrency,
-                            toCurrency,
-                            fromWallet,
-                            request.getFromAmount(),
-                            toAmount,
-                            request.getNetwork(),
-                            requestIp
-                        ).compose(this::createSwapCompletedNotification);
-                    }));
+                                return currencyService.getSwapExchangeRate(fromCurrencyCode, toCurrencyCode)
+                                    .map(exchangeRate -> computeSwapQuote(request.getFromAmount(), exchangeRate, config))
+                                    .compose(quote -> executeSwapTransaction(
+                                        userId,
+                                        fromCurrency,
+                                        toCurrency,
+                                        fromWallet,
+                                        request.getFromAmount(),
+                                        quote.toAmount(),
+                                        request.getNetwork(),
+                                        requestIp
+                                    ).compose(this::createSwapCompletedNotification));
+                            }))));
     }
 
     private Future<ResolvedSwapWallet> resolvePreferredSwapWallet(Long userId, String currencyCode, String network, String direction) {
@@ -299,83 +319,207 @@ public class SwapService extends BaseService {
      */
     public Future<SwapQuoteDto> getSwapQuote(String fromCurrencyCode, String toCurrencyCode,
                                              BigDecimal fromAmount, String network) {
-        return currencyRepository.getCurrencyByCodeAndChain(pool, fromCurrencyCode, network)
-            .compose(fromCurrency -> {
-                if (fromCurrency == null) {
-                    return Future.failedFuture(new NotFoundException("FROM currency not found: " + fromCurrencyCode));
-                }
-
-                return currencyRepository.getCurrencyByCodeAndChain(pool, toCurrencyCode, network)
-                    .map(toCurrency -> {
-                        if (toCurrency == null) {
-                            throw new NotFoundException("TO currency not found: " + toCurrencyCode);
+        String normalizedFromCurrency = normalizeCurrencyCode(fromCurrencyCode);
+        String normalizedToCurrency = normalizeCurrencyCode(toCurrencyCode);
+        return loadSwapConfig()
+            .compose(config -> validateMinimumAmount(fromAmount, normalizedFromCurrency, config)
+                .compose(v -> currencyRepository.getCurrencyByCodeAndChain(pool, normalizedFromCurrency, network)
+                    .compose(fromCurrency -> {
+                        if (fromCurrency == null) {
+                            return Future.failedFuture(new NotFoundException("FROM currency not found: " + normalizedFromCurrency));
                         }
 
-                        BigDecimal exchangeRate = currencyService.getExchangeRate(fromCurrencyCode, toCurrencyCode);
-                        BigDecimal fee = SWAP_FEE_RATE;
-                        BigDecimal feeAmount = fromAmount.multiply(fee).setScale(18, RoundingMode.DOWN);
-                        BigDecimal spread = SWAP_SPREAD_RATE;
-                        BigDecimal spreadAmount = fromAmount.multiply(exchangeRate).multiply(spread).setScale(18, RoundingMode.DOWN);
-                        BigDecimal toAmount = fromAmount.multiply(exchangeRate)
-                            .subtract(feeAmount)
-                            .subtract(spreadAmount)
-                            .setScale(18, RoundingMode.DOWN);
+                        return currencyRepository.getCurrencyByCodeAndChain(pool, normalizedToCurrency, network)
+                            .compose(toCurrency -> {
+                                if (toCurrency == null) {
+                                    return Future.failedFuture(new NotFoundException("TO currency not found: " + normalizedToCurrency));
+                                }
 
-                        return SwapQuoteDto.builder()
-                            .fromCurrencyCode(fromCurrencyCode)
-                            .toCurrencyCode(toCurrencyCode)
-                            .fromAmount(fromAmount)
-                            .exchangeRate(exchangeRate)
-                            .fee(fee)
-                            .feeAmount(feeAmount)
-                            .spread(spread)
-                            .spreadAmount(spreadAmount)
-                            .toAmount(toAmount)
-                            .network(network)
-                            .build();
-                    });
-            });
+                                return currencyService.getSwapExchangeRate(normalizedFromCurrency, normalizedToCurrency)
+                                    .map(exchangeRate -> {
+                                        ComputedSwapQuote quote = computeSwapQuote(fromAmount, exchangeRate, config);
+                                        return SwapQuoteDto.builder()
+                                            .fromCurrencyCode(normalizedFromCurrency)
+                                            .toCurrencyCode(normalizedToCurrency)
+                                            .fromAmount(fromAmount)
+                                            .exchangeRate(quote.exchangeRate())
+                                            .fee(quote.feeRate())
+                                            .feeAmount(quote.feeAmount())
+                                            .spread(quote.spreadRate())
+                                            .spreadAmount(quote.spreadAmount())
+                                            .toAmount(quote.toAmount())
+                                            .network(network)
+                                            .build();
+                                    });
+                            });
+                    })));
     }
 
     /**
      * Get list of swappable currencies.
      */
     public Future<SwapCurrenciesDto> getSwapCurrencies() {
-        return currencyRepository.getAllActiveCurrencies(pool)
-            .map(currencies -> {
-                List<SwapCurrenciesDto.CurrencyInfo> currencyInfos = currencies.stream()
-                    .filter(c -> !INTERNAL_CHAIN.equals(c.getChain()))
-                    .map(c -> SwapCurrenciesDto.CurrencyInfo.builder()
-                        .code(c.getCode())
-                        .name(c.getName())
-                        .symbol(c.getCode())
-                        .network(c.getChain())
-                        .decimals(18)
-                        .minSwapAmount("KRWT".equals(c.getCode()) ? MIN_SWAP_AMOUNT_KRWT : MIN_SWAP_AMOUNT)
-                        .build())
-                    .collect(Collectors.toList());
+        return loadSwapConfig()
+            .compose(config -> currencyRepository.getAllActiveCurrencies(pool)
+                .map(currencies -> {
+                    List<SwapCurrenciesDto.CurrencyInfo> currencyInfos = currencies.stream()
+                        .filter(c -> !INTERNAL_CHAIN.equals(c.getChain()))
+                        .map(c -> SwapCurrenciesDto.CurrencyInfo.builder()
+                            .code(c.getCode())
+                            .name(c.getName())
+                            .symbol(c.getCode())
+                            .network(c.getChain())
+                            .decimals(18)
+                            .minSwapAmount(resolveMinSwapAmount(c.getCode(), config))
+                            .build())
+                        .collect(Collectors.toList());
 
-                return SwapCurrenciesDto.builder()
-                    .currencies(currencyInfos)
-                    .build();
-            });
+                    return SwapCurrenciesDto.builder()
+                        .currencies(currencyInfos)
+                        .build();
+                }));
     }
 
     /**
      * Get static swap configuration.
      */
     public Future<SwapInfoDto> getSwapInfo(String currencyCode) {
-        Map<String, BigDecimal> minSwapAmount = new HashMap<>();
-        if (currencyCode != null && "KRWT".equals(currencyCode)) {
-            minSwapAmount.put("KRWT", MIN_SWAP_AMOUNT_KRWT);
-        }
+        return loadSwapConfig()
+            .map(config -> SwapInfoDto.builder()
+                .fee(config.feeRate())
+                .spread(config.spreadRate())
+                .minSwapAmount(buildMinSwapAmountPayload(currencyCode, config))
+                .priceSource(config.priceSource())
+                .note(config.note())
+                .build());
+    }
 
-        return Future.succeededFuture(SwapInfoDto.builder()
-            .fee(SWAP_FEE_RATE)
-            .spread(SWAP_SPREAD_RATE)
-            .minSwapAmount(minSwapAmount.isEmpty() ? null : minSwapAmount)
-            .priceSource("Oracle")
-            .note("Realtime price source: Oracle")
-            .build());
+    private Future<Void> validateMinimumAmount(BigDecimal fromAmount, String fromCurrencyCode, SwapConfig config) {
+        BigDecimal minimumAmount = resolveMinSwapAmount(fromCurrencyCode, config);
+        if (fromAmount == null || fromAmount.compareTo(minimumAmount) < 0) {
+            return Future.failedFuture(new BadRequestException("Minimum swap amount is " + minimumAmount.stripTrailingZeros().toPlainString() + " " + fromCurrencyCode));
+        }
+        return Future.succeededFuture();
+    }
+
+    private ComputedSwapQuote computeSwapQuote(BigDecimal fromAmount, BigDecimal exchangeRate, SwapConfig config) {
+        BigDecimal baseToAmount = fromAmount.multiply(exchangeRate);
+        BigDecimal feeAmount = baseToAmount.multiply(config.feeRate()).setScale(18, RoundingMode.DOWN);
+        BigDecimal spreadAmount = baseToAmount.multiply(config.spreadRate()).setScale(18, RoundingMode.DOWN);
+        BigDecimal toAmount = baseToAmount
+            .subtract(feeAmount)
+            .subtract(spreadAmount)
+            .setScale(18, RoundingMode.DOWN);
+        if (toAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Calculated swap amount must be greater than zero.");
+        }
+        return new ComputedSwapQuote(
+            exchangeRate,
+            config.feeRate(),
+            feeAmount,
+            config.spreadRate(),
+            spreadAmount,
+            toAmount
+        );
+    }
+
+    private Future<SwapConfig> loadSwapConfig() {
+        Future<String> feeBpsFuture = getConfigValue(CFG_SWAP_FEE_BPS);
+        Future<String> spreadBpsFuture = getConfigValue(CFG_SWAP_SPREAD_BPS);
+        Future<String> defaultMinAmountFuture = getConfigValue(CFG_SWAP_MIN_AMOUNT_DEFAULT);
+        Future<String> koriMinAmountFuture = getConfigValue(CFG_SWAP_MIN_AMOUNT_KORI);
+        Future<String> krwtMinAmountFuture = getConfigValue(CFG_SWAP_MIN_AMOUNT_KRWT);
+        Future<String> priceSourceFuture = getConfigValue(CFG_SWAP_PRICE_SOURCE);
+        Future<String> noteFuture = getConfigValue(CFG_SWAP_PRICE_NOTE);
+
+        return CompositeFuture.all(List.of(
+            feeBpsFuture,
+            spreadBpsFuture,
+            defaultMinAmountFuture,
+            koriMinAmountFuture,
+            krwtMinAmountFuture,
+            priceSourceFuture,
+            noteFuture
+        )).map(v -> new SwapConfig(
+            parseRateFromBps(feeBpsFuture.result(), DEFAULT_SWAP_FEE_RATE),
+            parseRateFromBps(spreadBpsFuture.result(), DEFAULT_SWAP_SPREAD_RATE),
+            parsePositiveDecimal(defaultMinAmountFuture.result(), DEFAULT_MIN_SWAP_AMOUNT),
+            parsePositiveDecimal(koriMinAmountFuture.result(), DEFAULT_MIN_SWAP_AMOUNT_KORI),
+            parsePositiveDecimal(krwtMinAmountFuture.result(), DEFAULT_MIN_SWAP_AMOUNT_KRWT),
+            defaultIfBlank(priceSourceFuture.result(), DEFAULT_PRICE_SOURCE),
+            defaultIfBlank(noteFuture.result(), DEFAULT_PRICE_NOTE)
+        ));
+    }
+
+    private Future<String> getConfigValue(String configKey) {
+        if (appConfigRepository == null || configKey == null || configKey.isBlank()) {
+            return Future.succeededFuture(null);
+        }
+        return appConfigRepository.getByKey(pool, configKey)
+            .recover(err -> {
+                log.warn("Failed to read swap config. key={}, cause={}", configKey, err.getMessage());
+                return Future.succeededFuture(null);
+            });
+    }
+
+    private BigDecimal resolveMinSwapAmount(String currencyCode, SwapConfig config) {
+        String normalizedCode = normalizeCurrencyCode(currencyCode);
+        if ("KORI".equals(normalizedCode) || "KORION".equals(normalizedCode)) {
+            return config.koriMinAmount();
+        }
+        if ("KRWT".equals(normalizedCode)) {
+            return config.krwtMinAmount();
+        }
+        return config.defaultMinAmount();
+    }
+
+    private Map<String, BigDecimal> buildMinSwapAmountPayload(String currencyCode, SwapConfig config) {
+        Map<String, BigDecimal> minSwapAmount = new HashMap<>();
+        String normalizedCode = normalizeCurrencyCode(currencyCode);
+        if (normalizedCode == null || normalizedCode.isBlank()) {
+            minSwapAmount.put("KORI", config.koriMinAmount());
+            minSwapAmount.put("KRWT", config.krwtMinAmount());
+            return minSwapAmount;
+        }
+        minSwapAmount.put(normalizedCode, resolveMinSwapAmount(normalizedCode, config));
+        return minSwapAmount;
+    }
+
+    private String normalizeCurrencyCode(String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank()) {
+            return "";
+        }
+        return currencyCode.trim().toUpperCase();
+    }
+
+    private BigDecimal parseRateFromBps(String rawValue, BigDecimal fallback) {
+        try {
+            if (rawValue == null || rawValue.isBlank()) {
+                return fallback;
+            }
+            BigDecimal parsedBps = new BigDecimal(rawValue.trim());
+            if (parsedBps.compareTo(BigDecimal.ZERO) < 0) {
+                return fallback;
+            }
+            return parsedBps.divide(new BigDecimal("10000"), 6, RoundingMode.HALF_UP);
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private BigDecimal parsePositiveDecimal(String rawValue, BigDecimal fallback) {
+        try {
+            if (rawValue == null || rawValue.isBlank()) {
+                return fallback;
+            }
+            BigDecimal parsed = new BigDecimal(rawValue.trim());
+            return parsed.compareTo(BigDecimal.ZERO) > 0 ? parsed : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }
