@@ -42,6 +42,7 @@ public class ExternalTransfer {
     private String errorCode;
     private String errorMessage;
     private Integer retryCount;
+    private String coinManageWithdrawalId;
     
     // 상태 상수
     public static final String STATUS_WAITING_LIQUIDITY = "WAITING_LIQUIDITY"; // 유동성 부족 대기
@@ -56,4 +57,3 @@ public class ExternalTransfer {
     public static final String CHAIN_TRON = "TRON";
     public static final String CHAIN_ETH = "ETH";
 }
-

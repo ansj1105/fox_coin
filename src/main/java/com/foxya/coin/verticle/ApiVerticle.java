@@ -26,8 +26,10 @@ import com.foxya.coin.referral.ReferralRepository;
 import com.foxya.coin.referral.ReferralRevenueTierRepository;
 import com.foxya.coin.referral.ReferralService;
 import com.foxya.coin.transfer.TransferHandler;
+import com.foxya.coin.transfer.KorionWithdrawalBridgeClient;
 import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.TransferService;
+import com.foxya.coin.transfer.WithdrawalBridgeClient;
 import com.foxya.coin.user.UserHandler;
 import com.foxya.coin.user.ProfileImageModerationService;
 import com.foxya.coin.user.UserRepository;
@@ -362,6 +364,9 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositRepository tokenDepositRepository = new TokenDepositRepository();
         TokenDepositService tokenDepositService = new TokenDepositService(
             pool, tokenDepositRepository, currencyRepository, transferRepository, redisApi, eventPublisher, notificationService, walletRepository, appConfigRepository);
+        WithdrawalBridgeClient withdrawalBridgeClient = isKorionWithdrawalBridgeEnabled()
+            ? KorionWithdrawalBridgeClient.fromEnv(webClient)
+            : null;
         transferService = new TransferService(
             pool,
             transferRepository,
@@ -376,7 +381,8 @@ public class ApiVerticle extends AbstractVerticle {
             tokenDepositRepository,
             paymentDepositRepository,
             swapRepository,
-            exchangeRepository
+            exchangeRepository,
+            withdrawalBridgeClient
         );
         referralService = new ReferralService(
             pool, referralRepository, userRepository, emailVerificationRepository, transferService,
@@ -1615,5 +1621,9 @@ public class ApiVerticle extends AbstractVerticle {
         if (value != null && !value.isBlank()) {
             config.put(key, value);
         }
+    }
+
+    private static boolean isKorionWithdrawalBridgeEnabled() {
+        return "true".equalsIgnoreCase(System.getenv().getOrDefault("KORION_WITHDRAW_BRIDGE_ENABLED", "false"));
     }
 }

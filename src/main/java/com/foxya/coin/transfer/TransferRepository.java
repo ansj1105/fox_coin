@@ -73,6 +73,7 @@ public class TransferRepository extends BaseRepository {
         .errorCode(getStringColumnValue(row, "error_code"))
         .errorMessage(getStringColumnValue(row, "error_message"))
         .retryCount(getIntegerColumnValue(row, "retry_count"))
+        .coinManageWithdrawalId(getStringColumnValue(row, "coin_manage_withdrawal_id"))
         .build();
     
     private final RowMapper<Wallet> walletMapper = row -> Wallet.builder()
@@ -309,6 +310,21 @@ public class TransferRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(externalTransferMapper, rows))
             .onFailure(e -> log.error("Normalized log message", e.getMessage()));
+    }
+
+    public Future<ExternalTransfer> attachCoinManageWithdrawalId(SqlClient client, String transferId, String coinManageWithdrawalId) {
+        String sql = QueryBuilder
+            .update("external_transfers", "coin_manage_withdrawal_id")
+            .where("transfer_id", Op.Equal, "transfer_id")
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("transfer_id", transferId);
+        params.put("coin_manage_withdrawal_id", coinManageWithdrawalId);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(externalTransferMapper, rows))
+            .onFailure(e -> log.error("Failed to attach coin_manage withdrawal id - transferId: {}", transferId, e));
     }
     
     /**

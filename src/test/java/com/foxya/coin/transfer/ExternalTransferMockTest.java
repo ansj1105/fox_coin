@@ -52,12 +52,13 @@ public class ExternalTransferMockTest {
     private static CurrencyRepository currencyRepository;
     private static WalletRepository walletRepository;
     private static EventPublisher mockEventPublisher;
+    private static WithdrawalBridgeClient mockWithdrawalBridgeClient;
     private static TransferService transferService;
     private static Flyway flyway;
     
     // 테스트용 데이터
     private static final Long TEST_USER_ID = 1L;
-    private static final String EXTERNAL_ADDRESS = "TExternalWalletAddress12345678901234";
+    private static final String EXTERNAL_ADDRESS = "TYteNy9PWTg9U68dnjwNnosQC9FP1Hgs1Z";
     
     @BeforeAll
     static void setup(Vertx vertx, VertxTestContext tc) {
@@ -98,6 +99,8 @@ public class ExternalTransferMockTest {
             .thenReturn(Future.succeededFuture("stream-id"));
         when(mockEventPublisher.publish(any(EventType.class), any()))
             .thenReturn(Future.succeededFuture());
+        mockWithdrawalBridgeClient = mock(WithdrawalBridgeClient.class);
+        when(mockWithdrawalBridgeClient.supports(any(), any())).thenReturn(false);
         
         // TransferService 초기화 (Mock EventPublisher 주입)
         AppConfigRepository appConfigRepository = new AppConfigRepository();
@@ -115,7 +118,8 @@ public class ExternalTransferMockTest {
             null,
             null,
             null,
-            null
+            null,
+            mockWithdrawalBridgeClient
         );
         
         tc.completeNow();
@@ -126,8 +130,10 @@ public class ExternalTransferMockTest {
         flyway.clean();
         flyway.migrate();
         reset(mockEventPublisher);
+        reset(mockWithdrawalBridgeClient);
         when(mockEventPublisher.publishToStream(any(EventType.class), any()))
             .thenReturn(Future.succeededFuture("stream-id"));
+        when(mockWithdrawalBridgeClient.supports(any(), any())).thenReturn(false);
     }
     
     @AfterAll
@@ -153,7 +159,7 @@ public class ExternalTransferMockTest {
         
         @Test
         @Order(1)
-        @DisplayName("성공 - 외부 전송 요청 생성 및 이벤트 발행")
+        @DisplayName("성공 - 외부 전송 요청 생성")
         void successCreateExternalTransfer(VertxTestContext tc) {
             ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
                 .toAddress(EXTERNAL_ADDRESS)
@@ -175,23 +181,9 @@ public class ExternalTransferMockTest {
                     assertThat(response.getAmount()).isEqualByComparingTo(new BigDecimal("100"));
                     assertThat(response.getStatus()).isEqualTo("PENDING");
                     
-                    // EventPublisher.publishToStream이 호출되었는지 검증
-                    verify(mockEventPublisher, times(1)).publishToStream(
+                    verify(mockEventPublisher, never()).publishToStream(
                         eq(EventType.WITHDRAWAL_REQUESTED),
-                        argThat(payload -> {
-                            log.info("Published event payload: {}", payload);
-                            if (!(payload instanceof Map)) {
-                                return false;
-                            }
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> map = (Map<String, Object>) payload;
-                            return response.getTransferId().equals(map.get("transferId"))
-                                && TEST_USER_ID.equals(map.get("userId"))
-                                && EXTERNAL_ADDRESS.equals(map.get("toAddress"))
-                                && "100".equals(String.valueOf(map.get("amount")))
-                                && "FOXYA".equals(map.get("currencyCode"))
-                                && "TRON".equals(map.get("chain"));
-                        })
+                        any()
                     );
                     
                     tc.completeNow();
@@ -246,6 +238,88 @@ public class ExternalTransferMockTest {
                         });
                 })
                 .onSuccess(response -> tc.completeNow())
+                .onFailure(tc::failNow);
+        }
+
+        @Test
+        @Order(3)
+        @DisplayName("실패 - TRON 주소 형식이 잘못되면 거절")
+        void rejectInvalidTronAddress(VertxTestContext tc) {
+            ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
+                .toAddress("not-a-tron-address")
+                .currencyCode("FOXYA")
+                .amount(new BigDecimal("10"))
+                .chain("TRON")
+                .build();
+
+            transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1")
+                .onSuccess(response -> tc.failNow(new AssertionError("invalid TRON address should fail")))
+                .onFailure(error -> tc.verify(() -> {
+                    assertThat(error).isInstanceOf(RuntimeException.class);
+                    assertThat(error.getMessage()).contains("TRON address");
+                    tc.completeNow();
+                }));
+        }
+
+        @Test
+        @Order(4)
+        @DisplayName("성공 - coin_manage 브리지 연결 시 withdrawalId 저장")
+        void successBridgeToCoinManage(VertxTestContext tc) {
+            when(mockWithdrawalBridgeClient.supports("FOXYA", "TRON")).thenReturn(true);
+            when(mockWithdrawalBridgeClient.requestWithdrawal(eq(TEST_USER_ID), any(), any(), eq("127.0.0.1")))
+                .thenReturn(Future.succeededFuture("wd-bridge-123"));
+
+            ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
+                .toAddress(EXTERNAL_ADDRESS)
+                .currencyCode("FOXYA")
+                .amount(new BigDecimal("12"))
+                .chain("TRON")
+                .build();
+
+            transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1")
+                .compose(response -> transferRepository.getExternalTransferById(pool, response.getTransferId()))
+                .onSuccess(transfer -> tc.verify(() -> {
+                    assertThat(transfer).isNotNull();
+                    assertThat(transfer.getCoinManageWithdrawalId()).isEqualTo("wd-bridge-123");
+                    assertThat(transfer.getStatus()).isEqualTo(ExternalTransfer.STATUS_PENDING);
+                    tc.completeNow();
+                }))
+                .onFailure(tc::failNow);
+        }
+
+        @Test
+        @Order(5)
+        @DisplayName("실패 - coin_manage 브리지 실패 시 출금 실패 처리 후 잔액 원복")
+        void refundWhenBridgeFails(VertxTestContext tc) {
+            when(mockWithdrawalBridgeClient.supports("FOXYA", "TRON")).thenReturn(true);
+            when(mockWithdrawalBridgeClient.requestWithdrawal(eq(TEST_USER_ID), any(), any(), eq("127.0.0.1")))
+                .thenReturn(Future.failedFuture("bridge down"));
+
+            getTronWallet(TEST_USER_ID)
+                .compose(initialWallet -> {
+                    BigDecimal initialBalance = initialWallet.getBalance();
+                    BigDecimal initialLocked = initialWallet.getLockedBalance();
+                    ExternalTransferRequestDto request = ExternalTransferRequestDto.builder()
+                        .toAddress(EXTERNAL_ADDRESS)
+                        .currencyCode("FOXYA")
+                        .amount(new BigDecimal("15"))
+                        .chain("TRON")
+                        .build();
+
+                    return transferService.requestExternalTransfer(TEST_USER_ID, request, "127.0.0.1")
+                        .compose(response -> Future.failedFuture("bridge failure should not succeed"))
+                        .recover(error -> getTronWallet(TEST_USER_ID)
+                            .compose(updatedWallet -> transferRepository.getExternalTransfersByUserId(pool, TEST_USER_ID, 10, 0)
+                                .map(transfers -> {
+                                    assertThat(updatedWallet.getBalance()).isEqualByComparingTo(initialBalance);
+                                    assertThat(updatedWallet.getLockedBalance()).isEqualByComparingTo(initialLocked);
+                                    assertThat(transfers).hasSize(1);
+                                    assertThat(transfers.get(0).getStatus()).isEqualTo(ExternalTransfer.STATUS_FAILED);
+                                    assertThat(transfers.get(0).getErrorCode()).isEqualTo("KORION_WITHDRAW_REQUEST_FAILED");
+                                    return transfers;
+                                })));
+                })
+                .onSuccess(ignored -> tc.completeNow())
                 .onFailure(tc::failNow);
         }
     }

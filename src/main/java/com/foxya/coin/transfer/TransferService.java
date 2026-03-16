@@ -46,9 +46,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -85,8 +87,12 @@ public class TransferService extends BaseService {
     private static final String WITHDRAW_COMPLETED_MESSAGE = "출금이 완료되었습니다.";
     private static final String WITHDRAW_COMPLETED_TITLE_KEY = "notifications.withdrawCompleted.title";
     private static final String WITHDRAW_COMPLETED_MESSAGE_KEY = "notifications.withdrawCompleted.message";
+    private static final Pattern TRON_ADDRESS_PATTERN = Pattern.compile("^T[1-9A-HJ-NP-Za-km-z]{33}$");
+    private static final Pattern ETH_ADDRESS_PATTERN = Pattern.compile("^0x[a-fA-F0-9]{40}$");
     private static final boolean LEGACY_WITHDRAWAL_STREAM_ENABLED =
         Boolean.parseBoolean(System.getenv().getOrDefault("LEGACY_WITHDRAWAL_STREAM_ENABLED", "false"));
+
+    private final WithdrawalBridgeClient withdrawalBridgeClient;
 
     public TransferService(PgPool pool,
                           TransferRepository transferRepository,
@@ -94,7 +100,7 @@ public class TransferService extends BaseService {
                           CurrencyRepository currencyRepository,
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null, null, null, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, null, null, null, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -104,7 +110,7 @@ public class TransferService extends BaseService {
                           WalletRepository walletRepository,
                           EventPublisher eventPublisher,
                           RedisAPI redisApi) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null, null, null, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, null, null, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -115,7 +121,7 @@ public class TransferService extends BaseService {
                           EventPublisher eventPublisher,
                           RedisAPI redisApi,
                           NotificationService notificationService) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null, null, null, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, null, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -127,7 +133,7 @@ public class TransferService extends BaseService {
                           RedisAPI redisApi,
                           NotificationService notificationService,
                           AirdropRepository airdropRepository) {
-        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, null, null, null, null, null);
+        this(pool, transferRepository, userRepository, currencyRepository, walletRepository, eventPublisher, redisApi, notificationService, airdropRepository, null, null, null, null, null, null);
     }
 
     public TransferService(PgPool pool,
@@ -143,7 +149,8 @@ public class TransferService extends BaseService {
                           TokenDepositRepository tokenDepositRepository,
                           PaymentDepositRepository paymentDepositRepository,
                           SwapRepository swapRepository,
-                          ExchangeRepository exchangeRepository) {
+                          ExchangeRepository exchangeRepository,
+                          WithdrawalBridgeClient withdrawalBridgeClient) {
         super(pool);
         this.transferRepository = transferRepository;
         this.userRepository = userRepository;
@@ -158,6 +165,7 @@ public class TransferService extends BaseService {
         this.paymentDepositRepository = paymentDepositRepository;
         this.swapRepository = swapRepository;
         this.exchangeRepository = exchangeRepository;
+        this.withdrawalBridgeClient = withdrawalBridgeClient;
     }
     
     /**
@@ -486,26 +494,43 @@ public class TransferService extends BaseService {
         log.info("Normalized log message",
             userId, request.getToAddress(), request.getAmount(), request.getChain());
 
-        // Normalized comment.
+        if (request == null) {
+            return Future.failedFuture(new BadRequestException("Invalid request."));
+        }
+
+        String normalizedChain = normalizeChain(request.getChain());
+        String normalizedCurrencyCode = normalizeCurrencyCode(request.getCurrencyCode());
+        String normalizedToAddress = request.getToAddress() != null ? request.getToAddress().trim() : null;
+
         if (request.getAmount() == null || request.getAmount().compareTo(MIN_TRANSFER_AMOUNT) < 0) {
             return Future.failedFuture(new BadRequestException("Invalid request." + MIN_TRANSFER_AMOUNT + "Invalid request."));
         }
 
-        if (request.getToAddress() == null || request.getToAddress().isEmpty()) {
+        if (normalizedToAddress == null || normalizedToAddress.isBlank()) {
             return Future.failedFuture(new BadRequestException("Invalid request."));
         }
 
-        // Normalized comment.
-        ChainType chainType = ChainType.fromValue(request.getChain());
-        if (chainType == null) {
-            return Future.failedFuture(new BadRequestException("Invalid request." + request.getChain()));
+        if (normalizedCurrencyCode == null || normalizedCurrencyCode.isBlank()) {
+            return Future.failedFuture(new BadRequestException("Invalid request."));
         }
 
-        // Normalized comment.
-        return currencyRepository.getCurrencyByCodeAndChain(pool, request.getCurrencyCode(), request.getChain())
+        if (!isSupportedWithdrawalAddress(normalizedChain, normalizedToAddress)) {
+            return Future.failedFuture(new BadRequestException("Invalid request." + normalizedChain + " address"));
+        }
+
+        request.setChain(normalizedChain);
+        request.setCurrencyCode(normalizedCurrencyCode);
+        request.setToAddress(normalizedToAddress);
+
+        ChainType chainType = ChainType.fromValue(normalizedChain);
+        if (chainType == null) {
+            return Future.failedFuture(new BadRequestException("Invalid request." + normalizedChain));
+        }
+
+        return currencyRepository.getCurrencyByCodeAndChain(pool, normalizedCurrencyCode, normalizedChain)
             .compose(currency -> {
                 if (currency == null) {
-                    return Future.failedFuture(new NotFoundException("Resource not found." + request.getCurrencyCode() + " on " + request.getChain()));
+                    return Future.failedFuture(new NotFoundException("Resource not found." + normalizedCurrencyCode + " on " + normalizedChain));
                 }
 
                 // Normalized comment.
@@ -524,11 +549,25 @@ public class TransferService extends BaseService {
                             return Future.failedFuture(new BadRequestException("Invalid request." + totalDeduct + "Invalid request." + wallet.getBalance()));
                         }
 
-                        return isHotWalletLiquiditySufficient(request.getChain(), currency.getCode(), request.getAmount())
+                        if (supportsKorionWithdrawalBridge(currency.getCode(), normalizedChain)) {
+                            return createExternalTransferRequest(
+                                userId,
+                                wallet,
+                                currency,
+                                request,
+                                serviceFee,
+                                requestIp,
+                                ExternalTransfer.STATUS_PENDING,
+                                false,
+                                true
+                            );
+                        }
+
+                        return isHotWalletLiquiditySufficient(normalizedChain, currency.getCode(), request.getAmount())
                             .compose(hasLiquidity -> {
                                 String status = hasLiquidity ? ExternalTransfer.STATUS_PENDING : ExternalTransfer.STATUS_WAITING_LIQUIDITY;
                                 boolean dispatch = hasLiquidity;
-                                return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp, status, dispatch);
+                                return createExternalTransferRequest(userId, wallet, currency, request, serviceFee, requestIp, status, dispatch, false);
                             });
                     });
             });
@@ -541,7 +580,7 @@ public class TransferService extends BaseService {
     private Future<TransferResponseDto> createExternalTransferRequest(
             Long userId, Wallet wallet, Currency currency,
             ExternalTransferRequestDto request, BigDecimal serviceFee, String requestIp,
-            String status, boolean dispatchEvent) {
+            String status, boolean dispatchEvent, boolean bridgeToKorion) {
         
         String transferId = UUID.randomUUID().toString();
         BigDecimal totalDeduct = request.getAmount().add(serviceFee);
@@ -596,7 +635,11 @@ public class TransferService extends BaseService {
                 log.info("Legacy withdrawal stream dispatch disabled for transferId={}", transferId);
             }
             
-            return Future.succeededFuture(TransferResponseDto.builder()
+            Future<ExternalTransfer> finalizedTransfer = bridgeToKorion
+                ? bridgeExternalTransferToKorion(createdTransfer, request, requestIp)
+                : Future.succeededFuture(createdTransfer);
+
+            return finalizedTransfer.map(transfer -> TransferResponseDto.builder()
                 .transferId(transferId)
                 .transferType("EXTERNAL")
                 .senderId(userId)
@@ -604,11 +647,67 @@ public class TransferService extends BaseService {
                 .currencyCode(currency.getCode())
                 .amount(request.getAmount())
                 .fee(serviceFee)
-                .status(status)
+                .status(transfer.getStatus())
                 .memo(request.getMemo())
-                .createdAt(createdTransfer.getCreatedAt())
+                .createdAt(transfer.getCreatedAt())
                 .build());
         });
+    }
+
+    private Future<ExternalTransfer> bridgeExternalTransferToKorion(
+            ExternalTransfer createdTransfer,
+            ExternalTransferRequestDto request,
+            String requestIp) {
+        if (withdrawalBridgeClient == null) {
+            return Future.succeededFuture(createdTransfer);
+        }
+
+        return withdrawalBridgeClient.requestWithdrawal(
+                createdTransfer.getUserId(),
+                createdTransfer.getTransferId(),
+                request,
+                requestIp
+            )
+            .compose(withdrawalId -> transferRepository.attachCoinManageWithdrawalId(pool, createdTransfer.getTransferId(), withdrawalId))
+            .compose(updatedTransfer -> updatedTransfer != null
+                ? Future.succeededFuture(updatedTransfer)
+                : Future.failedFuture("coin_manage withdrawal id link failed"))
+            .recover(error -> failExternalTransferAndRefund(
+                    createdTransfer.getTransferId(),
+                    "KORION_WITHDRAW_REQUEST_FAILED",
+                    truncateErrorMessage(error.getMessage())
+                )
+                .compose(ignored -> Future.failedFuture(new RuntimeException("coin_manage withdrawal bridge failed", error))));
+    }
+
+    private boolean supportsKorionWithdrawalBridge(String currencyCode, String chain) {
+        return withdrawalBridgeClient != null && withdrawalBridgeClient.supports(currencyCode, chain);
+    }
+
+    private String normalizeChain(String chain) {
+        return chain == null ? null : chain.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeCurrencyCode(String currencyCode) {
+        return currencyCode == null ? null : currencyCode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isSupportedWithdrawalAddress(String chain, String toAddress) {
+        if (chain == null || toAddress == null) {
+            return false;
+        }
+        return switch (chain) {
+            case ExternalTransfer.CHAIN_TRON -> TRON_ADDRESS_PATTERN.matcher(toAddress).matches();
+            case ExternalTransfer.CHAIN_ETH -> ETH_ADDRESS_PATTERN.matcher(toAddress).matches();
+            default -> true;
+        };
+    }
+
+    private String truncateErrorMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "coin_manage withdrawal bridge failed";
+        }
+        return message.length() > 250 ? message.substring(0, 250) : message;
     }
     
     /**
