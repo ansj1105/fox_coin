@@ -24,6 +24,7 @@ public class SubscriptionService extends BaseService {
     public static final String PLAN_VIP_3M = "VIP_3M";
     public static final String PLAN_VIP_6M = "VIP_6M";
     public static final String PLAN_VIP_12M = "VIP_12M";
+    public static final String PLAN_VIP_1Y = "VIP_1Y";
 
     private static final int BONUS_FREE = 0;
     private static final int BONUS_VIP_PASS_7D = 5;
@@ -231,6 +232,9 @@ public class SubscriptionService extends BaseService {
     private PlanDef resolvePlanDef(Subscription subscription) {
         String storedType = subscription.getPackageType();
         if (storedType != null) {
+            if (PLAN_VIP_1Y.equalsIgnoreCase(storedType)) {
+                return PLAN_DEFS.get(PLAN_VIP_12M);
+            }
             PlanDef direct = PLAN_DEFS.get(storedType);
             if (direct != null) {
                 return direct;
