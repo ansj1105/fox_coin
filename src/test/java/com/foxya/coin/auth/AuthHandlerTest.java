@@ -706,6 +706,91 @@ public class AuthHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @DisplayName("성공 - 삭제된 ETH 계정도 시드 구문 로그인 시 복구된다")
+        void successLoginWithSeedRestoresDeletedEthAccount(VertxTestContext tc) {
+            String ownerAddress = "0x401AFd17f590a7740aC8F20eAEff620701537136";
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger("5fd32ba3f60de8a33c64ec72635e2ea48127dfcb41422048043cc941aa484096", 16));
+            final Long[] userIdRef = new Long[1];
+            final Long[] walletIdRef = new Long[1];
+
+            sqlClient.preparedQuery("SELECT id FROM users WHERE login_id = $1")
+                .execute(Tuple.of("testuser"))
+                .compose(userRows -> {
+                    if (!userRows.iterator().hasNext()) {
+                        return io.vertx.core.Future.failedFuture("user not found");
+                    }
+                    Long userId = userRows.iterator().next().getLong("id");
+                    userIdRef[0] = userId;
+                    return sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 LIMIT 1")
+                        .execute(Tuple.of("ETH"))
+                        .compose(currencyRows -> {
+                            if (!currencyRows.iterator().hasNext()) {
+                                return io.vertx.core.Future.failedFuture("currency not found");
+                            }
+                            Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                            return sqlClient.preparedQuery(
+                                    "INSERT INTO user_wallets (user_id, currency_id, address, private_key, balance, locked_balance, status, created_at, updated_at) " +
+                                        "VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                        "ON CONFLICT (user_id, currency_id) DO UPDATE " +
+                                        "SET address = EXCLUDED.address, private_key = EXCLUDED.private_key, status = 'ACTIVE', deleted_at = NULL, updated_at = NOW() " +
+                                        "RETURNING id"
+                                )
+                                .execute(Tuple.of(userId, currencyId, ownerAddress, "5fd32ba3f60de8a33c64ec72635e2ea48127dfcb41422048043cc941aa484096"))
+                                .compose(walletRows -> {
+                                    walletIdRef[0] = walletRows.iterator().next().getLong("id");
+                                    return sqlClient.preparedQuery("UPDATE user_wallets SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1")
+                                        .execute(Tuple.of(walletIdRef[0]));
+                                })
+                                .compose(v -> sqlClient.preparedQuery("UPDATE users SET status = 'DELETED', deleted_at = NOW(), updated_at = NOW() WHERE id = $1")
+                                    .execute(Tuple.of(userId)));
+                        });
+                })
+                .onSuccess(v -> {
+                    JsonObject challengeRequest = new JsonObject()
+                        .put("address", ownerAddress)
+                        .put("chain", "ETH");
+
+                    reqPost(getUrl("/recovery/challenge"))
+                        .sendJson(challengeRequest, tc.succeeding(chRes -> tc.verify(() -> {
+                            expectSuccess(chRes);
+                            String message = chRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+
+                            String signature = signRecoveryMessage(message, keyPair);
+                            JsonObject loginRequest = new JsonObject()
+                                .put("address", ownerAddress)
+                                .put("chain", "ETH")
+                                .put("signature", signature)
+                                .mergeIn(deviceInfo("seed-device-eth-restore-1", "MOBILE", "ANDROID"));
+
+                            reqPost(getUrl("/login-with-seed"))
+                                .sendJson(loginRequest, tc.succeeding(loginRes -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                    assertThat(dto.getUserId()).isEqualTo(userIdRef[0]);
+
+                                    sqlClient.preparedQuery("SELECT status, deleted_at FROM users WHERE id = $1")
+                                        .execute(Tuple.of(userIdRef[0]))
+                                        .compose(userRows -> {
+                                            var userRow = userRows.iterator().next();
+                                            assertThat(userRow.getString("status")).isEqualTo("ACTIVE");
+                                            assertThat(userRow.getValue("deleted_at")).isNull();
+                                            return sqlClient.preparedQuery("SELECT deleted_at FROM user_wallets WHERE id = $1")
+                                                .execute(Tuple.of(walletIdRef[0]));
+                                        })
+                                        .onSuccess(walletRows -> tc.verify(() -> {
+                                            var walletRow = walletRows.iterator().next();
+                                            assertThat(walletRow.getValue("deleted_at")).isNull();
+                                            tc.completeNow();
+                                        }))
+                                        .onFailure(tc::failNow);
+                                }));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
+
+        @Test
         @DisplayName("성공 - TRON legacy owner 주소로도 시드 구문 로그인")
         void successLoginWithSeedForLegacyTronOwnerAddress(VertxTestContext tc) {
             ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));

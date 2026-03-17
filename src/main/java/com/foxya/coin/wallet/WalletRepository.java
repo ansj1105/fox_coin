@@ -130,6 +130,27 @@ public class WalletRepository extends BaseRepository {
             .map(rows -> fetchOne(walletMapper, rows));
     }
 
+    public Future<Wallet> getWalletByAddressIgnoreCaseIncludingDeleted(SqlClient client, String address) {
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            LEFT JOIN currency c ON uw.currency_id = c.id
+            WHERE LOWER(uw.address) = LOWER(#{address})
+              AND uw.status = #{status}
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("address", address);
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(walletMapper, rows));
+    }
+
     public Future<List<Wallet>> getManagedTronWalletsWithPrivateKeys(SqlClient client) {
         String sql = """
             SELECT uw.*,
@@ -156,6 +177,31 @@ public class WalletRepository extends BaseRepository {
             .map(rows -> fetchAll(walletMapper, rows));
     }
 
+    public Future<List<Wallet>> getManagedTronWalletsWithPrivateKeysIncludingDeleted(SqlClient client) {
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            JOIN currency c ON uw.currency_id = c.id
+            WHERE c.chain = #{network}
+              AND c.code IN ('TRX', 'USDT', 'KORI')
+              AND uw.private_key IS NOT NULL
+              AND TRIM(uw.private_key) <> ''
+              AND uw.status = #{status}
+            ORDER BY uw.user_id ASC, uw.id ASC
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("network", "TRON");
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(walletMapper, rows));
+    }
+
     public Future<List<Wallet>> getManagedEthWalletsWithPrivateKeys(SqlClient client) {
         String sql = """
             SELECT uw.*,
@@ -171,6 +217,31 @@ public class WalletRepository extends BaseRepository {
               AND TRIM(uw.private_key) <> ''
               AND uw.status = #{status}
               AND uw.deleted_at IS NULL
+            ORDER BY uw.user_id ASC, uw.id ASC
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("currencyCode", "ETH");
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(walletMapper, rows));
+    }
+
+    public Future<List<Wallet>> getManagedEthWalletsWithPrivateKeysIncludingDeleted(SqlClient client) {
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            JOIN currency c ON uw.currency_id = c.id
+            WHERE c.code = #{currencyCode}
+              AND c.chain IN ('ETH', 'Ether')
+              AND uw.private_key IS NOT NULL
+              AND TRIM(uw.private_key) <> ''
+              AND uw.status = #{status}
             ORDER BY uw.user_id ASC, uw.id ASC
             """;
 
@@ -274,6 +345,22 @@ public class WalletRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
             .onFailure(throwable -> log.error("지갑 주소 업데이트 실패 - walletId: {}", walletId, throwable));
+    }
+
+    public Future<Void> restoreDeletedWalletsByUserId(SqlClient client, Long userId) {
+        String sql = QueryBuilder.update("user_wallets")
+            .setCustom("deleted_at = NULL")
+            .setCustom("updated_at = #{updated_at}")
+            .where("user_id", Op.Equal, "userId")
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("updated_at", com.foxya.coin.common.utils.DateUtils.now());
+
+        return query(client, sql, params)
+            .<Void>map(rows -> null)
+            .onFailure(throwable -> log.error("지갑 복구 실패 - userId: {}", userId, throwable));
     }
     
     /**

@@ -357,7 +357,7 @@ public class AuthService extends BaseService {
                         if (wallet == null) {
                             return Future.failedFuture(new NotFoundException("해당 주소의 지갑을 찾을 수 없습니다."));
                         }
-                        return userRepository.getUserByIdNotDeleted(pool, wallet.getUserId())
+                        return restoreRecoveryAccountIfNeeded(wallet)
                             .compose(user -> {
                                 if (user == null) {
                                     return Future.failedFuture(new UnauthorizedException("사용자를 찾을 수 없습니다."));
@@ -557,13 +557,13 @@ public class AuthService extends BaseService {
 
     private Future<com.foxya.coin.wallet.entities.Wallet> findWalletForRecovery(String chain, String address) {
         if ("ETH".equals(chain)) {
-            return transferRepository.getWalletByAddressIgnoreCase(pool, address)
+            return walletRepository.getWalletByAddressIgnoreCaseIncludingDeleted(pool, address)
                 .compose(wallet -> wallet != null
                     ? Future.succeededFuture(wallet)
                     : resolveLegacyEthRecoveryWalletByPrivateKey(address));
         }
         if ("TRON".equals(chain) && virtualWalletMappingRepository != null) {
-            return transferRepository.getWalletByAddress(pool, address)
+            return walletRepository.getWalletByAddressIgnoreCaseIncludingDeleted(pool, address)
                 .compose(wallet -> {
                     if (wallet != null) {
                         return Future.succeededFuture(wallet);
@@ -597,7 +597,7 @@ public class AuthService extends BaseService {
     }
 
     private Future<com.foxya.coin.wallet.entities.Wallet> resolveLegacyTronRecoveryWalletByPrivateKey(String ownerAddress) {
-        return walletRepository.getManagedTronWalletsWithPrivateKeys(pool)
+        return walletRepository.getManagedTronWalletsWithPrivateKeysIncludingDeleted(pool)
             .compose(wallets -> {
                 for (com.foxya.coin.wallet.entities.Wallet wallet : wallets) {
                     String derivedOwnerAddress = deriveLegacyTronOwnerAddress(wallet);
@@ -611,7 +611,7 @@ public class AuthService extends BaseService {
     }
 
     private Future<com.foxya.coin.wallet.entities.Wallet> resolveLegacyEthRecoveryWalletByPrivateKey(String ownerAddress) {
-        return walletRepository.getManagedEthWalletsWithPrivateKeys(pool)
+        return walletRepository.getManagedEthWalletsWithPrivateKeysIncludingDeleted(pool)
             .compose(wallets -> {
                 for (com.foxya.coin.wallet.entities.Wallet wallet : wallets) {
                     String derivedOwnerAddress = deriveLegacyEthAddress(wallet);
@@ -622,6 +622,32 @@ public class AuthService extends BaseService {
                     }
                 }
                 return Future.succeededFuture(null);
+            });
+    }
+
+    private Future<User> restoreRecoveryAccountIfNeeded(com.foxya.coin.wallet.entities.Wallet wallet) {
+        if (wallet == null || wallet.getUserId() == null) {
+            return Future.succeededFuture(null);
+        }
+        return userRepository.getUserByIdIncludingDeleted(pool, wallet.getUserId())
+            .compose(user -> {
+                if (user == null) {
+                    return Future.succeededFuture(null);
+                }
+                boolean restoreUser = user.getDeletedAt() != null || "DELETED".equalsIgnoreCase(user.getStatus());
+                if (!restoreUser) {
+                    return Future.succeededFuture(user);
+                }
+                log.warn("Restoring deleted account through seed recovery. userId={}, walletId={}", user.getId(), wallet.getId());
+                return userRepository.restoreDeletedUser(pool, user.getId())
+                    .compose(restoredUser -> walletRepository.restoreDeletedWalletsByUserId(pool, user.getId())
+                        .map(restoredUser));
+            })
+            .compose(user -> {
+                if (user == null) {
+                    return Future.succeededFuture(null);
+                }
+                return userRepository.getUserByIdNotDeleted(pool, user.getId());
             });
     }
 

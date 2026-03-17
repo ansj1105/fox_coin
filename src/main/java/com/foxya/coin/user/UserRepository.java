@@ -98,6 +98,17 @@ public class UserRepository extends BaseRepository {
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 조회 실패 - id: {}", id));
     }
+
+    public Future<User> getUserByIdIncludingDeleted(SqlClient client, Long id) {
+        String sql = QueryBuilder
+            .select("users")
+            .whereById()
+            .build();
+
+        return query(client, sql, Collections.singletonMap("id", id))
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 조회 실패(삭제 포함) - id: {}", id));
+    }
     
     /**
      * 삭제되지 않은 사용자 조회 (not_deleted 전용)
@@ -147,6 +158,24 @@ public class UserRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("사용자 Soft Delete 실패 - userId: {}", userId));
+    }
+
+    public Future<User> restoreDeletedUser(SqlClient client, Long userId) {
+        String sql = QueryBuilder.update("users")
+            .setCustom("deleted_at = NULL")
+            .setCustom("status = #{status}")
+            .setCustom("updated_at = #{updated_at}")
+            .where("id", Op.Equal, "id")
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", userId);
+        params.put("status", "ACTIVE");
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("사용자 복구 실패 - userId: {}", userId, throwable));
     }
     
     /**
