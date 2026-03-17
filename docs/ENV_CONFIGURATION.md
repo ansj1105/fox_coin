@@ -41,6 +41,7 @@ DB_STANDBY_PORT=5432
 DB_PROXY_PORT=5432
 DB_PROXY_BIND_ADDRESS=127.0.0.1
 DB_PROXY_BIND_PORT=15432
+DB_PROXY_STANDBY_FALLBACK_ENABLED=false
 
 # 백업/마이그레이션은 반드시 Primary 직결 경로 사용
 DB_ADMIN_MODE=network     # container | network
@@ -117,6 +118,9 @@ DB_ALERT_LOCK_WAIT_THRESHOLD=3
 DB_ALERT_SYNC_REP_WAIT_THRESHOLD=1
 DB_ALERT_CONSECUTIVE_BREACHES=2
 ```
+
+`DB_PROXY_STANDBY_FALLBACK_ENABLED=false`가 기본값입니다.  
+write path에서 standby 자동 fallback을 열면 앱이 read-only DB에 붙어 로그인/가입/결제/출금 요청이 실패할 수 있으므로, standby는 승격 이후에만 새 primary로 붙이는 것을 권장합니다.
 
 ### JVM Options
 ```bash

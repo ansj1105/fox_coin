@@ -37,6 +37,7 @@ services:
       DB_PRIMARY_PORT: ${DB_PRIMARY_PORT:-5432}
       DB_STANDBY_HOST: ${DB_STANDBY_HOST:-postgres}
       DB_STANDBY_PORT: ${DB_STANDBY_PORT:-5432}
+      DB_PROXY_STANDBY_FALLBACK_ENABLED: ${DB_PROXY_STANDBY_FALLBACK_ENABLED:-false}
     ports:
       - "${DB_PROXY_BIND_ADDRESS:-127.0.0.1}:${DB_PROXY_BIND_PORT:-15432}:${DB_PROXY_PORT:-5432}"
     volumes:
@@ -52,6 +53,7 @@ services:
           -e "s/__DB_PRIMARY_PORT__/$${DB_PRIMARY_PORT}/g" \
           -e "s/__DB_STANDBY_HOST__/$${DB_STANDBY_HOST}/g" \
           -e "s/__DB_STANDBY_PORT__/$${DB_STANDBY_PORT}/g" \
+          -e "s/__DB_STANDBY_SERVER_OPTIONS__/$$( [ \"$${DB_PROXY_STANDBY_FALLBACK_ENABLED}\" = \"true\" ] && printf '%s' 'check backup' || printf '%s' 'check backup disabled' )/g" \
           /usr/local/etc/haproxy/haproxy.cfg
         exec haproxy -W -db -f /usr/local/etc/haproxy/haproxy.cfg
     depends_on:

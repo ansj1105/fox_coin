@@ -19,4 +19,4 @@ backend postgres_backend
   option tcp-check
   default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
   server primary __DB_PRIMARY_HOST__:__DB_PRIMARY_PORT__ check
-  server standby __DB_STANDBY_HOST__:__DB_STANDBY_PORT__ check backup
+  server standby __DB_STANDBY_HOST__:__DB_STANDBY_PORT__ __DB_STANDBY_SERVER_OPTIONS__
