@@ -24,7 +24,9 @@ public class DbAlertMonitorService {
           COALESCE((SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event = 'SyncRep'), 0) AS sync_rep_waits,
           COALESCE((SELECT COUNT(*) FROM pg_stat_replication WHERE state = 'streaming'), 0) AS streaming_replicas,
           COALESCE((SELECT COUNT(*) FROM pg_stat_replication WHERE state = 'streaming' AND sync_state IN ('sync', 'quorum')), 0) AS healthy_sync_replicas,
-          COALESCE(current_setting('synchronous_standby_names', true), '') AS synchronous_standby_names
+          COALESCE(current_setting('synchronous_standby_names', true), '') AS synchronous_standby_names,
+          (current_setting('transaction_read_only') = 'on') AS transaction_read_only,
+          pg_is_in_recovery() AS in_recovery
         """;
 
     private final PgPool pool;
@@ -128,7 +130,9 @@ public class DbAlertMonitorService {
                     getInt(row, "sync_rep_waits"),
                     getInt(row, "streaming_replicas"),
                     getInt(row, "healthy_sync_replicas"),
-                    row.getString("synchronous_standby_names")
+                    row.getString("synchronous_standby_names"),
+                    Boolean.TRUE.equals(row.getBoolean("transaction_read_only")),
+                    Boolean.TRUE.equals(row.getBoolean("in_recovery"))
                 ));
             });
     }
@@ -197,6 +201,39 @@ public class DbAlertMonitorService {
                 "healthySyncReplicas=" + snapshot.healthySyncReplicas()
             ),
             consecutiveBreaches
+        )).compose(v -> processAlert(
+            "read_only_route",
+            snapshot.transactionReadOnly(),
+            "[KORION] DB Alert - Read Only Route",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "transactionReadOnly=" + snapshot.transactionReadOnly(),
+                "pgIsInRecovery=" + snapshot.inRecovery(),
+                "message=write traffic is routed to a read-only database"
+            ),
+            "[KORION] DB Recovered - Read Only Route",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "transactionReadOnly=" + snapshot.transactionReadOnly(),
+                "pgIsInRecovery=" + snapshot.inRecovery()
+            ),
+            1
+        )).compose(v -> processAlert(
+            "standby_attached",
+            snapshot.inRecovery(),
+            "[KORION] DB Alert - Standby Attached To Write Path",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "pgIsInRecovery=" + snapshot.inRecovery(),
+                "transactionReadOnly=" + snapshot.transactionReadOnly(),
+                "message=db-proxy is pointing the write path at a standby node"
+            ),
+            "[KORION] DB Recovered - Standby Detached From Write Path",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "pgIsInRecovery=" + snapshot.inRecovery()
+            ),
+            1
         ));
     }
 

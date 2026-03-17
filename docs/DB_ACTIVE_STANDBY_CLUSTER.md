@@ -67,6 +67,7 @@ instanceB (db)
 2. 백업/DDL/Flyway용: `DB_ADMIN_HOST=<현재 Primary>`
 3. Standby에는 절대 마이그레이션하지 않습니다.
 4. Primary 승격은 Patroni/repmgr/RDS Multi-AZ 같은 외부 HA 매니저가 맡아야 합니다.
+5. write path용 `db-proxy`는 `DB_PROXY_STANDBY_FALLBACK_ENABLED=false`를 기본으로 두고, standby는 승격 이후에만 새 primary로 붙입니다.
 
 ## 권장 환경 변수
 

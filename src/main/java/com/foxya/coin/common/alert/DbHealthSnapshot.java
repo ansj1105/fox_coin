@@ -9,7 +9,9 @@ public record DbHealthSnapshot(
     int syncRepWaits,
     int streamingReplicas,
     int healthySyncReplicas,
-    String synchronousStandbyNames
+    String synchronousStandbyNames,
+    boolean transactionReadOnly,
+    boolean inRecovery
 ) {
 
     public double connectionUsageRatio() {
