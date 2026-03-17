@@ -206,7 +206,7 @@ public class LevelService extends BaseService {
                 String.format(LEVEL_UP_NOTICE_MESSAGE, newLevel),
                 (long) newLevel,
                 metadata)
-            .map(v -> (Void) null)
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("Level up notification failed (ignored): userId={}, level={}", userId, newLevel, err);
                 return Future.<Void>succeededFuture();

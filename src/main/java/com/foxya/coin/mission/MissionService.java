@@ -156,7 +156,7 @@ public class MissionService extends BaseService {
                         MINING_EFFICIENCY_ACHIEVED_MESSAGE,
                         dailyKey,
                         metadata)
-                    .compose(v -> Future.<Void>succeededFuture());
+                    .<Void>mapEmpty();
             })
             .recover(err -> {
                 log.warn("Mission completion notification failed (ignored): userId={}, date={}", userId, today, err);
