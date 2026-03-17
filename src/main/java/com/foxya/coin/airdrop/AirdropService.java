@@ -217,7 +217,7 @@ public class AirdropService extends BaseService {
                 phase.getId(),
                 metadata
             )
-            .map(v -> (Void) null)
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("에어드랍 락 해제 알림 생성 실패(무시) - userId: {}, phaseId: {}", userId, phase.getId(), err);
                 return Future.succeededFuture((Void) null);

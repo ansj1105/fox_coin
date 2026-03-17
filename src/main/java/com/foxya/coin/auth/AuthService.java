@@ -1055,7 +1055,7 @@ public class AuthService extends BaseService {
                 relatedId,
                 metadata
             )
-            .map(v -> (Void) null)
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("추천인 등록 에어드랍 알림 생성 실패(무시) - userId: {}", userId, err);
                 return Future.succeededFuture((Void) null);
@@ -1080,7 +1080,7 @@ public class AuthService extends BaseService {
                 relatedId,
                 metadata
             )
-            .map(v -> (Void) null)
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("팀원 증가 알림 생성 실패(무시) - referrerId: {}", referrerId, err);
                 return Future.succeededFuture((Void) null);
@@ -1107,7 +1107,7 @@ public class AuthService extends BaseService {
                 null,
                 metadata
             )
-            .map(v -> (Void) null)
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("새 기기 로그인 알림 생성 실패(무시) - userId: {}", userId, err);
                 return Future.succeededFuture((Void) null);
