@@ -31,6 +31,8 @@ import java.util.UUID;
 @Slf4j
 public class ExchangeService extends BaseService {
 
+    private record ExchangeNotificationContext(Exchange exchange, ExchangeResponseDto responseDto) {}
+
     private final ExchangeRepository exchangeRepository;
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
@@ -126,7 +128,8 @@ public class ExchangeService extends BaseService {
 
                                                 return executeExchangeTransaction(userId, fromCurrency, toCurrency,
                                                     fromWallet, request.getFromAmount(), toAmount, requestIp)
-                                                    .compose(this::createExchangeCompletedNotification);
+                                                    .compose(this::createExchangeCompletedNotification)
+                                                    .map(ExchangeNotificationContext::responseDto);
                                             });
                                     });
                             });
@@ -137,9 +140,9 @@ public class ExchangeService extends BaseService {
     /**
       * Normalized comment.
      */
-    private Future<ExchangeResponseDto> executeExchangeTransaction(Long userId, Currency fromCurrency, Currency toCurrency,
-                                                                   Wallet fromWallet, BigDecimal fromAmount, BigDecimal toAmount,
-                                                                   String requestIp) {
+    private Future<ExchangeNotificationContext> executeExchangeTransaction(Long userId, Currency fromCurrency, Currency toCurrency,
+                                                                          Wallet fromWallet, BigDecimal fromAmount, BigDecimal toAmount,
+                                                                          String requestIp) {
         String exchangeId = UUID.randomUUID().toString();
         String orderNumber = OrderNumberUtils.generateOrderNumber();
 
@@ -170,63 +173,64 @@ public class ExchangeService extends BaseService {
                                         .build();
 
                                     return exchangeRepository.createExchange(client, exchange)
-                                        .map(createdExchange -> ExchangeResponseDto.builder()
-                                            .exchangeId(createdExchange.getExchangeId())
-                                            .orderNumber(createdExchange.getOrderNumber())
-                                            .fromCurrencyCode(fromCurrency.getCode())
-                                            .toCurrencyCode(toCurrency.getCode())
-                                            .fromAmount(createdExchange.getFromAmount())
-                                            .toAmount(createdExchange.getToAmount())
-                                            .status(createdExchange.getStatus())
-                                            .createdAt(createdExchange.getCreatedAt())
-                                            .build());
+                                        .map(createdExchange -> new ExchangeNotificationContext(
+                                            createdExchange,
+                                            ExchangeResponseDto.builder()
+                                                .exchangeId(createdExchange.getExchangeId())
+                                                .orderNumber(createdExchange.getOrderNumber())
+                                                .fromCurrencyCode(fromCurrency.getCode())
+                                                .toCurrencyCode(toCurrency.getCode())
+                                                .fromAmount(createdExchange.getFromAmount())
+                                                .toAmount(createdExchange.getToAmount())
+                                                .status(createdExchange.getStatus())
+                                                .createdAt(createdExchange.getCreatedAt())
+                                                .build()
+                                        ));
                                 });
                         });
                 })
         );
     }
 
-    private Future<ExchangeResponseDto> createExchangeCompletedNotification(ExchangeResponseDto responseDto) {
-        if (notificationService == null || responseDto == null || responseDto.getExchangeId() == null) {
-            return Future.succeededFuture(responseDto);
+    private Future<ExchangeNotificationContext> createExchangeCompletedNotification(ExchangeNotificationContext context) {
+        if (notificationService == null || context == null || context.exchange() == null || context.responseDto() == null) {
+            return Future.succeededFuture(context);
         }
 
-        return exchangeRepository.getExchangeByExchangeId(pool, responseDto.getExchangeId())
-            .compose(exchange -> {
-                if (exchange == null || exchange.getUserId() == null) {
-                    return Future.succeededFuture();
-                }
+        Exchange exchange = context.exchange();
+        ExchangeResponseDto responseDto = context.responseDto();
+        if (exchange.getUserId() == null || exchange.getId() == null || responseDto.getExchangeId() == null) {
+            return Future.succeededFuture(context);
+        }
 
-                JsonObject metadata = new JsonObject()
-                    .put("exchangeId", responseDto.getExchangeId())
-                    .put("orderNumber", responseDto.getOrderNumber())
-                    .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
-                    .put("toCurrencyCode", responseDto.getToCurrencyCode())
-                    .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
-                    .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
-                    .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
-                    .put("currencyCode", responseDto.getFromCurrencyCode())
-                    .put("status", responseDto.getStatus());
+        JsonObject metadata = new JsonObject()
+            .put("exchangeId", responseDto.getExchangeId())
+            .put("orderNumber", responseDto.getOrderNumber())
+            .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
+            .put("toCurrencyCode", responseDto.getToCurrencyCode())
+            .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+            .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+            .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+            .put("currencyCode", responseDto.getFromCurrencyCode())
+            .put("status", responseDto.getStatus());
 
-                String encodedMetadata = NotificationI18nUtils.buildMetadata(
-                    EXCHANGE_COMPLETED_TITLE_KEY,
-                    EXCHANGE_COMPLETED_MESSAGE_KEY,
-                    metadata
-                );
+        String encodedMetadata = NotificationI18nUtils.buildMetadata(
+            EXCHANGE_COMPLETED_TITLE_KEY,
+            EXCHANGE_COMPLETED_MESSAGE_KEY,
+            metadata
+        );
 
-                return notificationService.createNotificationIfAbsentByRelatedId(
-                    exchange.getUserId(),
-                    NotificationType.EXCHANGE_SUCCESS,
-                    EXCHANGE_COMPLETED_TITLE,
-                    EXCHANGE_COMPLETED_MESSAGE,
-                    exchange.getId(),
-                    encodedMetadata
-                ).mapEmpty();
-            })
-            .map(v -> responseDto)
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                exchange.getUserId(),
+                NotificationType.EXCHANGE_SUCCESS,
+                EXCHANGE_COMPLETED_TITLE,
+                EXCHANGE_COMPLETED_MESSAGE,
+                exchange.getId(),
+                encodedMetadata
+            ).map(v -> context)
             .recover(err -> {
                 log.warn("Normalized log message", responseDto.getExchangeId(), err);
-                return Future.succeededFuture(responseDto);
+                return Future.succeededFuture(context);
             });
     }
 

@@ -23,6 +23,8 @@ import java.util.UUID;
 @Slf4j
 public class PaymentDepositService extends BaseService {
 
+    private record PaymentDepositNotificationContext(PaymentDeposit deposit, PaymentDepositResponseDto responseDto) {}
+
     private final PaymentDepositRepository paymentDepositRepository;
     private final CurrencyRepository currencyRepository;
     private final TransferRepository transferRepository;
@@ -120,57 +122,59 @@ public class PaymentDepositService extends BaseService {
                                     paymentDepositRepository.completePaymentDeposit(client, depositId)
                                         .compose(completedDeposit ->
                                             currencyRepository.getCurrencyById(client, completedDeposit.getCurrencyId())
-                                                .map(currency -> PaymentDepositResponseDto.builder()
-                                                    .depositId(completedDeposit.getDepositId())
-                                                    .orderNumber(completedDeposit.getOrderNumber())
-                                                    .currencyCode(currency.getCode())
-                                                    .amount(completedDeposit.getAmount())
-                                                    .depositMethod(completedDeposit.getDepositMethod())
-                                                    .paymentAmount(completedDeposit.getPaymentAmount())
-                                                    .status(completedDeposit.getStatus())
-                                                    .createdAt(completedDeposit.getCreatedAt())
-                                                    .build())));
+                                                .map(currency -> new PaymentDepositNotificationContext(
+                                                    completedDeposit,
+                                                    PaymentDepositResponseDto.builder()
+                                                        .depositId(completedDeposit.getDepositId())
+                                                        .orderNumber(completedDeposit.getOrderNumber())
+                                                        .currencyCode(currency.getCode())
+                                                        .amount(completedDeposit.getAmount())
+                                                        .depositMethod(completedDeposit.getDepositMethod())
+                                                        .paymentAmount(completedDeposit.getPaymentAmount())
+                                                        .status(completedDeposit.getStatus())
+                                                        .createdAt(completedDeposit.getCreatedAt())
+                                                        .build()
+                                                ))));
                         })
-                ).compose(this::createPaymentDepositCompletedNotification);
+                ).compose(this::createPaymentDepositCompletedNotification)
+                    .map(PaymentDepositNotificationContext::responseDto);
             });
     }
 
-    private Future<PaymentDepositResponseDto> createPaymentDepositCompletedNotification(PaymentDepositResponseDto responseDto) {
-        if (notificationService == null || responseDto == null || responseDto.getDepositId() == null) {
-            return Future.succeededFuture(responseDto);
+    private Future<PaymentDepositNotificationContext> createPaymentDepositCompletedNotification(PaymentDepositNotificationContext context) {
+        if (notificationService == null || context == null || context.deposit() == null || context.responseDto() == null) {
+            return Future.succeededFuture(context);
         }
 
-        return paymentDepositRepository.getPaymentDepositByDepositId(pool, responseDto.getDepositId())
-            .compose(deposit -> {
-                if (deposit == null || deposit.getUserId() == null) {
-                    return Future.succeededFuture();
-                }
+        PaymentDeposit deposit = context.deposit();
+        PaymentDepositResponseDto responseDto = context.responseDto();
+        if (deposit.getUserId() == null || deposit.getId() == null || responseDto.getDepositId() == null) {
+            return Future.succeededFuture(context);
+        }
 
-                JsonObject metadata = new JsonObject()
-                    .put("depositId", responseDto.getDepositId())
-                    .put("orderNumber", responseDto.getOrderNumber())
-                    .put("currencyCode", responseDto.getCurrencyCode())
-                    .put("amount", responseDto.getAmount() != null ? responseDto.getAmount().toPlainString() : null)
-                    .put("status", responseDto.getStatus());
-                String encodedMetadata = NotificationI18nUtils.buildMetadata(
-                    DEPOSIT_COMPLETED_TITLE_KEY,
-                    DEPOSIT_COMPLETED_MESSAGE_KEY,
-                    metadata
-                );
+        JsonObject metadata = new JsonObject()
+            .put("depositId", responseDto.getDepositId())
+            .put("orderNumber", responseDto.getOrderNumber())
+            .put("currencyCode", responseDto.getCurrencyCode())
+            .put("amount", responseDto.getAmount() != null ? responseDto.getAmount().toPlainString() : null)
+            .put("status", responseDto.getStatus());
+        String encodedMetadata = NotificationI18nUtils.buildMetadata(
+            DEPOSIT_COMPLETED_TITLE_KEY,
+            DEPOSIT_COMPLETED_MESSAGE_KEY,
+            metadata
+        );
 
-                return notificationService.createNotificationIfAbsentByRelatedId(
-                    deposit.getUserId(),
-                    NotificationType.DEPOSIT_SUCCESS,
-                    DEPOSIT_COMPLETED_TITLE,
-                    DEPOSIT_COMPLETED_MESSAGE,
-                    deposit.getId(),
-                    encodedMetadata
-                ).mapEmpty();
-            })
-            .map(v -> responseDto)
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                deposit.getUserId(),
+                NotificationType.DEPOSIT_SUCCESS,
+                DEPOSIT_COMPLETED_TITLE,
+                DEPOSIT_COMPLETED_MESSAGE,
+                deposit.getId(),
+                encodedMetadata
+            ).map(v -> context)
             .recover(err -> {
                 log.warn("Normalized log message", responseDto.getDepositId(), err);
-                return Future.succeededFuture(responseDto);
+                return Future.succeededFuture(context);
             });
     }
 
