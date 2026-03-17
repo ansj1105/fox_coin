@@ -163,6 +163,71 @@ public class AuthHandlerTest extends HandlerTestBase {
                 })
                 .onFailure(tc::failNow);
         }
+
+        @Test
+        @DisplayName("성공 - owner_address 없는 legacy virtual wallet도 private_key fallback 으로 바로 시드 로그인 가능")
+        void loginSucceedsWithLegacyPrivateKeyFallback(VertxTestContext tc) {
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
+            String ownerAddress = tronAddressFromKeyPair(keyPair);
+            String virtualAddress = "TVirtualLegacyDirect11111111111111111";
+            String hotWalletAddress = "THotWalletLegacyDirect111111111111111";
+
+            sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 AND chain = $2 LIMIT 1")
+                .execute(Tuple.of("TRX", "TRON"))
+                .compose(currencyRows -> {
+                    Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                    return sqlClient.preparedQuery(
+                            "INSERT INTO user_wallets (user_id, currency_id, address, private_key, balance, locked_balance, status, created_at, updated_at) " +
+                                "VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                "ON CONFLICT (user_id, currency_id) DO UPDATE " +
+                                "SET address = EXCLUDED.address, private_key = EXCLUDED.private_key, updated_at = NOW()"
+                        )
+                        .execute(Tuple.of(1L, currencyId, virtualAddress, SEED_PRIVATE_KEY_HEX))
+                        .compose(v -> sqlClient.preparedQuery(
+                                "INSERT INTO virtual_wallet_mappings (user_id, network, hot_wallet_address, virtual_address, owner_address, mapping_seed, status, created_at, updated_at) " +
+                                    "VALUES ($1, 'TRON', $2, $3, NULL, $4, 'ACTIVE', NOW(), NOW()) " +
+                                    "ON CONFLICT (user_id, network) WHERE deleted_at IS NULL DO UPDATE " +
+                                    "SET hot_wallet_address = EXCLUDED.hot_wallet_address, virtual_address = EXCLUDED.virtual_address, owner_address = NULL, updated_at = NOW()"
+                            )
+                            .execute(Tuple.of(1L, hotWalletAddress, virtualAddress, "user:1:TRON")));
+                })
+                .onSuccess(v -> {
+                    JsonObject recoveryRequest = new JsonObject()
+                        .put("address", ownerAddress)
+                        .put("chain", "TRON");
+
+                    reqPost(getUrl("/recovery/challenge"))
+                        .sendJson(recoveryRequest, tc.succeeding(recoveryRes -> tc.verify(() -> {
+                            expectSuccess(recoveryRes);
+                            String recoveryMessage = recoveryRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+                            String recoverySignature = signRecoveryMessage(recoveryMessage, keyPair);
+
+                            JsonObject loginRequest = new JsonObject()
+                                .put("address", ownerAddress)
+                                .put("chain", "TRON")
+                                .put("signature", recoverySignature)
+                                .mergeIn(deviceInfo("seed-device-tron-legacy-fallback-1", "MOBILE", "ANDROID"));
+
+                            reqPost(getUrl("/login-with-seed"))
+                                .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                    assertThat(dto.getUserId()).isEqualTo(1L);
+                                    assertThat(dto.getAccessToken()).isNotBlank();
+
+                                    sqlClient.preparedQuery(
+                                            "SELECT owner_address FROM virtual_wallet_mappings WHERE user_id = $1 AND network = 'TRON' AND deleted_at IS NULL"
+                                        )
+                                        .execute(Tuple.of(1L), tc.succeeding(rows -> tc.verify(() -> {
+                                            assertThat(rows.iterator().next().getString("owner_address")).isEqualTo(ownerAddress);
+                                            tc.completeNow();
+                                        })));
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
     }
 
     @Nested

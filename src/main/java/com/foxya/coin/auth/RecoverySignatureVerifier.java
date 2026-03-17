@@ -6,6 +6,7 @@ import org.bitcoinj.core.LegacyAddress;
 import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.core.SegwitAddress;
+import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
 import org.web3j.utils.Numeric;
@@ -39,6 +40,22 @@ public final class RecoverySignatureVerifier {
             return expectedAddress.equals(legacy) || expectedAddress.equals(segwit);
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    public static String deriveTronAddressFromPrivateKey(String privateKey) {
+        try {
+            if (privateKey == null || privateKey.isBlank()) {
+                return null;
+            }
+            String normalized = Numeric.cleanHexPrefix(privateKey.trim());
+            if (normalized.isBlank()) {
+                return null;
+            }
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(normalized, 16));
+            return publicKeyToTronAddress(keyPair.getPublicKey());
+        } catch (Exception e) {
+            return null;
         }
     }
 

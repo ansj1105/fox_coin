@@ -18,6 +18,7 @@ import com.foxya.coin.common.exceptions.ConflictException;
 import com.foxya.coin.common.exceptions.NotFoundException;
 import com.foxya.coin.common.exceptions.SocialSignupExpiredException;
 import com.foxya.coin.common.exceptions.UnauthorizedException;
+import com.foxya.coin.common.utils.PrivateKeyEncryptionUtil;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.EmailService;
@@ -574,7 +575,10 @@ public class AuthService extends BaseService {
                             }
                             return resolveTronRecoveryWalletByVirtualAddress(address, chain);
                         });
-                });
+                })
+                .compose(wallet -> wallet != null
+                    ? Future.succeededFuture(wallet)
+                    : resolveLegacyTronRecoveryWalletByPrivateKey(address));
         }
         return transferRepository.getWalletByAddress(pool, address);
     }
@@ -587,6 +591,74 @@ public class AuthService extends BaseService {
                 }
                 return transferRepository.getWalletByAddress(pool, mapping.getOwnerAddress());
             });
+    }
+
+    private Future<com.foxya.coin.wallet.entities.Wallet> resolveLegacyTronRecoveryWalletByPrivateKey(String ownerAddress) {
+        return walletRepository.getManagedTronWalletsWithPrivateKeys(pool)
+            .compose(wallets -> {
+                for (com.foxya.coin.wallet.entities.Wallet wallet : wallets) {
+                    String derivedOwnerAddress = deriveLegacyTronOwnerAddress(wallet);
+                    if (derivedOwnerAddress != null && derivedOwnerAddress.equals(ownerAddress)) {
+                        return backfillLegacyTronOwnerBinding(wallet.getUserId(), ownerAddress)
+                            .map(v -> wallet);
+                    }
+                }
+                return Future.succeededFuture(null);
+            });
+    }
+
+    private String deriveLegacyTronOwnerAddress(com.foxya.coin.wallet.entities.Wallet wallet) {
+        if (wallet == null || wallet.getPrivateKey() == null || wallet.getPrivateKey().isBlank()) {
+            return null;
+        }
+        try {
+            String decryptedPrivateKey = PrivateKeyEncryptionUtil.decrypt(wallet.getPrivateKey());
+            return RecoverySignatureVerifier.deriveTronAddressFromPrivateKey(decryptedPrivateKey);
+        } catch (Exception e) {
+            log.debug("Skipping legacy TRON recovery candidate. walletId={}, userId={}, cause={}",
+                wallet.getId(), wallet.getUserId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private Future<Void> backfillLegacyTronOwnerBinding(Long userId, String ownerAddress) {
+        if (virtualWalletMappingRepository == null || userId == null || ownerAddress == null || ownerAddress.isBlank()) {
+            return succeededVoid();
+        }
+        String normalizedOwnerAddress = normalizeAddress("TRON", ownerAddress);
+        return virtualWalletMappingRepository.findByUserIdAndNetwork(pool, userId, "TRON")
+            .compose(mapping -> {
+                if (mapping == null || mapping.getId() == null || mapping.getHotWalletAddress() == null || mapping.getHotWalletAddress().isBlank()) {
+                    return succeededVoid();
+                }
+                if (normalizedOwnerAddress.equals(mapping.getOwnerAddress())) {
+                    return succeededVoid();
+                }
+                return virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, normalizedOwnerAddress, "TRON")
+                    .compose(existing -> {
+                        boolean conflicts = existing != null
+                            && existing.getId() != null
+                            && !existing.getId().equals(mapping.getId())
+                            && existing.getUserId() != null
+                            && !existing.getUserId().equals(userId);
+                        if (conflicts) {
+                            log.warn("Skipped legacy TRON owner binding backfill due to conflict. userId={}, ownerAddress={}",
+                                userId, normalizedOwnerAddress);
+                            return succeededVoid();
+                        }
+                        return virtualWalletMappingRepository.updateBinding(pool, mapping.getId(), mapping.getHotWalletAddress(), normalizedOwnerAddress)
+                            .recover(err -> {
+                                log.warn("Failed to backfill legacy TRON owner binding. userId={}, ownerAddress={}, cause={}",
+                                    userId, normalizedOwnerAddress, err.getMessage());
+                                return Future.succeededFuture(mapping);
+                            })
+                            .mapEmpty();
+                    });
+            });
+    }
+
+    private Future<Void> succeededVoid() {
+        return Future.succeededFuture();
     }
 
     private boolean verifyRecoverySignature(String chain, String message, String signature, String address) {

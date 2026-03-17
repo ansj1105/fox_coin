@@ -129,6 +129,32 @@ public class WalletRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows));
     }
+
+    public Future<List<Wallet>> getManagedTronWalletsWithPrivateKeys(SqlClient client) {
+        String sql = """
+            SELECT uw.*,
+                   c.code  AS currency_code,
+                   c.name  AS currency_name,
+                   c.code  AS currency_symbol,
+                   c.chain AS network
+            FROM user_wallets uw
+            JOIN currency c ON uw.currency_id = c.id
+            WHERE c.chain = #{network}
+              AND c.code IN ('TRX', 'USDT', 'KORI')
+              AND uw.private_key IS NOT NULL
+              AND TRIM(uw.private_key) <> ''
+              AND uw.status = #{status}
+              AND uw.deleted_at IS NULL
+            ORDER BY uw.user_id ASC, uw.id ASC
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("network", "TRON");
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(walletMapper, rows));
+    }
     
     /**
      * 지갑 생성
