@@ -136,7 +136,7 @@ public class MissionRepository extends BaseRepository {
         String sql = QueryBuilder
             .insert("user_missions", "user_id", "mission_id", "mission_date", "current_count", "reset_at")
             .onConflict("user_id, mission_id, mission_date")
-            .doUpdateCustom("current_count = EXCLUDED.current_count, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
+            .doUpdateExcludedWithCurrentTimestamp("current_count", "reset_at")
             .returningColumns("id, user_id, mission_id, mission_date, current_count, reset_at, created_at, updated_at")
             .build();
         
@@ -203,4 +203,3 @@ public class MissionRepository extends BaseRepository {
             .onFailure(throwable -> log.error("사용자 미션 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

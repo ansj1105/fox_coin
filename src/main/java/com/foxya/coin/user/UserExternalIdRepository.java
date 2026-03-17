@@ -68,7 +68,7 @@ public class UserExternalIdRepository extends BaseRepository {
         String sql = QueryBuilder
             .insert("user_external_ids", "user_id", "provider", "external_id")
             .onConflict("user_id, provider")
-            .doUpdateCustom("external_id = EXCLUDED.external_id, updated_at = CURRENT_TIMESTAMP")
+            .doUpdateExcludedWithCurrentTimestamp("external_id")
             .build();
 
         Map<String, Object> params = new HashMap<>();

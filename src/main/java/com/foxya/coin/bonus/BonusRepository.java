@@ -57,7 +57,7 @@ public class BonusRepository extends BaseRepository {
         String sql = QueryBuilder
             .insert("user_bonuses", "user_id", "bonus_type", "is_active", "expires_at", "current_count", "max_count", "metadata")
             .onConflict("user_id, bonus_type")
-            .doUpdateCustom("is_active = EXCLUDED.is_active, expires_at = EXCLUDED.expires_at, current_count = EXCLUDED.current_count, max_count = EXCLUDED.max_count, metadata = EXCLUDED.metadata, updated_at = CURRENT_TIMESTAMP")
+            .doUpdateExcludedWithCurrentTimestamp("is_active", "expires_at", "current_count", "max_count", "metadata")
             .returningColumns("id, user_id, bonus_type, is_active, expires_at, current_count, max_count, metadata, created_at, updated_at")
             .build();
         
@@ -102,4 +102,3 @@ public class BonusRepository extends BaseRepository {
             .onFailure(throwable -> log.error("보너스 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-

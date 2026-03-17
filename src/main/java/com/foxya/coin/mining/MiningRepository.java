@@ -124,7 +124,7 @@ public class MiningRepository extends BaseRepository {
         String sql = QueryBuilder
             .insert("daily_mining", "user_id", "mining_date", "mining_amount", "reset_at")
             .onConflict("user_id, mining_date")
-            .doUpdateCustom("mining_amount = EXCLUDED.mining_amount, reset_at = EXCLUDED.reset_at, updated_at = CURRENT_TIMESTAMP")
+            .doUpdateExcludedWithCurrentTimestamp("mining_amount", "reset_at")
             .returningColumns("id, user_id, mining_date, mining_amount, reset_at, created_at, updated_at")
             .build();
         

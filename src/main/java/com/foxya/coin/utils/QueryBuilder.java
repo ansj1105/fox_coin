@@ -578,6 +578,22 @@ public abstract class QueryBuilder {
             return this;
         }
 
+        public InsertQueryBuilder doUpdateExcludedWithCurrentTimestamp(String... updateColumns) {
+            if (!hasOnConflict) {
+                throw new IllegalStateException("ON CONFLICT must be specified before DO UPDATE");
+            }
+
+            List<String> sets = new ArrayList<>();
+            for (String column : updateColumns) {
+                sets.add(column + " = EXCLUDED." + column);
+            }
+            sets.add("updated_at = CURRENT_TIMESTAMP");
+
+            append("DO UPDATE SET");
+            append(String.join(", ", sets));
+            return this;
+        }
+
         /**
          * DO UPDATE SET 절을 추가합니다 (컬럼 증가용).
          *
