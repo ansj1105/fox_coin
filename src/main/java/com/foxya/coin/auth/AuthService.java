@@ -557,7 +557,10 @@ public class AuthService extends BaseService {
 
     private Future<com.foxya.coin.wallet.entities.Wallet> findWalletForRecovery(String chain, String address) {
         if ("ETH".equals(chain)) {
-            return transferRepository.getWalletByAddressIgnoreCase(pool, address);
+            return transferRepository.getWalletByAddressIgnoreCase(pool, address)
+                .compose(wallet -> wallet != null
+                    ? Future.succeededFuture(wallet)
+                    : resolveLegacyEthRecoveryWalletByPrivateKey(address));
         }
         if ("TRON".equals(chain) && virtualWalletMappingRepository != null) {
             return transferRepository.getWalletByAddress(pool, address)
@@ -605,6 +608,38 @@ public class AuthService extends BaseService {
                 }
                 return Future.succeededFuture(null);
             });
+    }
+
+    private Future<com.foxya.coin.wallet.entities.Wallet> resolveLegacyEthRecoveryWalletByPrivateKey(String ownerAddress) {
+        return walletRepository.getManagedEthWalletsWithPrivateKeys(pool)
+            .compose(wallets -> {
+                for (com.foxya.coin.wallet.entities.Wallet wallet : wallets) {
+                    String derivedOwnerAddress = deriveLegacyEthAddress(wallet);
+                    if (derivedOwnerAddress != null && derivedOwnerAddress.equalsIgnoreCase(ownerAddress)) {
+                        log.warn("Recovered ETH seed login using private_key fallback. walletId={}, userId={}, storedAddress={}, requestedAddress={}",
+                            wallet.getId(), wallet.getUserId(), wallet.getAddress(), ownerAddress);
+                        return Future.succeededFuture(wallet);
+                    }
+                }
+                return Future.succeededFuture(null);
+            });
+    }
+
+    private String deriveLegacyEthAddress(com.foxya.coin.wallet.entities.Wallet wallet) {
+        if (wallet == null || wallet.getPrivateKey() == null || wallet.getPrivateKey().isBlank()) {
+            return null;
+        }
+        try {
+            String decryptedPrivateKey = PrivateKeyEncryptionUtil.decrypt(wallet.getPrivateKey());
+            String normalizedKey = decryptedPrivateKey.startsWith("0x")
+                ? decryptedPrivateKey
+                : "0x" + decryptedPrivateKey;
+            return org.web3j.crypto.Credentials.create(normalizedKey).getAddress();
+        } catch (Exception e) {
+            log.debug("Skipping legacy ETH recovery candidate. walletId={}, userId={}, cause={}",
+                wallet.getId(), wallet.getUserId(), e.getMessage());
+            return null;
+        }
     }
 
     private String deriveLegacyTronOwnerAddress(com.foxya.coin.wallet.entities.Wallet wallet) {

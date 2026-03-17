@@ -644,6 +644,68 @@ public class AuthHandlerTest extends HandlerTestBase {
         }
 
         @Test
+        @DisplayName("성공 - ETH 저장 주소가 달라도 private_key fallback 으로 시드 구문 로그인")
+        void successLoginWithSeedForLegacyEthAddressMismatch(VertxTestContext tc) {
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
+            String ownerAddress = "0x" + Keys.getAddress(keyPair.getPublicKey());
+            String legacyAddress = "0x00000000000000000000000000000000000000aa";
+
+            sqlClient.preparedQuery("SELECT id FROM users WHERE login_id = $1")
+                .execute(Tuple.of("testuser"))
+                .compose(userRows -> {
+                    if (!userRows.iterator().hasNext()) {
+                        return io.vertx.core.Future.failedFuture("user not found");
+                    }
+                    Long userId = userRows.iterator().next().getLong("id");
+                    return sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 LIMIT 1")
+                        .execute(Tuple.of("ETH"))
+                        .compose(currencyRows -> {
+                            if (!currencyRows.iterator().hasNext()) {
+                                return io.vertx.core.Future.failedFuture("currency not found");
+                            }
+                            Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                            return sqlClient.preparedQuery(
+                                    "INSERT INTO user_wallets (user_id, currency_id, address, private_key, balance, locked_balance, status, created_at, updated_at) " +
+                                        "VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                        "ON CONFLICT (user_id, currency_id) DO UPDATE " +
+                                        "SET address = EXCLUDED.address, private_key = EXCLUDED.private_key, updated_at = NOW()"
+                                )
+                                .execute(Tuple.of(userId, currencyId, legacyAddress, SEED_PRIVATE_KEY_HEX));
+                        });
+                })
+                .onSuccess(v -> {
+                    JsonObject challengeRequest = new JsonObject()
+                        .put("address", ownerAddress)
+                        .put("chain", "ETH");
+
+                    reqPost(getUrl("/recovery/challenge"))
+                        .sendJson(challengeRequest, tc.succeeding(chRes -> tc.verify(() -> {
+                            expectSuccess(chRes);
+                            String message = chRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+
+                            String signature = signRecoveryMessage(message, keyPair);
+                            JsonObject loginRequest = new JsonObject()
+                                .put("address", ownerAddress)
+                                .put("chain", "ETH")
+                                .put("signature", signature)
+                                .mergeIn(deviceInfo("seed-device-eth-legacy-fallback-1", "MOBILE", "ANDROID"));
+
+                            reqPost(getUrl("/login-with-seed"))
+                                .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getUserId()).isNotNull();
+                                    tc.completeNow();
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
+
+        @Test
         @DisplayName("성공 - TRON legacy owner 주소로도 시드 구문 로그인")
         void successLoginWithSeedForLegacyTronOwnerAddress(VertxTestContext tc) {
             ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
