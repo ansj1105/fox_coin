@@ -58,7 +58,7 @@ public class UserHandler extends BaseHandler {
         SchemaParser parser = createSchemaParser();
         
         // 공개 API (인증 불필요)
-        router.post("/register").handler(registerValidation(parser)).handler(this::register);
+        // Legacy direct register route disabled; use /api/v1/auth/register only.
         router.post("/login").handler(loginValidation(parser)).handler(this::login);
 
         // 프로필 이미지 조회 (공개)

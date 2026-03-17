@@ -817,15 +817,15 @@ public class AuthService extends BaseService {
 
         AtomicReference<String> socialProviderRef = new AtomicReference<>(null);
 
-        return userRepository.getUserByLoginIdIncludingDeleted(pool, email)
+        return pool.withTransaction(client -> acquireSignupLocks(client, email, nickname)
+            .compose(ignoredLock -> userRepository.getUserByLoginIdIncludingDeleted(client, email))
             .compose(existingAny -> {
                 if (existingAny != null && existingAny.getDeletedAt() != null) {
                     return Future.failedFuture(new ConflictException("탈퇴회원입니다"));
                 }
-                // 소셜 로그인 플로우: code가 빈 문자열이면 이메일 인증 단계 건너뛰기
-                Future<Void> codeValidation = isSocialFlow 
-                    ? Future.succeededFuture() 
-                    : signupEmailCodeRepository.findValid(pool, email, code)
+                Future<Void> codeValidation = isSocialFlow
+                    ? Future.succeededFuture()
+                    : signupEmailCodeRepository.findValid(client, email, code)
                         .compose(rec -> {
                             if (rec == null) {
                                 return Future.failedFuture(new BadRequestException("인증코드가 일치하지 않거나 만료되었습니다."));
@@ -843,18 +843,18 @@ public class AuthService extends BaseService {
                                 return Future.failedFuture(new BadRequestException("소셜 가입 정보가 유효하지 않습니다."));
                             }
                         }
-                        return userRepository.getUserByLoginId(pool, email)
+                        return userRepository.getUserByLoginId(client, email)
                             .compose(existing -> {
                                 if (existing != null) {
                                     if (!isSocialFlow) {
                                         return Future.failedFuture(new ConflictException("중복회원입니다"));
                                     }
-                                    return socialLinkRepository.hasSocialLink(pool, existing.getId())
+                                    return socialLinkRepository.hasSocialLink(client, existing.getId())
                                         .compose(hasSocial -> {
                                             if (!hasSocial) {
                                                 return Future.failedFuture(new ConflictException("중복회원입니다"));
                                             }
-                                            return userRepository.existsByNicknameExcludingUser(pool, nickname, existing.getId())
+                                            return userRepository.existsByNicknameExcludingUser(client, nickname, existing.getId())
                                                 .compose(nickExists -> {
                                                     if (Boolean.TRUE.equals(nickExists)) {
                                                         return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
@@ -867,13 +867,13 @@ public class AuthService extends BaseService {
                                                         updates.put("gender", g.toUpperCase());
                                                     }
                                                     String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
-                                                    return userRepository.updateMeProfile(pool, existing.getId(), updates)
-                                                        .compose(v -> userRepository.updateLoginPassword(pool, existing.getId(), passwordHash))
+                                                    return userRepository.updateMeProfile(client, existing.getId(), updates)
+                                                        .compose(v -> userRepository.updateLoginPassword(client, existing.getId(), passwordHash))
                                                         .map(v -> existing);
                                                 });
                                         });
                                 }
-                                return userRepository.existsByNickname(pool, nickname)
+                                return userRepository.existsByNickname(client, nickname)
                                     .compose(nickExists -> {
                                         if (Boolean.TRUE.equals(nickExists)) {
                                             return Future.failedFuture(new BadRequestException("이미 사용 중인 닉네임입니다."));
@@ -886,7 +886,7 @@ public class AuthService extends BaseService {
                                             .countryCode(normalizedCountry)
                                             .gender(g != null && !g.isEmpty() ? g.toUpperCase() : null)
                                             .build();
-                                        return userService.createUser(create)
+                                        return userService.createUser(client, create)
                                             .compose(user -> {
                                                 if (!isSocialFlow || payload == null) {
                                                     return Future.succeededFuture(user);
@@ -897,7 +897,7 @@ public class AuthService extends BaseService {
                                                 if (provider == null || providerUserId == null || socialEmail == null) {
                                                     return Future.failedFuture(new BadRequestException("소셜 가입 정보가 유효하지 않습니다."));
                                                 }
-                                                return socialLinkRepository.createSocialLink(pool, user.getId(), provider, providerUserId, socialEmail)
+                                                return socialLinkRepository.createSocialLink(client, user.getId(), provider, providerUserId, socialEmail)
                                                     .compose(linked -> {
                                                         if (!linked) {
                                                             return Future.failedFuture(new BadRequestException("소셜 계정 연동에 실패했습니다."));
@@ -907,76 +907,83 @@ public class AuthService extends BaseService {
                                             });
                                     });
                             });
-                    })
-                    .compose(user -> clearSocialSignupPayload(signupToken, isSocialFlow).map(v -> user))
-                    .compose(user -> {
-                        // 소셜 로그인 플로우가 아니면 code 사용 처리
-                        if (!isSocialFlow) {
-                            return signupEmailCodeRepository.markUsed(pool, email)
-                                .map(v -> user);
-                        }
-                        return Future.succeededFuture(user);
-                    })
-                    .compose(user -> maybeRegisterDevice(user.getId(), dto.getDeviceId(), dto.getDeviceType(), dto.getDeviceOs(), dto.getAppVersion(), dto.getClientIp(), dto.getUserAgent())
-                        .map(ignored -> user))
-                    // 회원가입 완료 시 이메일 인증 기록 저장 (레퍼럴 코드 등록 등에서 email_verifications 조회)
-                    .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
-                        .map(ignored -> user))
-                    .compose(user -> maybeCreateAppleSignupNotice(user.getId(), isSocialFlow, socialProviderRef.get())
-                        .map(ignored -> user))
-                    .compose(user -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
-                        .compose(dbMin -> {
-                            String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
-                            String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
-                            String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
-                            LoginResponseDto loginDto = LoginResponseDto.builder()
-                                .accessToken(accessToken)
-                                .refreshToken(refreshToken)
-                                .userId(user.getId())
-                                .loginId(user.getLoginId())
-                                .isTest(user.getIsTest())
-                                .minAppVersion(min)
-                                .warning(toRestrictionFlag(user.getIsWarning()))
-                                .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
-                                .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
-                                .build();
-                            String refCode = dto.getReferralCode();
-                        if (refCode != null && !refCode.isBlank()) {
-                            return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
-                                .compose(referrer -> {
-                                    if (referrer != null && !referrer.getId().equals(user.getId())) {
-                                        return referralRepository.existsReferralRelation(pool, user.getId())
-                                            .compose(exists -> {
-                                                if (!Boolean.TRUE.equals(exists)) {
-                                                    return referralRepository.hasReferrerAnyReferredWithSameIpOrDevice(pool, referrer.getId(), dto.getClientIp(), dto.getDeviceId())
-                                                        .compose(dup -> {
-                                                            if (Boolean.TRUE.equals(dup)) {
-                                                                return Future.succeededFuture(loginDto); // 동일 IP/기기 중복 초대 무효: 관계 생성 안 함
-                                                            }
-                                                            return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
-                                                                .compose(r -> grantRegisterAirdropIfFirstTime(user.getId())
-                                                                    .compose(granted -> {
-                                                                        Future<Void> airdropNoticeFuture = granted
-                                                                            ? createReferralRegisterAirdropNotice(user.getId(), r.getId())
-                                                                            : Future.succeededFuture();
-                                                                        return airdropNoticeFuture.compose(x ->
-                                                                            createTeamMemberJoinedNotice(r.getReferrerId(), r.getReferredId(), r.getId())
-                                                                        );
-                                                                    })
-                                                                    .map(loginDto))
-                                                                .recover(e -> { log.warn("Referral create failed", e); return Future.succeededFuture(loginDto); });
-                                                        });
-                                                }
-                                                return Future.succeededFuture(loginDto);
-                                            });
-                                    }
-                                    return Future.succeededFuture(loginDto);
-                                })
-                                .otherwise(loginDto);
-                        }
-                            return Future.succeededFuture(loginDto);
-                        }));
-            });
+                    });
+            }))
+            .compose(user -> clearSocialSignupPayload(signupToken, isSocialFlow).map(v -> user))
+            .compose(user -> {
+                if (!isSocialFlow) {
+                    return signupEmailCodeRepository.markUsed(pool, email).map(v -> user);
+                }
+                return Future.succeededFuture(user);
+            })
+            .compose(user -> maybeRegisterDevice(
+                user.getId(),
+                dto.getDeviceId(),
+                dto.getDeviceType(),
+                dto.getDeviceOs(),
+                dto.getAppVersion(),
+                dto.getClientIp(),
+                dto.getUserAgent()
+            ).map(ignored -> user))
+            .compose(user -> emailVerificationRepository.insertVerifiedEmail(pool, user.getId(), email)
+                .map(ignored -> user))
+            .compose(user -> maybeCreateAppleSignupNotice(user.getId(), isSocialFlow, socialProviderRef.get())
+                .map(ignored -> user))
+            .compose(user -> appConfigRepository.getMinAppVersion(pool, isIos(dto.getDeviceOs()))
+                .compose(dbMin -> {
+                    String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : minAppVersion;
+                    String accessToken = AuthUtils.generateAccessToken(jwtAuth, user.getId(), UserRole.USER, getAccessTokenExpireSeconds());
+                    String refreshToken = AuthUtils.generateRefreshToken(jwtAuth, user.getId(), UserRole.USER, (int) getRefreshTokenExpireSeconds());
+                    LoginResponseDto loginDto = LoginResponseDto.builder()
+                        .accessToken(accessToken)
+                        .refreshToken(refreshToken)
+                        .userId(user.getId())
+                        .loginId(user.getLoginId())
+                        .isTest(user.getIsTest())
+                        .minAppVersion(min)
+                        .warning(toRestrictionFlag(user.getIsWarning()))
+                        .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                        .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                        .build();
+                    String refCode = dto.getReferralCode();
+                    if (refCode != null && !refCode.isBlank()) {
+                        return userRepository.getUserByReferralCodeNotDeleted(pool, refCode)
+                            .compose(referrer -> {
+                                if (referrer != null && !referrer.getId().equals(user.getId())) {
+                                    return referralRepository.existsReferralRelation(pool, user.getId())
+                                        .compose(exists -> {
+                                            if (!Boolean.TRUE.equals(exists)) {
+                                                return referralRepository.hasReferrerAnyReferredWithSameIpOrDevice(pool, referrer.getId(), dto.getClientIp(), dto.getDeviceId())
+                                                    .compose(dup -> {
+                                                        if (Boolean.TRUE.equals(dup)) {
+                                                            return Future.succeededFuture(loginDto);
+                                                        }
+                                                        return referralRepository.createReferralRelation(pool, referrer.getId(), user.getId(), 1)
+                                                            .compose(r -> grantRegisterAirdropIfFirstTime(user.getId())
+                                                                .compose(granted -> {
+                                                                    Future<Void> airdropNoticeFuture = granted
+                                                                        ? createReferralRegisterAirdropNotice(user.getId(), r.getId())
+                                                                        : Future.succeededFuture();
+                                                                    return airdropNoticeFuture.compose(x ->
+                                                                        createTeamMemberJoinedNotice(r.getReferrerId(), r.getReferredId(), r.getId())
+                                                                    );
+                                                                })
+                                                                .map(loginDto))
+                                                            .recover(e -> {
+                                                                log.warn("Referral create failed", e);
+                                                                return Future.succeededFuture(loginDto);
+                                                            });
+                                                    });
+                                            }
+                                            return Future.succeededFuture(loginDto);
+                                        });
+                                }
+                                return Future.succeededFuture(loginDto);
+                            })
+                            .otherwise(loginDto);
+                    }
+                    return Future.succeededFuture(loginDto);
+                }));
     }
 
     /**
@@ -1081,6 +1088,24 @@ public class AuthService extends BaseService {
             });
     }
     
+    private Future<Void> acquireSignupLocks(io.vertx.sqlclient.SqlClient client, String email, String nickname) {
+        java.util.List<String> lockKeys = new java.util.ArrayList<>();
+        lockKeys.add("signup:email:" + email.trim().toLowerCase(java.util.Locale.ROOT));
+        if (nickname != null && !nickname.isBlank()) {
+            lockKeys.add("signup:nickname:" + nickname.trim());
+        }
+        java.util.Collections.sort(lockKeys);
+
+        Future<Void> chain = Future.succeededFuture();
+        for (String lockKey : lockKeys) {
+            java.util.Map<String, Object> params = java.util.Map.of("lock_key", lockKey);
+            chain = chain.compose(ignored -> userRepository
+                .query(client, "SELECT pg_advisory_xact_lock(hashtext(#{lock_key}))", params)
+                .mapEmpty());
+        }
+        return chain;
+    }
+
     private Future<Void> maybeCreateAppleSignupNotice(Long userId, boolean isSocialFlow, String provider) {
         if (!isSocialFlow || userId == null || provider == null || !"APPLE".equalsIgnoreCase(provider)) {
             return Future.succeededFuture();

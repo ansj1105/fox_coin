@@ -95,19 +95,23 @@ public class UserService extends BaseService {
     }
     
     public Future<User> createUser(CreateUserDto dto) {
+        return createUser(pool, dto);
+    }
+
+    public Future<User> createUser(io.vertx.sqlclient.SqlClient client, CreateUserDto dto) {
         // 비밀번호 해시
         String passwordHash = BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt());
         dto.setPasswordHash(passwordHash);
-        
+
         // 사용자 생성 후 레퍼럴 코드 자동 생성
-        return userRepository.createUser(pool, dto)
+        return userRepository.createUser(client, dto)
             .compose(user -> {
                 // 레퍼럴 코드가 없으면 자동 생성
                 if (user.getReferralCode() == null || user.getReferralCode().isEmpty()) {
-                    return generateUniqueReferralCode(0)
+                    return generateUniqueReferralCode(client, 0)
                         .compose(referralCode -> {
                             log.info("Auto-generating referral code for new user: {} -> {}", user.getId(), referralCode);
-                            return userRepository.updateReferralCode(pool, user.getId(), referralCode);
+                            return userRepository.updateReferralCode(client, user.getId(), referralCode);
                         })
                         .recover(throwable -> {
                             // 레퍼럴 코드 생성 실패해도 사용자 생성은 성공으로 처리
@@ -494,17 +498,21 @@ public class UserService extends BaseService {
      * 중복되지 않는 레퍼럴 코드 생성
      */
     private Future<String> generateUniqueReferralCode(int attempt) {
+        return generateUniqueReferralCode(pool, attempt);
+    }
+
+    private Future<String> generateUniqueReferralCode(io.vertx.sqlclient.SqlClient client, int attempt) {
         if (attempt >= 10) {
             return Future.failedFuture(new BadRequestException("레퍼럴 코드 생성에 실패했습니다."));
         }
-        
+
         String referralCode = generateRandomCode(6);
-        
-        return userRepository.existsByReferralCode(pool, referralCode)
+
+        return userRepository.existsByReferralCode(client, referralCode)
             .compose(exists -> {
                 if (exists) {
                     // 중복이면 재시도
-                    return generateUniqueReferralCode(attempt + 1);
+                    return generateUniqueReferralCode(client, attempt + 1);
                 } else {
                     return Future.succeededFuture(referralCode);
                 }
