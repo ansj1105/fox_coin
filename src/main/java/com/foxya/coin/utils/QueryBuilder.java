@@ -413,6 +413,11 @@ public abstract class QueryBuilder {
             return this;
         }
 
+        public SelectQueryBuilder thenOrderBy(String column, Sort order) {
+            appendNotSpace(", ").append(column).append(" ").append(order);
+            return this;
+        }
+
         /**
          * SELECT QueryBuilder 에 LOCK 을 추가합니다.
          *
@@ -705,6 +710,57 @@ public abstract class QueryBuilder {
          */
         public UpdateQueryBuilder setCustom(String setExpression) {
             this.commaAppend(setExpression);
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder setNull(String column) {
+            this.commaAppend(column + " = NULL");
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder set(String column, String mapping) {
+            this.commaAppend(column + " = #{" + mapping + "}");
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder setCurrentTimestamp(String column) {
+            this.commaAppend(column + " = CURRENT_TIMESTAMP");
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder increaseByParam(String column, String mapping) {
+            return increaseByParam(column, mapping, false);
+        }
+
+        public UpdateQueryBuilder increaseByParam(String column, String mapping, boolean coalesceZero) {
+            String base = coalesceZero ? "COALESCE(" + column + ", 0)" : column;
+            this.commaAppend(column + " = " + base + " + #{" + mapping + "}");
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder decreaseByParam(String column, String mapping) {
+            return decreaseByParam(column, mapping, false);
+        }
+
+        public UpdateQueryBuilder decreaseByParam(String column, String mapping, boolean coalesceZero) {
+            String base = coalesceZero ? "COALESCE(" + column + ", 0)" : column;
+            this.commaAppend(column + " = " + base + " - #{" + mapping + "}");
+            columnCount++;
+            return this;
+        }
+
+        public UpdateQueryBuilder increaseByLiteral(String column, Number amount) {
+            return increaseByLiteral(column, amount, false);
+        }
+
+        public UpdateQueryBuilder increaseByLiteral(String column, Number amount, boolean coalesceZero) {
+            String base = coalesceZero ? "COALESCE(" + column + ", 0)" : column;
+            this.commaAppend(column + " = " + base + " + " + amount);
             columnCount++;
             return this;
         }

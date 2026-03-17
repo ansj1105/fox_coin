@@ -514,7 +514,7 @@ public class TransferRepository extends BaseRepository {
     public Future<ExternalTransfer> incrementExternalTransferRetryCount(SqlClient client, String transferId) {
         String sql = QueryBuilder
             .update("external_transfers")
-            .setCustom("retry_count = COALESCE(retry_count, 0) + 1")
+            .increaseByLiteral("retry_count", 1, true)
             .where("transfer_id", Op.Equal, "transfer_id")
             .andWhere("deleted_at", Op.IsNull)
             .returning("*");
@@ -553,7 +553,7 @@ public class TransferRepository extends BaseRepository {
     public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
         String sql = QueryBuilder
             .select("user_wallets")
-            .where("LOWER(address) = LOWER(#{address})")
+            .whereLowerEqual("address", "address")
             .andWhere("status", Op.Equal, "status")
             .andWhere("deleted_at", Op.IsNull)
             .build();
@@ -629,8 +629,8 @@ public class TransferRepository extends BaseRepository {
     public Future<Wallet> deductBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
             .update("user_wallets")
-            .setCustom("balance = balance - #{amount}")
-            .setCustom("updated_at = #{updated_at}")
+            .decreaseByParam("balance", "amount")
+            .set("updated_at", "updated_at")
             .where("id", Op.Equal, "id")
             .andWhere("balance", Op.GreaterThanOrEqual, "amount")
             .returning("*");
@@ -651,8 +651,8 @@ public class TransferRepository extends BaseRepository {
     public Future<Wallet> addBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
             .update("user_wallets")
-            .setCustom("balance = balance + #{amount}")
-            .setCustom("updated_at = #{updated_at}")
+            .increaseByParam("balance", "amount")
+            .set("updated_at", "updated_at")
             .where("id", Op.Equal, "id")
             .returning("*");
 
@@ -672,9 +672,9 @@ public class TransferRepository extends BaseRepository {
     public Future<Wallet> lockBalance(SqlClient client, Long walletId, BigDecimal amount) {
         String sql = QueryBuilder
             .update("user_wallets")
-            .setCustom("balance = balance - #{amount}")
-            .setCustom("locked_balance = locked_balance + #{amount}")
-            .setCustom("updated_at = #{updated_at}")
+            .decreaseByParam("balance", "amount")
+            .increaseByParam("locked_balance", "amount")
+            .set("updated_at", "updated_at")
             .where("id", Op.Equal, "id")
             .andWhere("balance", Op.GreaterThanOrEqual, "amount")
             .returning("*");
@@ -698,17 +698,17 @@ public class TransferRepository extends BaseRepository {
             // Refund on external transfer failure.
             sql = QueryBuilder
                 .update("user_wallets")
-                .setCustom("balance = balance + #{amount}")
-                .setCustom("locked_balance = locked_balance - #{amount}")
-                .setCustom("updated_at = #{updated_at}")
+                .increaseByParam("balance", "amount")
+                .decreaseByParam("locked_balance", "amount")
+                .set("updated_at", "updated_at")
                 .where("id", Op.Equal, "id")
                 .returning("*");
         } else {
             // Release lock only after successful external settlement.
             sql = QueryBuilder
                 .update("user_wallets")
-                .setCustom("locked_balance = locked_balance - #{amount}")
-                .setCustom("updated_at = #{updated_at}")
+                .decreaseByParam("locked_balance", "amount")
+                .set("updated_at", "updated_at")
                 .where("id", Op.Equal, "id")
                 .returning("*");
         }

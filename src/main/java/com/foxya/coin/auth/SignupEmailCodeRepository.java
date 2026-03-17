@@ -69,12 +69,12 @@ public class SignupEmailCodeRepository extends BaseRepository {
 
     /** register 성공 시 1회용 소진 */
     public Future<Void> markUsed(SqlClient client, String email) {
-        String sql = """
-            UPDATE signup_email_codes
-            SET used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-            WHERE email = #{email}
-            """;
-        String q = com.foxya.coin.utils.QueryBuilder.selectStringQuery(sql).build();
-        return query(client, q, Collections.singletonMap("email", email)).map(v -> null);
+        String sql = QueryBuilder
+            .update("signup_email_codes")
+            .setCurrentTimestamp("used_at")
+            .setCurrentTimestamp("updated_at")
+            .where("email", Op.Equal, "email")
+            .build();
+        return query(client, sql, Collections.singletonMap("email", email)).map(v -> null);
     }
 }

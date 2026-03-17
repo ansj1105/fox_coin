@@ -6,6 +6,7 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.deposit.dto.DepositWatchAddressDto;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
+import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
@@ -35,19 +36,36 @@ public class WalletRepository extends BaseRepository {
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
         .build();
+
+    private QueryBuilder.SelectQueryBuilder walletWithCurrencySelect() {
+        return QueryBuilder
+            .selectAlias("user_wallets", "uw",
+                "uw.*",
+                "c.code AS currency_code",
+                "c.name AS currency_name",
+                "c.code AS currency_symbol",
+                "c.chain AS network")
+            .leftJoin("currency", "c")
+            .on("uw.currency_id", Op.Equal, "c.id");
+    }
+
+    private QueryBuilder.SelectQueryBuilder managedWalletWithCurrencySelect() {
+        return QueryBuilder
+            .selectAlias("user_wallets", "uw",
+                "uw.*",
+                "c.code AS currency_code",
+                "c.name AS currency_name",
+                "c.code AS currency_symbol",
+                "c.chain AS network")
+            .innerJoin("currency", "c")
+            .on("uw.currency_id", Op.Equal, "c.id");
+    }
     
     public Future<List<Wallet>> getWalletsByUserId(SqlClient client, Long userId) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            LEFT JOIN currency c ON uw.currency_id = c.id
-            WHERE uw.user_id = #{userId}
-              AND uw.deleted_at IS NULL
-            """;
+        String sql = walletWithCurrencySelect()
+            .where("uw.user_id", Op.Equal, "userId")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .build();
 
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchAll(walletMapper, rows));
@@ -109,18 +127,11 @@ public class WalletRepository extends BaseRepository {
      * 지갑 주소로 지갑 조회 (대소문자 무시)
      */
     public Future<Wallet> getWalletByAddressIgnoreCase(SqlClient client, String address) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            LEFT JOIN currency c ON uw.currency_id = c.id
-            WHERE LOWER(uw.address) = LOWER(#{address})
-              AND uw.status = #{status}
-              AND uw.deleted_at IS NULL
-            """;
+        String sql = walletWithCurrencySelect()
+            .whereLowerEqual("uw.address", "address")
+            .andWhere("uw.status", Op.Equal, "status")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("address", address);
@@ -131,17 +142,10 @@ public class WalletRepository extends BaseRepository {
     }
 
     public Future<Wallet> getWalletByAddressIgnoreCaseIncludingDeleted(SqlClient client, String address) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            LEFT JOIN currency c ON uw.currency_id = c.id
-            WHERE LOWER(uw.address) = LOWER(#{address})
-              AND uw.status = #{status}
-            """;
+        String sql = walletWithCurrencySelect()
+            .whereLowerEqual("uw.address", "address")
+            .andWhere("uw.status", Op.Equal, "status")
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("address", address);
@@ -152,22 +156,16 @@ public class WalletRepository extends BaseRepository {
     }
 
     public Future<List<Wallet>> getManagedTronWalletsWithPrivateKeys(SqlClient client) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            JOIN currency c ON uw.currency_id = c.id
-            WHERE c.chain = #{network}
-              AND c.code IN ('TRX', 'USDT', 'KORI')
-              AND uw.private_key IS NOT NULL
-              AND TRIM(uw.private_key) <> ''
-              AND uw.status = #{status}
-              AND uw.deleted_at IS NULL
-            ORDER BY uw.user_id ASC, uw.id ASC
-            """;
+        String sql = managedWalletWithCurrencySelect()
+            .where("c.chain", Op.Equal, "network")
+            .andWhere("c.code IN ('TRX', 'USDT', 'KORI')")
+            .andWhere("uw.private_key", Op.IsNotNull)
+            .andWhere("TRIM(uw.private_key) <> ''")
+            .andWhere("uw.status", Op.Equal, "status")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .orderBy("uw.user_id", Sort.ASC)
+            .thenOrderBy("uw.id", Sort.ASC)
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("network", "TRON");
@@ -178,21 +176,15 @@ public class WalletRepository extends BaseRepository {
     }
 
     public Future<List<Wallet>> getManagedTronWalletsWithPrivateKeysIncludingDeleted(SqlClient client) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            JOIN currency c ON uw.currency_id = c.id
-            WHERE c.chain = #{network}
-              AND c.code IN ('TRX', 'USDT', 'KORI')
-              AND uw.private_key IS NOT NULL
-              AND TRIM(uw.private_key) <> ''
-              AND uw.status = #{status}
-            ORDER BY uw.user_id ASC, uw.id ASC
-            """;
+        String sql = managedWalletWithCurrencySelect()
+            .where("c.chain", Op.Equal, "network")
+            .andWhere("c.code IN ('TRX', 'USDT', 'KORI')")
+            .andWhere("uw.private_key", Op.IsNotNull)
+            .andWhere("TRIM(uw.private_key) <> ''")
+            .andWhere("uw.status", Op.Equal, "status")
+            .orderBy("uw.user_id", Sort.ASC)
+            .thenOrderBy("uw.id", Sort.ASC)
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("network", "TRON");
@@ -203,22 +195,16 @@ public class WalletRepository extends BaseRepository {
     }
 
     public Future<List<Wallet>> getManagedEthWalletsWithPrivateKeys(SqlClient client) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            JOIN currency c ON uw.currency_id = c.id
-            WHERE c.code = #{currencyCode}
-              AND c.chain IN ('ETH', 'Ether')
-              AND uw.private_key IS NOT NULL
-              AND TRIM(uw.private_key) <> ''
-              AND uw.status = #{status}
-              AND uw.deleted_at IS NULL
-            ORDER BY uw.user_id ASC, uw.id ASC
-            """;
+        String sql = managedWalletWithCurrencySelect()
+            .where("c.code", Op.Equal, "currencyCode")
+            .andWhere("c.chain IN ('ETH', 'Ether')")
+            .andWhere("uw.private_key", Op.IsNotNull)
+            .andWhere("TRIM(uw.private_key) <> ''")
+            .andWhere("uw.status", Op.Equal, "status")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .orderBy("uw.user_id", Sort.ASC)
+            .thenOrderBy("uw.id", Sort.ASC)
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("currencyCode", "ETH");
@@ -229,21 +215,15 @@ public class WalletRepository extends BaseRepository {
     }
 
     public Future<List<Wallet>> getManagedEthWalletsWithPrivateKeysIncludingDeleted(SqlClient client) {
-        String sql = """
-            SELECT uw.*,
-                   c.code  AS currency_code,
-                   c.name  AS currency_name,
-                   c.code  AS currency_symbol,
-                   c.chain AS network
-            FROM user_wallets uw
-            JOIN currency c ON uw.currency_id = c.id
-            WHERE c.code = #{currencyCode}
-              AND c.chain IN ('ETH', 'Ether')
-              AND uw.private_key IS NOT NULL
-              AND TRIM(uw.private_key) <> ''
-              AND uw.status = #{status}
-            ORDER BY uw.user_id ASC, uw.id ASC
-            """;
+        String sql = managedWalletWithCurrencySelect()
+            .where("c.code", Op.Equal, "currencyCode")
+            .andWhere("c.chain IN ('ETH', 'Ether')")
+            .andWhere("uw.private_key", Op.IsNotNull)
+            .andWhere("TRIM(uw.private_key) <> ''")
+            .andWhere("uw.status", Op.Equal, "status")
+            .orderBy("uw.user_id", Sort.ASC)
+            .thenOrderBy("uw.id", Sort.ASC)
+            .build();
 
         Map<String, Object> params = new HashMap<>();
         params.put("currencyCode", "ETH");
@@ -349,8 +329,8 @@ public class WalletRepository extends BaseRepository {
 
     public Future<Void> restoreDeletedWalletsByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder.update("user_wallets")
-            .setCustom("deleted_at = NULL")
-            .setCustom("updated_at = #{updated_at}")
+            .setNull("deleted_at")
+            .set("updated_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
             .build();
 
@@ -395,17 +375,19 @@ public class WalletRepository extends BaseRepository {
      * 스캐너(coin_publish 등)가 주기적으로 이 목록을 조회해 온체인 입금 tx를 확인한다.
      */
     public Future<List<DepositWatchAddressDto>> getDepositWatchAddresses(SqlClient client) {
-        String sql = """
-            SELECT uw.user_id AS userId,
-                   uw.currency_id AS currencyId,
-                   c.code AS currencyCode,
-                   uw.address AS address,
-                   c.chain AS network
-            FROM user_wallets uw
-            JOIN currency c ON uw.currency_id = c.id
-            WHERE uw.address IS NOT NULL AND uw.deleted_at IS NULL
-              AND (c.chain IS NULL OR c.chain <> 'INTERNAL')
-            """;
+        String sql = QueryBuilder
+            .selectAlias("user_wallets", "uw",
+                "uw.user_id AS userId",
+                "uw.currency_id AS currencyId",
+                "c.code AS currencyCode",
+                "uw.address AS address",
+                "c.chain AS network")
+            .innerJoin("currency", "c")
+            .on("uw.currency_id", Op.Equal, "c.id")
+            .where("uw.address", Op.IsNotNull)
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .andWhere("(c.chain IS NULL OR c.chain <> 'INTERNAL')")
+            .build();
         return query(client, sql, Collections.emptyMap())
             .map(rows -> {
                 List<DepositWatchAddressDto> list = new java.util.ArrayList<>();

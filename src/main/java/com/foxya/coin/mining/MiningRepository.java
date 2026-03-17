@@ -468,7 +468,7 @@ public class MiningRepository extends BaseRepository {
     public Future<Integer> addMiningSessionCreditedAmount(SqlClient client, Long sessionId, BigDecimal creditedAmount) {
         String sql = QueryBuilder
             .update("mining_sessions")
-            .setCustom("credited_amount = COALESCE(credited_amount, 0) + #{creditedAmount}")
+            .increaseByParam("credited_amount", "creditedAmount", true)
             .where("id", Op.Equal, "sessionId")
             .build();
         Map<String, Object> params = new HashMap<>();

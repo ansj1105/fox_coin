@@ -169,6 +169,13 @@ public abstract class BaseQueryBuilder<SELF> {
         return (SELF) this;
     }
 
+    public SELF whereLowerEqual(String column, String mapping) {
+        append("WHERE");
+        append("LOWER(" + column + ") = LOWER(#{" + mapping + "})");
+        paramIndex();
+        return (SELF) this;
+    }
+
     /**
      * WHERE ( column1 = #{paramMapping} OR column2 = #{paramMapping} ) 추가.
      * 괄호로 묶어서 이후 andWhere 조건이 OR 전체에 적용되도록 함.
@@ -297,6 +304,17 @@ public abstract class BaseQueryBuilder<SELF> {
         paramIndex();
         return (SELF) this;
     }
+
+    public SELF andWhereLowerEqual(String column, String mapping) {
+        if (!this.hasCondition()) {
+            return this.whereLowerEqual(column, mapping);
+        }
+
+        append("AND");
+        append("LOWER(" + column + ") = LOWER(#{" + mapping + "})");
+        paramIndex();
+        return (SELF) this;
+    }
     
     /**
      * OR + 컬럼 + 조건 추가
@@ -338,6 +356,17 @@ public abstract class BaseQueryBuilder<SELF> {
         
         append("OR");
         append(query);
+        paramIndex();
+        return (SELF) this;
+    }
+
+    public SELF orWhereLowerEqual(String column, String mapping) {
+        if (!this.hasCondition()) {
+            return this.whereLowerEqual(column, mapping);
+        }
+
+        append("OR");
+        append("LOWER(" + column + ") = LOWER(#{" + mapping + "})");
         paramIndex();
         return (SELF) this;
     }

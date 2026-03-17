@@ -5,6 +5,14 @@
 - Prefer the repository `QueryBuilder` helpers over raw SQL strings when the query fits the existing builder.
 - Use typed operators such as `Op.GreaterThan`, `Op.LessThan`, `Op.Equal`, and builder helpers instead of embedding comparison operators inline.
 - If the builder is missing a safe primitive needed by the codebase, extend the builder first, then use it from repositories.
+- When the same raw SQL fragment appears repeatedly, add a small `QueryBuilder` helper and migrate the touched repositories to it instead of copying more `setCustom(...)`, `appendQueryString(...)`, or raw predicate strings.
+- Do not force complex CTE-heavy or expression-heavy queries into the builder when that makes the result less readable; explicitly leave those as raw-query islands and document the reason.
+
+## Backend Import Rule
+
+- Prefer normal Java imports for shared enums, helper types, and builder classes used in a file. Do not reference package-qualified type names inline when a standard import keeps the code clearer.
+- In repository code, use imported `Op`, `Sort`, `QueryBuilder`, and local helper methods consistently instead of mixing imported symbols with fully qualified class paths.
+- If a file starts needing repeated fully qualified references, stop and clean up the imports in the same change.
 
 ## Backend Contract Rule
 

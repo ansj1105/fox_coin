@@ -108,7 +108,9 @@ public class ExchangeRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("exchange_settings")
             .where("is_active", Op.Equal, "is_active")
-            .build() + " ORDER BY id DESC LIMIT 1";
+            .orderBy("id", Sort.DESC)
+            .limit(1)
+            .build();
 
         return query(client, sql, Collections.singletonMap("is_active", true))
             .map(rows -> fetchOne(exchangeSettingMapper, rows));

@@ -87,22 +87,21 @@ public class EmailVerificationRepository extends BaseRepository {
      * 이메일 인증 코드 검증 및 인증 처리
      */
     public Future<Boolean> verifyEmail(SqlClient client, Long userId, String email, String code) {
-        String sql = """
-            UPDATE email_verifications
-            SET is_verified = true,
-                verified_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = #{user_id}
-              AND email = #{email}
-              AND verification_code = #{verification_code}
-              AND expires_at >= CURRENT_TIMESTAMP
-            """;
-
-        String query = QueryBuilder.selectStringQuery(sql).build();
+        String query = QueryBuilder
+            .update("email_verifications")
+            .set("is_verified", "is_verified")
+            .setCurrentTimestamp("verified_at")
+            .setCurrentTimestamp("updated_at")
+            .where("user_id", Op.Equal, "user_id")
+            .andWhere("email", Op.Equal, "email")
+            .andWhere("verification_code", Op.Equal, "verification_code")
+            .andWhere("expires_at >= CURRENT_TIMESTAMP")
+            .build();
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("email", email);
         params.put("verification_code", code);
+        params.put("is_verified", true);
 
         return query(client, query, params)
             .map(rows -> rows.rowCount() > 0)
@@ -182,5 +181,3 @@ public class EmailVerificationRepository extends BaseRepository {
             .onFailure(throwable -> log.error("이메일 인증 Soft Delete 실패 - userId: {}", userId, throwable));
     }
 }
-
-

@@ -261,9 +261,9 @@ public class ReferralRepository extends BaseRepository {
             return Future.succeededFuture();
         }
         String sql = QueryBuilder.update("referral_stats_logs")
-            .setCustom("total_reward = COALESCE(total_reward, 0) + #{amount}")
-            .setCustom("today_reward = COALESCE(today_reward, 0) + #{amount}")
-            .setCustom("updated_at = #{updated_at}")
+            .increaseByParam("total_reward", "amount", true)
+            .increaseByParam("today_reward", "amount", true)
+            .set("updated_at", "updated_at")
             .where("user_id", Op.Equal, "user_id")
             .build();
         Map<String, Object> params = new HashMap<>();
@@ -333,7 +333,7 @@ public class ReferralRepository extends BaseRepository {
      */
     public Future<Void> softDeleteReferralRelationsByUserId(SqlClient client, Long userId) {
         String sql = QueryBuilder.update("referral_relations", "deleted_at")
-            .where("(referrer_id = #{user_id} OR referred_id = #{user_id})")
+            .whereOrEquals("referrer_id", "referred_id", "user_id")
             .andWhere("deleted_at", Op.IsNull)
             .build();
         
@@ -358,7 +358,8 @@ public class ReferralRepository extends BaseRepository {
             .select("referral_relations", "deleted_at")
             .where("referred_id", Op.Equal, "referred_id")
             .andWhere("deleted_at", Op.IsNotNull)
-            .appendQueryString("ORDER BY deleted_at DESC LIMIT 1")
+            .orderBy("deleted_at", Sort.DESC)
+            .limit(1)
             .build();
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
             .map(rows -> {
@@ -378,7 +379,8 @@ public class ReferralRepository extends BaseRepository {
         String sql = QueryBuilder
             .select("referral_relations", "created_at")
             .where("referred_id", Op.Equal, "referred_id")
-            .appendQueryString("ORDER BY created_at DESC LIMIT 1")
+            .orderBy("created_at", Sort.DESC)
+            .limit(1)
             .build();
         return query(client, sql, Collections.singletonMap("referred_id", referredId))
             .map(rows -> {
@@ -457,7 +459,7 @@ public class ReferralRepository extends BaseRepository {
         String sql = QueryBuilder.selectAlias("referral_relations", "rr", "1")
             .innerJoin("devices", "d")
             .on("d.user_id", Op.Equal, "rr.referred_id")
-            .appendQueryString("AND d.deleted_at IS NULL")
+            .and("d.deleted_at", Op.IsNull)
             .where("rr.referrer_id", Op.Equal, "referrer_id")
             .andWhere("rr.deleted_at", Op.IsNull)
             .andWhere(ipOrDeviceCondition)

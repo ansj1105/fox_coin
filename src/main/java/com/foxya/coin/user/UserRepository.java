@@ -162,9 +162,9 @@ public class UserRepository extends BaseRepository {
 
     public Future<User> restoreDeletedUser(SqlClient client, Long userId) {
         String sql = QueryBuilder.update("users")
-            .setCustom("deleted_at = NULL")
-            .setCustom("status = #{status}")
-            .setCustom("updated_at = #{updated_at}")
+            .setNull("deleted_at")
+            .set("status", "status")
+            .set("updated_at", "updated_at")
             .where("id", Op.Equal, "id")
             .returning("*");
 
@@ -186,8 +186,8 @@ public class UserRepository extends BaseRepository {
             return getUserById(client, userId);
         }
         String sql = QueryBuilder.update("users")
-            .setCustom("exp = COALESCE(exp, 0) + #{delta}")
-            .setCustom("updated_at = #{updated_at}")
+            .increaseByParam("exp", "delta", true)
+            .set("updated_at", "updated_at")
             .where("id", Op.Equal, "id")
             .andWhere("deleted_at", Op.IsNull)
             .returning("*");

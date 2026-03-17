@@ -39,7 +39,7 @@ public class NoticeRepository extends BaseRepository {
         }
         String sql = selectBuilder
             .orderBy("is_important", Sort.DESC)
-            .appendQueryString(", created_at DESC")
+            .thenOrderBy("created_at", Sort.DESC)
             .limitRefactoring()
             .offsetRefactoring()
             .build();
@@ -97,4 +97,3 @@ public class NoticeRepository extends BaseRepository {
             });
     }
 }
-
