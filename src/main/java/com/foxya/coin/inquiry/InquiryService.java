@@ -69,15 +69,7 @@ public class InquiryService extends BaseService {
                 }
 
                 return inquiryRepository.createInquiry(pool, userId, dto.getSubject().trim(), dto.getContent().trim(), email)
-                    .compose(inquiry -> createInquirySuccessNotification(inquiry)
-                        .map(v -> InquiryResponseDto.builder()
-                            .id(inquiry.getId())
-                            .subject(inquiry.getSubject())
-                            .content(inquiry.getContent())
-                            .email(inquiry.getEmail())
-                            .status(inquiry.getStatus())
-                            .createdAt(inquiry.getCreatedAt())
-                            .build()));
+                    .compose(inquiry -> createInquirySuccessNotification(inquiry).map(v -> toResponseDto(inquiry)));
             });
     }
 
@@ -92,15 +84,7 @@ public class InquiryService extends BaseService {
                 }
                 return inquiryRepository.updateInquiryStatus(pool, inquiryId, InquiryStatus.ANSWERED);
             })
-            .compose(updated -> createInquiryAnsweredNotification(updated)
-                .map(v -> InquiryResponseDto.builder()
-                    .id(updated.getId())
-                    .subject(updated.getSubject())
-                    .content(updated.getContent())
-                    .email(updated.getEmail())
-                    .status(updated.getStatus())
-                    .createdAt(updated.getCreatedAt())
-                    .build()));
+            .compose(updated -> createInquiryAnsweredNotification(updated).map(v -> toResponseDto(updated)));
     }
 
     private Future<Void> createInquirySuccessNotification(Inquiry inquiry) {
@@ -125,10 +109,10 @@ public class InquiryService extends BaseService {
                 INQUIRY_SUBMITTED_MESSAGE,
                 inquiry.getId(),
                 encodedMetadata)
-            .compose(v -> Future.<Void>succeededFuture())
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("Inquiry submit notification failed (ignored): inquiryId={}", inquiry.getId(), err);
-                return Future.<Void>succeededFuture();
+                return Future.succeededFuture((Void) null);
             });
     }
 
@@ -153,10 +137,21 @@ public class InquiryService extends BaseService {
                 INQUIRY_ANSWERED_MESSAGE,
                 inquiry.getId(),
                 encodedMetadata)
-            .compose(v -> Future.<Void>succeededFuture())
+            .<Void>mapEmpty()
             .recover(err -> {
                 log.warn("Inquiry answered notification failed (ignored): inquiryId={}", inquiry.getId(), err);
-                return Future.<Void>succeededFuture();
+                return Future.succeededFuture((Void) null);
             });
+    }
+
+    private InquiryResponseDto toResponseDto(Inquiry inquiry) {
+        return InquiryResponseDto.builder()
+            .id(inquiry.getId())
+            .subject(inquiry.getSubject())
+            .content(inquiry.getContent())
+            .email(inquiry.getEmail())
+            .status(inquiry.getStatus())
+            .createdAt(inquiry.getCreatedAt())
+            .build();
     }
 }

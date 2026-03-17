@@ -13,6 +13,8 @@ import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.notification.utils.NotificationI18nUtils;
+import com.foxya.coin.referral.entities.ReferralRevenueTier;
+import com.foxya.coin.referral.entities.ReferralStats;
 import com.foxya.coin.referral.dto.CurrentReferralCodeDto;
 import com.foxya.coin.referral.dto.InviteTierItemDto;
 import com.foxya.coin.referral.dto.InviteTiersResponseDto;
@@ -207,11 +209,11 @@ public class ReferralService extends BaseService {
             });
     }
     
-    private List<com.foxya.coin.referral.entities.ReferralRevenueTier> getDefaultRevenueTiers() {
-        List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers = new ArrayList<>();
+    private List<ReferralRevenueTier> getDefaultRevenueTiers() {
+        List<ReferralRevenueTier> tiers = new ArrayList<>();
         for (int i = 0; i < DEFAULT_REVENUE_TIER_MIN.length; i++) {
             Integer max = DEFAULT_REVENUE_TIER_MAX[i] > 0 ? DEFAULT_REVENUE_TIER_MAX[i] : null;
-            tiers.add(com.foxya.coin.referral.entities.ReferralRevenueTier.builder()
+            tiers.add(ReferralRevenueTier.builder()
                 .minTeamSize(DEFAULT_REVENUE_TIER_MIN[i])
                 .maxTeamSize(max)
                 .revenuePercent(BigDecimal.valueOf(DEFAULT_REFERRAL_REVENUE_PERCENTS[i]))
@@ -241,7 +243,7 @@ public class ReferralService extends BaseService {
             });
     }
 
-    private BigDecimal resolveReferralRevenueRate(int validTeamCount, List<com.foxya.coin.referral.entities.ReferralRevenueTier> tiers) {
+    private BigDecimal resolveReferralRevenueRate(int validTeamCount, List<ReferralRevenueTier> tiers) {
         if (tiers == null || tiers.isEmpty()) {
             tiers = getDefaultRevenueTiers();
         }
@@ -299,7 +301,7 @@ public class ReferralService extends BaseService {
         ).map(result -> {
             Integer directCount = result.resultAt(0);
             Integer activeTeamCount = result.resultAt(1);
-            var stats = result.<com.foxya.coin.referral.entities.ReferralStats>resultAt(2);
+            ReferralStats stats = result.resultAt(2);
             
             return ReferralStatsDto.builder()
                 .userId(userId)
