@@ -92,12 +92,12 @@ DB_ADMIN_PORT=5432
 현재 운영 서버에서 확인된 후보값은 아래와 같습니다.
 
 ```bash
-DB_PRIMARY_HOST=172.31.71.66
+DB_PRIMARY_HOST=postgres
 DB_PRIMARY_PORT=5432
-DB_STANDBY_HOST=172.31.89.103
+DB_STANDBY_HOST=172.31.31.109
 DB_STANDBY_PORT=15432
 DB_ADMIN_MODE=network
-DB_ADMIN_HOST=172.31.71.66
+DB_ADMIN_HOST=127.0.0.1
 DB_ADMIN_PORT=5432
 REPL_USER=replicator
 REPLICATION_SLOT=fox_coin_standby_1
@@ -107,10 +107,11 @@ SYNC_STANDBY_NAME=db_standby
 주의:
 
 1. 예전 `.env`에 `DB_STANDBY_PORT=15432`가 들어가 있었다면 그 값은 app 서버의 `db-proxy` 바인딩 포트와 섞인 것입니다.
-2. 현재 운영 standby는 `foxya-postgres-standby`를 호스트 `15432 -> 컨테이너 5432`로 공개합니다.
-3. 그래서 app 서버 `db-proxy`가 standby를 볼 때는 `DB_STANDBY_PORT=15432`가 맞습니다.
-4. standby 컨테이너 내부 PostgreSQL 자체 포트는 여전히 `5432`입니다.
-5. `REPL_PASSWORD`만 아직 별도 시크릿으로 정해서 넣어야 합니다.
+2. 현재 운영 primary는 `52.200.97.155 (172.31.36.110)`, standby는 `52.204.57.80 (172.31.31.109)`입니다.
+3. 현재 운영 standby는 `foxya-postgres-standby`를 호스트 `15432 -> 컨테이너 5432`로 공개합니다.
+4. 그래서 app 서버 `db-proxy`가 standby를 볼 때는 `DB_STANDBY_PORT=15432`가 맞습니다.
+5. standby 컨테이너 내부 PostgreSQL 자체 포트는 여전히 `5432`입니다.
+6. `REPL_PASSWORD`만 아직 별도 시크릿으로 정해서 넣어야 합니다.
 
 단일 컨테이너 임시운영에서는 아래처럼 둘 수 있습니다.
 
@@ -148,17 +149,17 @@ DB_ADMIN_SERVICE=postgres
 3. Standby에는 절대 백업 restore 테스트 외 쓰기 작업을 하지 않음
 4. 앱 연결은 계속 `DB_HOST=db-proxy`
 
-현재 failover 이후 기준값 예시는 아래입니다.
+현재 운영 기준값 예시는 아래입니다.
 
 ```bash
 DB_HOST=db-proxy
 DB_PORT=5432
-DB_PRIMARY_HOST=172.31.89.103
-DB_PRIMARY_PORT=15432
-DB_STANDBY_HOST=postgres
-DB_STANDBY_PORT=5432
-DB_ADMIN_HOST=172.31.89.103
-DB_ADMIN_PORT=15432
+DB_PRIMARY_HOST=postgres
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=172.31.31.109
+DB_STANDBY_PORT=15432
+DB_ADMIN_HOST=127.0.0.1
+DB_ADMIN_PORT=5432
 ```
 
 즉 아주 쉽게 말하면:
@@ -166,6 +167,15 @@ DB_ADMIN_PORT=15432
 - 앱은 `db-proxy`만 본다
 - 백업/마이그레이션 도구는 "지금 실제 본체 DB"만 본다
 - standby는 읽기/복제 대기만 한다
+
+현재 sync replication 검증값은 아래와 같습니다.
+
+```sql
+show synchronous_commit;                -- on
+show synchronous_standby_names;         -- FIRST 1 (db_standby)
+select application_name, sync_state
+from pg_stat_replication;               -- db_standby | sync
+```
 
 ## 점검 명령
 

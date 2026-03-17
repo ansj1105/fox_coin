@@ -152,12 +152,12 @@ DB_HOST=db-proxy
 DB_PORT=5432
 DB_NAME=coin_system_cloud
 DB_USER=foxya
-DB_PRIMARY_HOST=172.31.71.66
+DB_PRIMARY_HOST=postgres
 DB_PRIMARY_PORT=5432
-DB_STANDBY_HOST=172.31.89.103
+DB_STANDBY_HOST=172.31.31.109
 DB_STANDBY_PORT=15432
 DB_ADMIN_MODE=network
-DB_ADMIN_HOST=172.31.71.66
+DB_ADMIN_HOST=127.0.0.1
 DB_ADMIN_PORT=5432
 REPL_USER=replicator
 REPLICATION_SLOT=fox_coin_standby_1
@@ -166,29 +166,30 @@ SYNC_STANDBY_NAME=db_standby
 
 여기서 아직 사람이 넣어야 하는 값은 `REPL_PASSWORD` 하나입니다.
 
-현재 운영 standby는 SSH tunnel + Docker standby 컨테이너를 쓰므로:
+현재 운영 standby는 별도 EC2의 Docker standby 컨테이너를 쓰므로:
 
 1. standby 호스트 외부 공개 포트는 `15432`
 2. standby 컨테이너 내부 PostgreSQL 포트는 `5432`
-3. app 서버의 `db-proxy`는 `172.31.89.103:15432`를 바라봐야 합니다.
+3. app 서버의 `db-proxy`는 `172.31.31.109:15432`를 standby 대상으로 둡니다.
 
-## 지금 서버에서 왜 아직 이중화가 아닌가
+## 현재 동기복제 상태
 
-현재 메인 서버에서 확인된 값은 아래와 같습니다.
+현재 운영 primary(`52.200.97.155`)에서 확인된 값은 아래와 같습니다.
 
 ```sql
-show synchronous_commit;        -- local
-show synchronous_standby_names; -- ''
-select * from pg_stat_replication; -- 0 rows
+show synchronous_commit;        -- on
+show synchronous_standby_names; -- FIRST 1 (db_standby)
+select application_name, sync_state
+from pg_stat_replication;       -- db_standby | sync
 ```
 
 뜻:
 
-1. Primary가 "standby에 같이 저장됐는지" 기다리지 않습니다.
-2. Primary가 "어느 standby를 동기 대상으로 볼지"도 비어 있습니다.
-3. 실제 붙어 있는 standby 세션도 없습니다.
+1. Primary는 standby가 같이 저장될 때까지 기다립니다.
+2. 동기 대상으로 `db_standby`를 사용합니다.
+3. `52.204.57.80` standby가 실제 sync 세션으로 붙어 있습니다.
 
-즉 예비 DB 서버 주소는 적혀 있지만, 아직 "실시간으로 같이 받아 적는 상태"는 아닙니다.
+즉 현재는 문서상 구조가 아니라 실제 운영에서도 "실시간으로 같이 받아 적는 상태"입니다.
 
 ## 장애조치
 
@@ -250,15 +251,15 @@ DB_ADMIN_HOST=<new-primary-host>
 DB_ADMIN_PORT=<new-primary-port>
 ```
 
-### 이번 실제 복구 기준 예시
+### 현재 실제 운영 기준 예시
 
 ```bash
-DB_PRIMARY_HOST=172.31.89.103
-DB_PRIMARY_PORT=15432
-DB_STANDBY_HOST=postgres
-DB_STANDBY_PORT=5432
-DB_ADMIN_HOST=172.31.89.103
-DB_ADMIN_PORT=15432
+DB_PRIMARY_HOST=postgres
+DB_PRIMARY_PORT=5432
+DB_STANDBY_HOST=172.31.31.109
+DB_STANDBY_PORT=15432
+DB_ADMIN_HOST=127.0.0.1
+DB_ADMIN_PORT=5432
 ```
 
 핵심은:
