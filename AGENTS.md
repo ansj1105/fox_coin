@@ -39,3 +39,9 @@
 - When display totals and ledger totals can diverge, document which table or aggregation is authoritative and keep the write path consistent with that source.
 - For balance-affecting logic, preserve full precision in storage and apply display formatting only at the presentation layer.
 - For one-off production reconciliations, keep the operational SQL or batch file in the repo so the applied fix is auditable.
+
+## Backend Repository Rule
+
+- When a repository creates or updates a row and the caller needs the created result immediately, prefer `RETURNING` / `returningColumns(...)` in the same query instead of insert-then-select follow-up reads.
+- If post-create verification can be satisfied by the inserted or updated row itself, keep that logic inside the repository return value rather than issuing a second fetch from the service layer.
+- Only do a follow-up select after create when `RETURNING` cannot provide the needed data or when the second read is intentionally observing a different source of truth.
