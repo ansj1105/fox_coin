@@ -103,6 +103,9 @@
 - case-insensitive equality helper
   - 예: `andWhereLowerEqual("address", "address")`
   - 진행: `Transfer`, `Wallet`에 우선 적용
+- trimmed non-empty helper
+  - 예: `andWhereTrimNotEmpty("uw.private_key")`
+  - 진행: `WalletRepository` managed wallet 조회에 우선 적용
 - grouped OR equality helper 확장
   - 현재 `whereOrEquals`는 2개 컬럼만 다룸
   - 진행: `ReferralRepository` 1건 적용 완료

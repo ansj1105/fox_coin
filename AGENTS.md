@@ -26,6 +26,14 @@
 - Run compile and targeted tests for the touched area before finishing.
 - For data-integrity or accounting changes, verify with concrete queries or fixtures, not code inspection alone.
 
+## Commit Rule
+
+- Split unrelated work into separate commits. Keep one commit focused on one change purpose when the diff can be cleanly separated.
+- Use a typed commit prefix that matches the change: `fix`, `refactor`, `test`, `docs`, `chore`, `feat`.
+- Prefer commit messages in the form `type(scope): summary`.
+- If a helper or builder primitive is introduced and then applied to repositories in the same batch, keep that in one `refactor(query): ...` commit.
+- If a compile fix or regression test is logically separate from the query-builder cleanup, commit it separately with a matching tag such as `fix(wallet): ...` or `test(wallet): ...`.
+
 ## Backend Data Rule
 
 - When display totals and ledger totals can diverge, document which table or aggregation is authoritative and keep the write path consistent with that source.

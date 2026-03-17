@@ -32,6 +32,8 @@
   - `UpdateQueryBuilder`에 `setCurrentTimestamp(...)`, `increaseByLiteral(...)` 추가
   - `Auth/Transfer/Wallet`의 `CURRENT_TIMESTAMP`, `+ 1`, restore `updated_at` 패턴을 helper로 치환
   - `EmailVerificationRepository`의 boolean literal update를 파라미터 기반 `set(...)`로 치환
+  - `BaseQueryBuilder`에 `andWhereTrimNotEmpty(...)` 추가
+  - `WalletRepository` managed wallet 조회의 `TRIM(private_key) <> ''`를 helper로 치환
 
 ## 다음 작업
 

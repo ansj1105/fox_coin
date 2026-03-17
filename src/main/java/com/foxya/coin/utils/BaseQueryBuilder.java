@@ -176,6 +176,13 @@ public abstract class BaseQueryBuilder<SELF> {
         return (SELF) this;
     }
 
+    public SELF whereTrimNotEmpty(String column) {
+        append("WHERE");
+        append("TRIM(" + column + ") <> ''");
+        paramIndex();
+        return (SELF) this;
+    }
+
     /**
      * WHERE ( column1 = #{paramMapping} OR column2 = #{paramMapping} ) 추가.
      * 괄호로 묶어서 이후 andWhere 조건이 OR 전체에 적용되도록 함.
@@ -312,6 +319,17 @@ public abstract class BaseQueryBuilder<SELF> {
 
         append("AND");
         append("LOWER(" + column + ") = LOWER(#{" + mapping + "})");
+        paramIndex();
+        return (SELF) this;
+    }
+
+    public SELF andWhereTrimNotEmpty(String column) {
+        if (!this.hasCondition()) {
+            return this.whereTrimNotEmpty(column);
+        }
+
+        append("AND");
+        append("TRIM(" + column + ") <> ''");
         paramIndex();
         return (SELF) this;
     }
