@@ -19,5 +19,6 @@ public class MiningSession {
     private LocalDateTime endsAt;
     private BigDecimal ratePerHour;
     private LocalDateTime lastSettledAt;
+    private BigDecimal creditedAmount;
     private LocalDateTime createdAt;
 }

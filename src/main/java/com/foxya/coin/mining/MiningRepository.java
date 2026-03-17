@@ -63,6 +63,7 @@ public class MiningRepository extends BaseRepository {
         .endsAt(row.getLocalDateTime("ends_at"))
         .ratePerHour(row.getBigDecimal("rate_per_hour"))
         .lastSettledAt(row.getLocalDateTime("last_settled_at"))
+        .creditedAmount(row.getBigDecimal("credited_amount"))
         .createdAt(row.getLocalDateTime("created_at"))
         .build();
     
@@ -398,7 +399,11 @@ public class MiningRepository extends BaseRepository {
      * 배치에서 미정산 채굴을 mining_history·internal_transfers에 반영할 때 사용.
      */
     public Future<List<Long>> getDistinctUserIdsWithPendingSettlement(SqlClient client) {
-        String sql = "SELECT DISTINCT user_id FROM mining_sessions WHERE last_settled_at < ends_at ORDER BY user_id";
+        String sql = QueryBuilder
+            .select("mining_sessions", "DISTINCT user_id")
+            .joinWhere("last_settled_at", Op.LessThan, "ends_at")
+            .orderBy("user_id", Sort.ASC)
+            .build();
         return query(client, sql, Collections.emptyMap())
             .map(rows -> {
                 List<Long> userIds = new ArrayList<>();
@@ -409,9 +414,13 @@ public class MiningRepository extends BaseRepository {
 
     /** 정산 대기 세션 (last_settled_at < ends_at) — 진행 중이거나 방금 종료된 세션 포함. settle 후 mining_history 적재에 사용 */
     public Future<MiningSession> getSettlementPendingMiningSession(SqlClient client, Long userId) {
-        String sql = "SELECT id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, created_at " +
-            "FROM mining_sessions WHERE user_id = #{userId} AND last_settled_at < ends_at " +
-            "ORDER BY ends_at DESC LIMIT 1";
+        String sql = QueryBuilder
+            .select("mining_sessions", "id", "user_id", "started_at", "ends_at", "rate_per_hour", "last_settled_at", "credited_amount", "created_at")
+            .where("user_id", Op.Equal, "userId")
+            .andJoinWhere("last_settled_at", Op.LessThan, "ends_at")
+            .orderBy("ends_at", Sort.DESC)
+            .limit(1)
+            .build();
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
@@ -430,7 +439,8 @@ public class MiningRepository extends BaseRepository {
         params.put("ends_at", endsAt);
         params.put("rate_per_hour", ratePerHour);
         params.put("last_settled_at", lastSettledAt);
-        String sql = QueryBuilder.insert("mining_sessions", params, "id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, created_at");
+        params.put("credited_amount", BigDecimal.ZERO);
+        String sql = QueryBuilder.insert("mining_sessions", params, "id, user_id, started_at, ends_at, rate_per_hour, last_settled_at, credited_amount, created_at");
         return query(client, sql, params)
             .map(rows -> {
                 if (rows.iterator().hasNext()) {
@@ -453,6 +463,20 @@ public class MiningRepository extends BaseRepository {
         return query(client, sql, params)
             .map(rows -> rows.size())
             .onFailure(throwable -> log.error("채굴 세션 last_settled_at 업데이트 실패 - sessionId: {}", sessionId, throwable));
+    }
+
+    public Future<Integer> addMiningSessionCreditedAmount(SqlClient client, Long sessionId, BigDecimal creditedAmount) {
+        String sql = QueryBuilder
+            .update("mining_sessions")
+            .setCustom("credited_amount = COALESCE(credited_amount, 0) + #{creditedAmount}")
+            .where("id", Op.Equal, "sessionId")
+            .build();
+        Map<String, Object> params = new HashMap<>();
+        params.put("sessionId", sessionId);
+        params.put("creditedAmount", creditedAmount);
+        return query(client, sql, params)
+            .map(rows -> rows.size())
+            .onFailure(throwable -> log.error("채굴 세션 credited_amount 업데이트 실패 - sessionId: {}", sessionId, throwable));
     }
 
     /** 오늘 시작한 채굴 세션 수 (일일 영상 상한 체크용) */

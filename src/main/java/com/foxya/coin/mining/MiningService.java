@@ -409,6 +409,9 @@ public class MiningService extends BaseService {
                                         if (wallet == null) return Future.succeededFuture();
                                         return miningRepository.getDailyMining(pool, userId, today)
                                             .compose(dailyMining -> {
+                                                BigDecimal currentCreditedAmount = session.getCreditedAmount() != null
+                                                    ? session.getCreditedAmount()
+                                                    : BigDecimal.ZERO;
                                                 BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
                                                 BigDecimal headroom = dailyMaxMining.subtract(todayAmount).max(BigDecimal.ZERO);
                                                 BigDecimal amountToCredit = amount.min(headroom);
@@ -421,10 +424,12 @@ public class MiningService extends BaseService {
                                                 }
                                                 LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
                                                 BigDecimal newTodayTotal = todayAmount.add(amountToCredit);
+                                                BigDecimal newCreditedAmount = currentCreditedAmount.add(amountToCredit);
                                                 return pool.withTransaction(client ->
                                                     transferRepository.addBalance(client, wallet.getId(), amountToCredit)
                                                         .compose(v -> miningRepository.createOrUpdateDailyMining(client, userId, today, newTodayTotal, resetAt))
                                                         .compose(v -> userRepository.addExp(client, userId, amountToCredit))
+                                                        .compose(v -> miningRepository.addMiningSessionCreditedAmount(client, session.getId(), amountToCredit))
                                                         .compose(v -> miningRepository.updateMiningSessionLastSettled(client, session.getId(), settleEnd))
                                                         .map(v -> (Void) null)
                                                 ).compose(v -> {
@@ -436,7 +441,7 @@ public class MiningService extends BaseService {
                                                     return Future.succeededFuture();
                                                 })
                                                 .compose(v -> levelService.syncLevelFromExp(userId).map(x -> (Void) null))
-                                                .compose(v -> completeSessionIfEnded(userId, session, settleEnd));
+                                                .compose(v -> completeSessionIfEnded(userId, withCreditedAmount(session, newCreditedAmount), settleEnd));
                                             });
                                     });
                             });
@@ -451,6 +456,7 @@ public class MiningService extends BaseService {
     private Future<Void> completeSessionIfEnded(Long userId, MiningSession session, LocalDateTime settleEnd) {
         boolean sessionCompleted = !settleEnd.isBefore(session.getEndsAt());
         if (!sessionCompleted) return Future.succeededFuture();
+        BigDecimal creditedAmount = session.getCreditedAmount() != null ? session.getCreditedAmount() : BigDecimal.ZERO;
         return userRepository.getUserById(pool, userId)
             .compose(u -> {
                 Integer ul = (u != null && u.getLevel() != null) ? u.getLevel() : 1;
@@ -475,14 +481,31 @@ public class MiningService extends BaseService {
                                 if (efficiency < 0) efficiency = 0;
                             }
                         }
-                        return miningRepository.insertMiningHistory(pool, userId, ul, session.getRatePerHour(), efficiency, "BROADCAST_WATCH", "COMPLETED");
+                        if (creditedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                            return Future.succeededFuture();
+                        }
+                        return miningRepository.insertMiningHistory(pool, userId, ul, creditedAmount, efficiency, "BROADCAST_WATCH", "COMPLETED")
+                            .map(x -> (Void) null);
                     });
             })
-            .compose(mh -> referralService.grantReferralRewardForMining(userId, session.getRatePerHour()))
+            .compose(v -> referralService.grantReferralRewardForMining(userId, creditedAmount))
             .compose(x -> levelService.syncLevelFromExp(userId))
             .compose(x -> createMiningSessionEndedNotification(userId, session))
             .compose(x -> maybeStartAutoBoostSession(userId))
             .map(x -> (Void) null);
+    }
+
+    private MiningSession withCreditedAmount(MiningSession session, BigDecimal creditedAmount) {
+        return MiningSession.builder()
+            .id(session.getId())
+            .userId(session.getUserId())
+            .startedAt(session.getStartedAt())
+            .endsAt(session.getEndsAt())
+            .ratePerHour(session.getRatePerHour())
+            .lastSettledAt(session.getLastSettledAt())
+            .creditedAmount(creditedAmount)
+            .createdAt(session.getCreatedAt())
+            .build();
     }
 
     private Future<Void> createMiningSessionEndedNotification(Long userId, MiningSession session) {

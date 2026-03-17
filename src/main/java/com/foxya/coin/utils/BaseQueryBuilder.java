@@ -213,6 +213,15 @@ public abstract class BaseQueryBuilder<SELF> {
         append("WHERE");
         return this.appendJoinParam(column, op, secondColumn);
     }
+
+    public SELF andJoinWhere(String column, Op op, String secondColumn) {
+        if (!this.hasCondition()) {
+            return this.joinWhere(column, op, secondColumn);
+        }
+
+        append("AND");
+        return this.appendJoinParam(column, op, secondColumn);
+    }
     
     /**
      * HAVING, 컬럼, 조건, 문자열 추가
