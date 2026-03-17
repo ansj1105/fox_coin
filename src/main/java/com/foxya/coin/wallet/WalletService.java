@@ -71,7 +71,7 @@ public class WalletService extends BaseService {
     public Future<List<Wallet>> getUserWallets(Long userId) {
         return ensureSharedTronWallets(userId)
             .compose(v -> walletRepository.getWalletsByUserId(pool, userId))
-            .map(this::normalizeWalletsForClient);
+            .map(WalletService::normalizeWalletsForClient);
     }
     
     /**
@@ -972,7 +972,7 @@ public class WalletService extends BaseService {
      * Expose KORI as a single logical asset to clients:
      * keep the TRON wallet/address for deposits while surfacing the INTERNAL balance.
      */
-    private List<Wallet> normalizeWalletsForClient(List<Wallet> wallets) {
+    static List<Wallet> normalizeWalletsForClient(List<Wallet> wallets) {
         if (wallets == null || wallets.isEmpty()) {
             return wallets;
         }
@@ -1003,9 +1003,14 @@ public class WalletService extends BaseService {
         }
 
         if (koriTron != null) {
-            BigDecimal effectiveBalance = koriInternal != null && koriInternal.getBalance() != null
-                ? koriInternal.getBalance()
-                : koriTron.getBalance();
+            BigDecimal effectiveBalance = sumNullableBalances(
+                koriTron.getBalance(),
+                koriInternal != null ? koriInternal.getBalance() : null
+            );
+            BigDecimal effectiveLockedBalance = sumNullableBalances(
+                koriTron.getLockedBalance(),
+                koriInternal != null ? koriInternal.getLockedBalance() : null
+            );
             normalized.add(Wallet.builder()
                 .id(koriTron.getId())
                 .userId(koriTron.getUserId())
@@ -1017,7 +1022,7 @@ public class WalletService extends BaseService {
                 .address(koriTron.getAddress())
                 .privateKey(koriTron.getPrivateKey())
                 .balance(effectiveBalance)
-                .lockedBalance(koriInternal != null ? koriInternal.getLockedBalance() : koriTron.getLockedBalance())
+                .lockedBalance(effectiveLockedBalance)
                 .verified(koriTron.getVerified())
                 .status(koriTron.getStatus())
                 .createdAt(koriTron.getCreatedAt())
@@ -1029,6 +1034,12 @@ public class WalletService extends BaseService {
 
         normalized.sort(Comparator.comparing(Wallet::getId, Comparator.nullsLast(Comparator.naturalOrder())));
         return normalized;
+    }
+
+    private static BigDecimal sumNullableBalances(BigDecimal first, BigDecimal second) {
+        BigDecimal normalizedFirst = first != null ? first : BigDecimal.ZERO;
+        BigDecimal normalizedSecond = second != null ? second : BigDecimal.ZERO;
+        return normalizedFirst.add(normalizedSecond);
     }
 
     private record TronHotWalletContext(Long userId, String hotWalletAddress) {
