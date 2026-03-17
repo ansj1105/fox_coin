@@ -19,6 +19,8 @@ import com.foxya.coin.auth.dto.GoogleLoginResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.bitcoinj.core.Base58;
+import org.bitcoinj.core.Sha256Hash;
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
@@ -485,6 +487,74 @@ public class AuthHandlerTest extends HandlerTestBase {
                 })
                 .onFailure(tc::failNow);
         }
+
+        @Test
+        @DisplayName("성공 - TRON legacy owner 주소로도 시드 구문 로그인")
+        void successLoginWithSeedForLegacyTronOwnerAddress(VertxTestContext tc) {
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
+            String ownerAddress = tronAddressFromKeyPair(keyPair);
+            String virtualAddress = "TVirtualLegacyAddress1111111111111111";
+
+            sqlClient.preparedQuery("SELECT id FROM users WHERE login_id = $1")
+                .execute(Tuple.of("testuser"))
+                .compose(userRows -> {
+                    if (!userRows.iterator().hasNext()) {
+                        return io.vertx.core.Future.failedFuture("user not found");
+                    }
+                    Long userId = userRows.iterator().next().getLong("id");
+                    return sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 AND chain = $2 LIMIT 1")
+                        .execute(Tuple.of("TRX", "TRON"))
+                        .compose(currencyRows -> {
+                            if (!currencyRows.iterator().hasNext()) {
+                                return io.vertx.core.Future.failedFuture("tron currency not found");
+                            }
+                            Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                            return sqlClient.preparedQuery(
+                                    "INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at) " +
+                                        "VALUES ($1, $2, $3, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                        "ON CONFLICT (user_id, currency_id) DO UPDATE " +
+                                        "SET address = EXCLUDED.address, updated_at = NOW()"
+                                )
+                                .execute(Tuple.of(userId, currencyId, virtualAddress))
+                                .compose(v -> sqlClient.preparedQuery(
+                                        "INSERT INTO virtual_wallet_mappings (user_id, network, hot_wallet_address, virtual_address, owner_address, mapping_seed, status, created_at, updated_at) " +
+                                            "VALUES ($1, 'TRON', $2, $3, $4, $5, 'ACTIVE', NOW(), NOW()) " +
+                                            "ON CONFLICT DO NOTHING"
+                                    )
+                                    .execute(Tuple.of(userId, "THotWalletLegacy1111111111111111111", virtualAddress, ownerAddress, "user:" + userId + ":TRON")));
+                        });
+                })
+                .onSuccess(v -> {
+                    JsonObject challengeRequest = new JsonObject()
+                        .put("address", ownerAddress)
+                        .put("chain", "TRON");
+
+                    reqPost(getUrl("/recovery/challenge"))
+                        .sendJson(challengeRequest, tc.succeeding(chRes -> tc.verify(() -> {
+                            expectSuccess(chRes);
+                            String message = chRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+
+                            String signature = signRecoveryMessage(message, keyPair);
+                            JsonObject loginRequest = new JsonObject()
+                                .put("address", ownerAddress)
+                                .put("chain", "TRON")
+                                .put("signature", signature)
+                                .mergeIn(deviceInfo("seed-device-tron-legacy-1", "MOBILE", "ANDROID"));
+
+                            reqPost(getUrl("/login-with-seed"))
+                                .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                    assertThat(dto.getAccessToken()).isNotNull();
+                                    assertThat(dto.getRefreshToken()).isNotNull();
+                                    assertThat(dto.getUserId()).isNotNull();
+                                    tc.completeNow();
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
     }
 
     private static String signRecoveryMessage(String message, ECKeyPair keyPair) {
@@ -503,6 +573,18 @@ public class AuthHandlerTest extends HandlerTestBase {
             .put("deviceType", deviceType)
             .put("deviceOs", deviceOs)
             .put("appVersion", "1.0.0");
+    }
+
+    private static String tronAddressFromKeyPair(ECKeyPair keyPair) {
+        byte[] addressBytes = Numeric.hexStringToByteArray(Keys.getAddress(keyPair.getPublicKey()));
+        byte[] tron = new byte[addressBytes.length + 1];
+        tron[0] = 0x41;
+        System.arraycopy(addressBytes, 0, tron, 1, addressBytes.length);
+        byte[] checksum = Sha256Hash.hashTwice(tron);
+        byte[] withChecksum = new byte[tron.length + 4];
+        System.arraycopy(tron, 0, withChecksum, 0, tron.length);
+        System.arraycopy(checksum, 0, withChecksum, tron.length, 4);
+        return Base58.encode(withChecksum);
     }
 
     private static HttpRequest<io.vertx.core.buffer.Buffer> withDeviceHeaders(HttpRequest<io.vertx.core.buffer.Buffer> req, String token, String deviceId, String deviceType, String deviceOs) {

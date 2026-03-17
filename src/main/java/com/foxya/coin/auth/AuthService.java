@@ -558,7 +558,35 @@ public class AuthService extends BaseService {
         if ("ETH".equals(chain)) {
             return transferRepository.getWalletByAddressIgnoreCase(pool, address);
         }
+        if ("TRON".equals(chain) && virtualWalletMappingRepository != null) {
+            return transferRepository.getWalletByAddress(pool, address)
+                .compose(wallet -> {
+                    if (wallet != null) {
+                        return Future.succeededFuture(wallet);
+                    }
+                    return virtualWalletMappingRepository.findByOwnerAddressAndNetwork(pool, address, chain)
+                        .compose(mapping -> {
+                            if (mapping != null && mapping.getVirtualAddress() != null && !mapping.getVirtualAddress().isBlank()) {
+                                return transferRepository.getWalletByAddress(pool, mapping.getVirtualAddress())
+                                    .compose(mappedWallet -> mappedWallet != null
+                                        ? Future.succeededFuture(mappedWallet)
+                                        : resolveTronRecoveryWalletByVirtualAddress(address, chain));
+                            }
+                            return resolveTronRecoveryWalletByVirtualAddress(address, chain);
+                        });
+                });
+        }
         return transferRepository.getWalletByAddress(pool, address);
+    }
+
+    private Future<com.foxya.coin.wallet.entities.Wallet> resolveTronRecoveryWalletByVirtualAddress(String address, String chain) {
+        return virtualWalletMappingRepository.findByVirtualAddressAndNetwork(pool, address, chain)
+            .compose(mapping -> {
+                if (mapping == null || mapping.getOwnerAddress() == null || mapping.getOwnerAddress().isBlank()) {
+                    return Future.succeededFuture(null);
+                }
+                return transferRepository.getWalletByAddress(pool, mapping.getOwnerAddress());
+            });
     }
 
     private boolean verifyRecoverySignature(String chain, String message, String signature, String address) {

@@ -91,6 +91,22 @@ public class VirtualWalletMappingRepository extends BaseRepository {
             .map(rows -> fetchOne(mappingMapper, rows));
     }
 
+    public Future<VirtualWalletMapping> findByVirtualAddressAndNetwork(SqlClient client, String virtualAddress, String network) {
+        String sql = QueryBuilder
+            .select("virtual_wallet_mappings")
+            .where("virtual_address", Op.Equal, "virtual_address")
+            .andWhere("network", Op.Equal, "network")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("virtual_address", virtualAddress);
+        params.put("network", network);
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(mappingMapper, rows));
+    }
+
     public Future<VirtualWalletMapping> updateBinding(SqlClient client, Long id, String hotWalletAddress, String ownerAddress) {
         String sql = QueryBuilder
             .update("virtual_wallet_mappings", "hot_wallet_address", "owner_address", "updated_at")
