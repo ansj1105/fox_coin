@@ -76,6 +76,96 @@ public class AuthHandlerTest extends HandlerTestBase {
     }
 
     @Nested
+    @DisplayName("TRON legacy 시드 로그인 복구 테스트")
+    class LegacyTronSeedLoginRecoveryTest {
+
+        @Test
+        @Order(9)
+        @DisplayName("성공 - owner_address 없는 legacy virtual wallet도 지갑 등록 후 시드 로그인 가능")
+        void bindsLegacyVirtualWalletAndLoginSucceeds(VertxTestContext tc) {
+            ECKeyPair keyPair = ECKeyPair.create(new BigInteger(SEED_PRIVATE_KEY_HEX, 16));
+            String ownerAddress = tronAddressFromKeyPair(keyPair);
+            String virtualAddress = "TVirtualLegacy1111111111111111111111";
+            String hotWalletAddress = "THotWalletLegacy1111111111111111111";
+            String accessToken = getAccessTokenOfUser(1L);
+
+            sqlClient.preparedQuery("SELECT id FROM currency WHERE code = $1 AND chain = $2 LIMIT 1")
+                .execute(Tuple.of("TRX", "TRON"))
+                .compose(currencyRows -> {
+                    Integer currencyId = currencyRows.iterator().next().getInteger("id");
+                    return sqlClient.preparedQuery(
+                            "INSERT INTO user_wallets (user_id, currency_id, address, balance, locked_balance, status, created_at, updated_at) " +
+                                "VALUES ($1, $2, $3, 0, 0, 'ACTIVE', NOW(), NOW()) " +
+                                "ON CONFLICT (user_id, currency_id) DO UPDATE SET address = EXCLUDED.address, updated_at = NOW()"
+                        )
+                        .execute(Tuple.of(1L, currencyId, virtualAddress))
+                        .compose(v -> sqlClient.preparedQuery(
+                                "INSERT INTO virtual_wallet_mappings (user_id, network, hot_wallet_address, virtual_address, owner_address, mapping_seed, status, created_at, updated_at) " +
+                                    "VALUES ($1, 'TRON', $2, $3, NULL, $4, 'ACTIVE', NOW(), NOW()) " +
+                                    "ON CONFLICT (user_id, network) WHERE deleted_at IS NULL DO UPDATE " +
+                                    "SET hot_wallet_address = EXCLUDED.hot_wallet_address, virtual_address = EXCLUDED.virtual_address, owner_address = NULL, updated_at = NOW()"
+                            )
+                            .execute(Tuple.of(1L, hotWalletAddress, virtualAddress, "user:1:TRON")));
+                })
+                .onSuccess(v -> {
+                    JsonObject challengeRequest = new JsonObject()
+                        .put("address", ownerAddress)
+                        .put("chain", "TRON");
+
+                    reqPost("/api/v1/wallets/register-challenge")
+                        .bearerTokenAuthentication(accessToken)
+                        .sendJson(challengeRequest, tc.succeeding(challengeRes -> tc.verify(() -> {
+                            expectSuccess(challengeRes);
+                            String walletMessage = challengeRes.bodyAsJsonObject()
+                                .getJsonObject("data")
+                                .getString("message");
+                            String walletSignature = signRecoveryMessage(walletMessage, keyPair);
+
+                            JsonObject registerRequest = new JsonObject()
+                                .put("currencyCode", "TRX")
+                                .put("address", ownerAddress)
+                                .put("chain", "TRON")
+                                .put("signature", walletSignature);
+
+                            reqPost("/api/v1/wallets/register")
+                                .bearerTokenAuthentication(accessToken)
+                                .sendJson(registerRequest, tc.succeeding(registerRes -> tc.verify(() -> {
+                                    expectSuccess(registerRes);
+
+                                    JsonObject recoveryRequest = new JsonObject()
+                                        .put("address", ownerAddress)
+                                        .put("chain", "TRON");
+
+                                    reqPost(getUrl("/recovery/challenge"))
+                                        .sendJson(recoveryRequest, tc.succeeding(recoveryRes -> tc.verify(() -> {
+                                            expectSuccess(recoveryRes);
+                                            String recoveryMessage = recoveryRes.bodyAsJsonObject()
+                                                .getJsonObject("data")
+                                                .getString("message");
+                                            String recoverySignature = signRecoveryMessage(recoveryMessage, keyPair);
+
+                                            JsonObject loginRequest = new JsonObject()
+                                                .put("address", ownerAddress)
+                                                .put("chain", "TRON")
+                                                .put("signature", recoverySignature)
+                                                .mergeIn(deviceInfo("seed-device-tron-legacy-bind-1", "MOBILE", "ANDROID"));
+
+                                            reqPost(getUrl("/login-with-seed"))
+                                                .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                                                    LoginResponseDto dto = expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                                                    assertThat(dto.getUserId()).isEqualTo(1L);
+                                                    assertThat(dto.getAccessToken()).isNotBlank();
+                                                    tc.completeNow();
+                                                })));
+                                        })));
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
+    }
+
+    @Nested
     @DisplayName("email/send-code 테스트")
     class SendSignupCodeTest {
         @Test
