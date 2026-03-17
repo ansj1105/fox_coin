@@ -36,6 +36,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SwapService extends BaseService {
 
+    private record SwapNotificationContext(Swap swap, SwapResponseDto responseDto) {}
+
     private final SwapRepository swapRepository;
     private final CurrencyRepository currencyRepository;
     private final CurrencyService currencyService;
@@ -149,7 +151,8 @@ public class SwapService extends BaseService {
                                         request,
                                         request.getNetwork(),
                                         requestIp
-                                    ).compose(this::createSwapCompletedNotification));
+                                    ).compose(this::createSwapCompletedNotification)
+                                     .map(SwapNotificationContext::responseDto));
                             }))));
     }
 
@@ -185,15 +188,15 @@ public class SwapService extends BaseService {
             });
     }
 
-    private Future<SwapResponseDto> executeSwapTransaction(Long userId,
-                                                           Currency fromCurrency,
-                                                           Currency toCurrency,
-                                                           Wallet fromWallet,
-                                                           BigDecimal fromAmount,
-                                                           ComputedSwapQuote quote,
-                                                           SwapRequestDto request,
-                                                           String network,
-                                                           String requestIp) {
+    private Future<SwapNotificationContext> executeSwapTransaction(Long userId,
+                                                                  Currency fromCurrency,
+                                                                  Currency toCurrency,
+                                                                  Wallet fromWallet,
+                                                                  BigDecimal fromAmount,
+                                                                  ComputedSwapQuote quote,
+                                                                  SwapRequestDto request,
+                                                                  String network,
+                                                                  String requestIp) {
         String swapId = UUID.randomUUID().toString();
         String orderNumber = OrderNumberUtils.generateOrderNumber();
 
@@ -232,70 +235,71 @@ public class SwapService extends BaseService {
                                         .build();
 
                                     return swapRepository.createSwap(client, swap)
-                                        .map(createdSwap -> SwapResponseDto.builder()
-                                            .swapId(createdSwap.getSwapId())
-                                            .orderNumber(createdSwap.getOrderNumber())
-                                            .fromCurrencyCode(fromCurrency.getCode())
-                                            .toCurrencyCode(toCurrency.getCode())
-                                            .fromAmount(createdSwap.getFromAmount())
-                                            .toAmount(createdSwap.getToAmount())
-                                            .exchangeRate(createdSwap.getExchangeRate())
-                                            .fee(createdSwap.getFeeRate())
-                                            .feeRate(createdSwap.getFeeRate())
-                                            .feeAmount(createdSwap.getFeeAmount())
-                                            .spread(createdSwap.getSpreadRate())
-                                            .spreadAmount(createdSwap.getSpreadAmount())
-                                            .network(createdSwap.getNetwork())
-                                            .status(createdSwap.getStatus())
-                                            .createdAt(createdSwap.getCreatedAt())
-                                            .build());
+                                        .map(createdSwap -> new SwapNotificationContext(
+                                            createdSwap,
+                                            SwapResponseDto.builder()
+                                                .swapId(createdSwap.getSwapId())
+                                                .orderNumber(createdSwap.getOrderNumber())
+                                                .fromCurrencyCode(fromCurrency.getCode())
+                                                .toCurrencyCode(toCurrency.getCode())
+                                                .fromAmount(createdSwap.getFromAmount())
+                                                .toAmount(createdSwap.getToAmount())
+                                                .exchangeRate(createdSwap.getExchangeRate())
+                                                .fee(createdSwap.getFeeRate())
+                                                .feeRate(createdSwap.getFeeRate())
+                                                .feeAmount(createdSwap.getFeeAmount())
+                                                .spread(createdSwap.getSpreadRate())
+                                                .spreadAmount(createdSwap.getSpreadAmount())
+                                                .network(createdSwap.getNetwork())
+                                                .status(createdSwap.getStatus())
+                                                .createdAt(createdSwap.getCreatedAt())
+                                                .build()
+                                        ));
                                 });
                         });
                 })
         );
     }
 
-    private Future<SwapResponseDto> createSwapCompletedNotification(SwapResponseDto responseDto) {
-        if (notificationService == null || responseDto == null || responseDto.getSwapId() == null) {
-            return Future.succeededFuture(responseDto);
+    private Future<SwapNotificationContext> createSwapCompletedNotification(SwapNotificationContext context) {
+        if (notificationService == null || context == null || context.swap() == null || context.responseDto() == null) {
+            return Future.succeededFuture(context);
         }
 
-        return swapRepository.getSwapBySwapId(pool, responseDto.getSwapId())
-            .compose(swap -> {
-                if (swap == null || swap.getUserId() == null) {
-                    return Future.succeededFuture();
-                }
+        Swap swap = context.swap();
+        SwapResponseDto responseDto = context.responseDto();
+        if (swap.getUserId() == null || swap.getId() == null || responseDto.getSwapId() == null) {
+            return Future.succeededFuture(context);
+        }
 
-                JsonObject metadata = new JsonObject()
-                    .put("swapId", responseDto.getSwapId())
-                    .put("orderNumber", responseDto.getOrderNumber())
-                    .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
-                    .put("toCurrencyCode", responseDto.getToCurrencyCode())
-                    .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
-                    .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
-                    .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
-                    .put("currencyCode", responseDto.getFromCurrencyCode())
-                    .put("network", responseDto.getNetwork())
-                    .put("status", responseDto.getStatus());
-                String encodedMetadata = NotificationI18nUtils.buildMetadata(
-                    SWAP_COMPLETED_TITLE_KEY,
-                    SWAP_COMPLETED_MESSAGE_KEY,
-                    metadata
-                );
+        JsonObject metadata = new JsonObject()
+            .put("swapId", responseDto.getSwapId())
+            .put("orderNumber", responseDto.getOrderNumber())
+            .put("fromCurrencyCode", responseDto.getFromCurrencyCode())
+            .put("toCurrencyCode", responseDto.getToCurrencyCode())
+            .put("fromAmount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+            .put("toAmount", responseDto.getToAmount() != null ? responseDto.getToAmount().toPlainString() : null)
+            .put("amount", responseDto.getFromAmount() != null ? responseDto.getFromAmount().toPlainString() : null)
+            .put("currencyCode", responseDto.getFromCurrencyCode())
+            .put("network", responseDto.getNetwork())
+            .put("status", responseDto.getStatus());
+        String encodedMetadata = NotificationI18nUtils.buildMetadata(
+            SWAP_COMPLETED_TITLE_KEY,
+            SWAP_COMPLETED_MESSAGE_KEY,
+            metadata
+        );
 
-                return notificationService.createNotificationIfAbsentByRelatedId(
-                    swap.getUserId(),
-                    NotificationType.SWAP_SUCCESS,
-                    SWAP_COMPLETED_TITLE,
-                    SWAP_COMPLETED_MESSAGE,
-                    swap.getId(),
-                    encodedMetadata
-                ).mapEmpty();
-            })
-            .map(v -> responseDto)
+        return notificationService.createNotificationIfAbsentByRelatedId(
+                swap.getUserId(),
+                NotificationType.SWAP_SUCCESS,
+                SWAP_COMPLETED_TITLE,
+                SWAP_COMPLETED_MESSAGE,
+                swap.getId(),
+                encodedMetadata
+            ).map(v -> context)
             .recover(err -> {
                 log.warn("?ㅼ솑 ?꾨즺 ?뚮┝ ?앹꽦 ?ㅽ뙣(臾댁떆): swapId={}", responseDto.getSwapId(), err);
-                return Future.succeededFuture(responseDto);
+                return Future.succeededFuture(context);
             });
     }
 
