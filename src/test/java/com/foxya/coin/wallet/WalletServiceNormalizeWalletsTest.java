@@ -55,7 +55,7 @@ class WalletServiceNormalizeWalletsTest {
             .status("ACTIVE")
             .build();
 
-        List<Wallet> normalized = WalletService.normalizeWalletsForClient(List.of(koriTron, koriInternal, usdt));
+        List<Wallet> normalized = WalletClientViewUtils.normalizeWalletsForClient(List.of(koriTron, koriInternal, usdt));
 
         assertEquals(2, normalized.size());
 
@@ -75,5 +75,39 @@ class WalletServiceNormalizeWalletsTest {
         assertEquals(new BigDecimal("1.001"), normalizedKori.getLockedBalance());
         assertEquals("TRON", normalizedKori.getNetwork());
         assertEquals("T_KORI_TRON", normalizedKori.getAddress());
+    }
+
+    @Test
+    void sumLogicalBalanceByCurrencyCode_usesSameKoriClientViewBalance() {
+        Wallet koriTron = Wallet.builder()
+            .id(10L)
+            .userId(1L)
+            .currencyCode("KORI")
+            .network("TRON")
+            .balance(new BigDecimal("161.999"))
+            .build();
+
+        Wallet koriInternal = Wallet.builder()
+            .id(11L)
+            .userId(1L)
+            .currencyCode("KORI")
+            .network("INTERNAL")
+            .balance(new BigDecimal("35.017033492063491120"))
+            .build();
+
+        Wallet trx = Wallet.builder()
+            .id(12L)
+            .userId(1L)
+            .currencyCode("TRX")
+            .network("TRON")
+            .balance(new BigDecimal("50"))
+            .build();
+
+        BigDecimal logicalKoriBalance = WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(
+            List.of(koriTron, koriInternal, trx),
+            "KORI"
+        );
+
+        assertEquals(new BigDecimal("197.016033492063491120"), logicalKoriBalance);
     }
 }

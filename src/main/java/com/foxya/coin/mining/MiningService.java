@@ -26,6 +26,7 @@ import com.foxya.coin.transfer.TransferRepository;
 import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.WalletRepository;
+import com.foxya.coin.wallet.WalletClientViewUtils;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -252,14 +253,7 @@ public class MiningService extends BaseService {
                 Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
                 // Normalized comment.
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
-                    .map(wallets -> {
-                        if (wallets == null || wallets.isEmpty()) return BigDecimal.ZERO;
-                        return wallets.stream()
-                            .filter(wallet -> "KORI".equalsIgnoreCase(wallet.getCurrencyCode()))
-                            .map(Wallet::getBalance)
-                            .filter(balance -> balance != null)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    });
+                    .map(wallets -> WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(wallets, "KORI"));
                 Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
                 Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
                 Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
