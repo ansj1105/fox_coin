@@ -31,6 +31,7 @@ public class InternalWithdrawalHandler extends BaseHandler {
         Router router = Router.router(getVertx());
         router.route().handler(this::checkInternalApiKey);
         router.get("/").handler(this::listByStatus);
+        router.post("/coin-manage/:withdrawalId/state").handler(this::syncCoinManageState);
         router.post("/:transferId/submit").handler(this::submit);
         router.post("/:transferId/confirm").handler(this::confirm);
         router.post("/:transferId/fail").handler(this::fail);
@@ -87,6 +88,33 @@ public class InternalWithdrawalHandler extends BaseHandler {
         }
         log.info("Internal withdrawal submit: transferId={}, txHash={}", transferId, txHash);
         response(ctx, transferService.submitExternalTransfer(transferId, txHash));
+    }
+
+    private void syncCoinManageState(RoutingContext ctx) {
+        String withdrawalId = ctx.pathParam("withdrawalId");
+        if (withdrawalId == null || withdrawalId.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("withdrawalId required"));
+            return;
+        }
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            ctx.fail(400, new IllegalArgumentException("Body required"));
+            return;
+        }
+        String status = body.getString("status");
+        if (status == null || status.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("status required"));
+            return;
+        }
+
+        log.info("coin_manage withdrawal state sync: withdrawalId={}, status={}", withdrawalId, status);
+        response(ctx, transferService.syncCoinManageWithdrawalState(
+            withdrawalId,
+            status,
+            body.getString("txHash"),
+            body.getInteger("requiredConfirmations"),
+            body.getString("failReason")
+        ));
     }
 
     private void confirm(RoutingContext ctx) {

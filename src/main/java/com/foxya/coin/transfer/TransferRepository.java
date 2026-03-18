@@ -424,6 +424,17 @@ public class TransferRepository extends BaseRepository {
         return query(client, sql, Collections.singletonMap("transfer_id", transferId))
             .map(rows -> fetchOne(externalTransferMapper, rows));
     }
+
+    public Future<ExternalTransfer> getExternalTransferByCoinManageWithdrawalId(SqlClient client, String coinManageWithdrawalId) {
+        String sql = QueryBuilder
+            .select("external_transfers")
+            .where("coin_manage_withdrawal_id", Op.Equal, "coin_manage_withdrawal_id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        return query(client, sql, Collections.singletonMap("coin_manage_withdrawal_id", coinManageWithdrawalId))
+            .map(rows -> fetchOne(externalTransferMapper, rows));
+    }
     
     /**
       * Normalized comment.

@@ -860,6 +860,30 @@ public class TransferService extends BaseService {
             });
     }
 
+    public Future<ExternalTransfer> syncCoinManageWithdrawalState(
+        String coinManageWithdrawalId,
+        String status,
+        String txHash,
+        Integer requiredConfirmations,
+        String failReason
+    ) {
+        return transferRepository.getExternalTransferByCoinManageWithdrawalId(pool, coinManageWithdrawalId)
+            .compose(transfer -> {
+                if (transfer == null) {
+                    log.info("No foxya transfer matched coin_manage withdrawalId={}", coinManageWithdrawalId);
+                    return Future.succeededFuture(null);
+                }
+
+                return switch (status) {
+                    case "LEDGER_RESERVED", "PENDING_ADMIN", "ADMIN_APPROVED" -> syncCoinManageProcessingState(transfer);
+                    case "TX_BROADCASTED" -> syncCoinManageSubmittedState(transfer, txHash);
+                    case "COMPLETED" -> syncCoinManageCompletedState(transfer, txHash, requiredConfirmations);
+                    case "FAILED", "REJECTED" -> syncCoinManageFailedState(transfer, status, failReason);
+                    default -> Future.succeededFuture(transfer);
+                };
+            });
+    }
+
     /**
       * Normalized comment.
       * Normalized comment.
@@ -978,6 +1002,80 @@ public class TransferService extends BaseService {
                             transferRepository.unlockBalance(client, et.getWalletId(), totalRefund, true)
                                 .map(w -> failed));
                 }));
+    }
+
+    private Future<ExternalTransfer> syncCoinManageProcessingState(ExternalTransfer transfer) {
+        if (transfer == null) {
+            return Future.succeededFuture(null);
+        }
+        if (ExternalTransfer.STATUS_PENDING.equals(transfer.getStatus())
+            || ExternalTransfer.STATUS_WAITING_LIQUIDITY.equals(transfer.getStatus())) {
+            return transferRepository.updateExternalTransferStatus(pool, transfer.getTransferId(), ExternalTransfer.STATUS_PROCESSING);
+        }
+        return Future.succeededFuture(transfer);
+    }
+
+    private Future<ExternalTransfer> syncCoinManageSubmittedState(ExternalTransfer transfer, String txHash) {
+        if (transfer == null) {
+            return Future.succeededFuture(null);
+        }
+        if (ExternalTransfer.STATUS_SUBMITTED.equals(transfer.getStatus())
+            || ExternalTransfer.STATUS_CONFIRMED.equals(transfer.getStatus())
+            || ExternalTransfer.STATUS_FAILED.equals(transfer.getStatus())) {
+            return Future.succeededFuture(transfer);
+        }
+        if (txHash == null || txHash.isBlank()) {
+            return Future.succeededFuture(transfer);
+        }
+        return submitExternalTransfer(transfer.getTransferId(), txHash);
+    }
+
+    private Future<ExternalTransfer> syncCoinManageCompletedState(
+        ExternalTransfer transfer,
+        String txHash,
+        Integer requiredConfirmations
+    ) {
+        if (transfer == null) {
+            return Future.succeededFuture(null);
+        }
+        if (ExternalTransfer.STATUS_CONFIRMED.equals(transfer.getStatus())) {
+            return Future.succeededFuture(transfer);
+        }
+        if (ExternalTransfer.STATUS_FAILED.equals(transfer.getStatus())) {
+            return Future.succeededFuture(transfer);
+        }
+
+        Future<ExternalTransfer> submitted = ExternalTransfer.STATUS_SUBMITTED.equals(transfer.getStatus())
+            ? Future.succeededFuture(transfer)
+            : syncCoinManageSubmittedState(transfer, txHash);
+
+        int confirmations = requiredConfirmations != null && requiredConfirmations > 0
+            ? requiredConfirmations
+            : (transfer.getRequiredConfirmations() != null ? transfer.getRequiredConfirmations() : 20);
+
+        return submitted.compose(updated -> {
+            if (updated == null || !ExternalTransfer.STATUS_SUBMITTED.equals(updated.getStatus())) {
+                return Future.succeededFuture(updated);
+            }
+            return confirmExternalTransfer(updated.getTransferId(), confirmations);
+        });
+    }
+
+    private Future<ExternalTransfer> syncCoinManageFailedState(ExternalTransfer transfer, String status, String failReason) {
+        if (transfer == null) {
+            return Future.succeededFuture(null);
+        }
+        if (ExternalTransfer.STATUS_CONFIRMED.equals(transfer.getStatus())
+            || ExternalTransfer.STATUS_FAILED.equals(transfer.getStatus())) {
+            return Future.succeededFuture(transfer);
+        }
+
+        String errorCode = "REJECTED".equals(status) ? "KORION_WITHDRAW_REJECTED" : "KORION_WITHDRAW_FAILED";
+        String errorMessage = (failReason == null || failReason.isBlank())
+            ? "coin_manage withdrawal sync marked transfer as " + status
+            : failReason;
+
+        return failExternalTransferAndRefund(transfer.getTransferId(), errorCode, errorMessage);
     }
 
     /**

@@ -118,6 +118,49 @@ components:
         code:
           type: integer
 
+    CoinManageWithdrawalStateSyncRequest:
+      type: object
+      required:
+        - status
+      properties:
+        schemaVersion:
+          type: string
+        eventType:
+          type: string
+          example: withdrawal.state.changed
+        issuer:
+          type: string
+        signature:
+          type: string
+        withdrawalId:
+          type: string
+        userId:
+          type: string
+        status:
+          type: string
+          enum: [REQUESTED, LEDGER_RESERVED, PENDING_ADMIN, ADMIN_APPROVED, TX_BROADCASTED, ONCHAIN_CONFIRMED, COMPLETED, FAILED, REJECTED]
+        amount:
+          type: string
+        currency:
+          type: string
+        toAddress:
+          type: string
+        txHash:
+          type: string
+        requiredApprovals:
+          type: integer
+        approvalCount:
+          type: integer
+        externalAuthProvider:
+          type: string
+        externalAuthRequestId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        failReason:
+          type: string
+
     # Auth 관련 스키마
     LogoutResponse:
       type: object
@@ -2401,6 +2444,29 @@ components:
           format: date-time
 
 paths:
+  /api/v1/internal/withdrawals/coin-manage/{withdrawalId}/state:
+    post:
+      tags: [Transfer]
+      summary: Sync coin_manage withdrawal lifecycle state into Foxya external transfer status
+      parameters:
+        - in: path
+          name: withdrawalId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoinManageWithdrawalStateSyncRequest'
+      responses:
+        '200':
+          description: Sync accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   # ==================== System ====================
   /health:
     get:
