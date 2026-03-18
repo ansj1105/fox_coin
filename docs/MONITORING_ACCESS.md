@@ -139,10 +139,11 @@ Grafana/Prometheus 서버에 연결할 수 없거나, 브라우저에서 빈 화
 - `https://korion.io.kr/6s9ex74204/grafana/*` - 예전 경로 → `dev.korion.io.kr` 로 리다이렉트
 
 ### Prometheus (api.korion.io.kr)
-- `https://api.korion.io.kr/prometheus/` - Prometheus 메인 페이지
-- `https://api.korion.io.kr/prometheus/api/*` - Prometheus API
-- `https://api.korion.io.kr/prometheus/graph` - Prometheus Graph UI
-- `https://api.korion.io.kr/prometheus/targets` - 타겟 상태
+- `https://api.korion.io.kr/` - Prometheus 메인 페이지
+- `https://api.korion.io.kr/api/*` - Prometheus API
+- `https://api.korion.io.kr/graph` - Prometheus Graph UI
+- `https://api.korion.io.kr/targets` - 타겟 상태
+- `https://api.korion.io.kr/prometheus/*` - 예전 prefix 경로 → 같은 리소스의 루트 경로로 리다이렉트
 
 ## 🔍 문제 해결
 
