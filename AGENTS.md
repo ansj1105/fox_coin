@@ -32,6 +32,17 @@
 - In `docker-compose.prod.yml`, keep `app` and `app2` env passthrough lists in sync for backend runtime vars such as bridge credentials, external API keys, and wallet settings.
 - If server-side `git pull` is blocked by missing GitHub credentials, sync only the touched runtime files to `/var/www/fox_coin` and redeploy from the synced tree rather than changing server git auth ad hoc.
 
+## Bridge Architecture Rule
+
+- Treat `foxya -> coin_manage` withdrawal integration as a cross-instance workflow, not a local method call.
+- If Foxya stores `coin_manage_withdrawal_id`, check whether completion and failure states are also synchronized back; do not assume request success means lifecycle integration is complete.
+- Keep canonical withdrawal lifecycle state in `coin_manage`; Foxya should cache only the fields needed for user display and recovery.
+- Redis is acceptable for retry queues, stream delivery, or locks, but not as the source of truth for withdrawal status synchronization.
+- Multi-node `app/app2` deployment improves availability, but state convergence still requires an explicit callback or polling contract.
+- When changing bridge behavior, inspect both sides:
+  - request creation in `foxya_coin_service`
+  - approval, broadcast, confirm, and failure propagation in `coin_manage`
+
 ## Commit Rule
 
 - Split unrelated work into separate commits. Keep one commit focused on one change purpose when the diff can be cleanly separated.
