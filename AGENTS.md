@@ -26,6 +26,12 @@
 - Run compile and targeted tests for the touched area before finishing.
 - For data-integrity or accounting changes, verify with concrete queries or fixtures, not code inspection alone.
 
+## Deployment Env Rule
+
+- When a new runtime env var is introduced for Foxya backend behavior, update every production container environment block that must receive it, not just `.env.example` or Java config readers.
+- In `docker-compose.prod.yml`, keep `app` and `app2` env passthrough lists in sync for backend runtime vars such as bridge credentials, external API keys, and wallet settings.
+- If server-side `git pull` is blocked by missing GitHub credentials, sync only the touched runtime files to `/var/www/fox_coin` and redeploy from the synced tree rather than changing server git auth ad hoc.
+
 ## Commit Rule
 
 - Split unrelated work into separate commits. Keep one commit focused on one change purpose when the diff can be cleanly separated.
