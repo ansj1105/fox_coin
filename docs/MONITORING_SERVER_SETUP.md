@@ -9,6 +9,7 @@ Legacy compatibility redirects are kept for older bookmarks:
 
 - `https://korion.io.kr/6s9ex74204/grafana/*` -> `https://dev.korion.io.kr/`
 - `https://api.korion.io.kr/prometheus/*` -> `https://api.korion.io.kr/*`
+- `https://api.korion.io.kr/prometheus/query` -> `https://api.korion.io.kr/graph`
 
 ## Nginx Routing
 
@@ -30,7 +31,8 @@ Expected:
 
 - Grafana root returns `200` or a login redirect on `dev.korion.io.kr`
 - Prometheus root returns `200` on `api.korion.io.kr`
-- `/prometheus/query` returns `302` to `https://api.korion.io.kr/query`
+- `/prometheus/query` returns `302` to `https://api.korion.io.kr/graph`
+- canonical Prometheus API queries should use `/api/v1/query`, not `/query`
 
 ## Docker Checks
 

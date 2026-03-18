@@ -224,6 +224,7 @@ ab -n 1000 -c 10 https://your-domain/health
 - **Grafana (예전 경로)**: `https://korion.io.kr/6s9ex74204/grafana/*` → 302 리다이렉트 → `https://dev.korion.io.kr/`
 - **Prometheus**: **`https://api.korion.io.kr/`** — Nginx `server_name api.korion.io.kr` → `proxy_pass http://prometheus:9090` (전용 도메인, 리다이렉트 루프 방지)
 - **Prometheus 호환 경로**: `https://api.korion.io.kr/prometheus/*` → `https://api.korion.io.kr/*` 로 302 리다이렉트
+- **Prometheus query 호환 경로**: `https://api.korion.io.kr/prometheus/query` → `https://api.korion.io.kr/graph` 로 302 리다이렉트
 - **메트릭**: Nginx `location /metrics` → `proxy_pass http://foxya_api/metrics`
 - **Grafana 환경 변수 (dev.korion.io.kr 사용 시)**: `GF_SERVER_SERVE_FROM_SUB_PATH=false`, `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_DOMAIN=dev.korion.io.kr`
 
