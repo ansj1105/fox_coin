@@ -53,7 +53,8 @@ class KorionWithdrawalBridgeClientTest {
             webClient,
             "http://korion-service:3000",
             "/api/withdrawals",
-            Set.of("KORI")
+            Set.of("KORI"),
+            null
         );
 
         String result = client.requestWithdrawal(1L, "transfer-1", request(), "127.0.0.1").result();
@@ -87,7 +88,8 @@ class KorionWithdrawalBridgeClientTest {
             webClient,
             "http://korion-service:3000",
             "/api/withdrawals",
-            Set.of("KORI")
+            Set.of("KORI"),
+            null
         );
 
         String result = client.requestWithdrawal(1L, "transfer-1", request(), "127.0.0.1").result();

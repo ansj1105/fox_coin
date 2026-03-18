@@ -2,7 +2,9 @@ package com.foxya.coin.transfer;
 
 import com.foxya.coin.transfer.dto.ExternalTransferRequestDto;
 import io.vertx.core.Future;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpRequest;
 import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import lombok.extern.slf4j.Slf4j;
@@ -33,25 +35,34 @@ public class KorionWithdrawalBridgeClient implements WithdrawalBridgeClient {
     private final WebClient webClient;
     private final String requestUrl;
     private final Set<String> supportedCurrencyCodes;
+    private final String requestApiKey;
 
-    public KorionWithdrawalBridgeClient(WebClient webClient, String baseUrl, String path, Set<String> supportedCurrencyCodes) {
+    public KorionWithdrawalBridgeClient(
+        WebClient webClient,
+        String baseUrl,
+        String path,
+        Set<String> supportedCurrencyCodes,
+        String requestApiKey
+    ) {
         this.webClient = webClient;
         this.requestUrl = normalizeUrl(baseUrl, path);
         this.supportedCurrencyCodes = supportedCurrencyCodes.stream()
             .map(code -> code.toUpperCase(Locale.ROOT))
             .collect(Collectors.toUnmodifiableSet());
+        this.requestApiKey = requestApiKey == null || requestApiKey.isBlank() ? null : requestApiKey;
     }
 
     public static KorionWithdrawalBridgeClient fromEnv(WebClient webClient) {
         String baseUrl = readEnv("KORION_WITHDRAW_API_URL", "http://korion-service:3000");
         String path = readEnv("KORION_WITHDRAW_API_PATH", "/api/withdrawals");
         String currencyCodes = readEnv("KORION_WITHDRAW_BRIDGE_CURRENCY_CODES", "KORI,FOXYA");
+        String requestApiKey = readEnv("KORION_WITHDRAW_API_KEY", "");
         Set<String> supportedCurrencyCodes = Arrays.stream(currencyCodes.split(","))
             .map(String::trim)
             .filter(value -> !value.isEmpty())
             .map(value -> value.toUpperCase(Locale.ROOT))
             .collect(Collectors.toSet());
-        return new KorionWithdrawalBridgeClient(webClient, baseUrl, path, supportedCurrencyCodes);
+        return new KorionWithdrawalBridgeClient(webClient, baseUrl, path, supportedCurrencyCodes, requestApiKey);
     }
 
     @Override
@@ -79,11 +90,16 @@ public class KorionWithdrawalBridgeClient implements WithdrawalBridgeClient {
     }
 
     private Future<String> requestWithdrawal(Long userId, String transferId, JsonObject payload, int attempt) {
-        return webClient.postAbs(requestUrl)
+        HttpRequest<Buffer> request = webClient.postAbs(requestUrl)
             .timeout(REQUEST_TIMEOUT_MS)
             .putHeader("Content-Type", "application/json")
-            .putHeader("Idempotency-Key", transferId)
-            .sendJsonObject(payload)
+            .putHeader("Idempotency-Key", transferId);
+
+        if (requestApiKey != null) {
+            request.putHeader("X-Internal-Api-Key", requestApiKey);
+        }
+
+        return request.sendJsonObject(payload)
             .compose(response -> handleResponse(transferId, response, attempt))
             .recover(error -> {
                 if (attempt < MAX_ATTEMPTS && isRetryableTransportError(error)) {
