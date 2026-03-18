@@ -67,6 +67,59 @@ class TransferServiceCoinManageSyncTest {
     }
 
     @Test
+    void convertsLegacyApprovedTransferToProcessingThenSubmitted() {
+        PgPool pool = mock(PgPool.class);
+        TransferRepository transferRepository = mock(TransferRepository.class);
+        TransferService service = new TransferService(
+            pool,
+            transferRepository,
+            mock(UserRepository.class),
+            mock(CurrencyRepository.class),
+            mock(WalletRepository.class),
+            null,
+            null,
+            null,
+            null,
+            new AppConfigRepository(),
+            null,
+            null,
+            null,
+            null,
+            null
+        );
+
+        ExternalTransfer approved = ExternalTransfer.builder()
+            .transferId("transfer-approved")
+            .coinManageWithdrawalId("wd-approved")
+            .status(ExternalTransfer.STATUS_APPROVED)
+            .build();
+        ExternalTransfer processing = ExternalTransfer.builder()
+            .transferId("transfer-approved")
+            .coinManageWithdrawalId("wd-approved")
+            .status(ExternalTransfer.STATUS_PROCESSING)
+            .build();
+        ExternalTransfer submitted = ExternalTransfer.builder()
+            .transferId("transfer-approved")
+            .coinManageWithdrawalId("wd-approved")
+            .status(ExternalTransfer.STATUS_SUBMITTED)
+            .txHash("tx-approved")
+            .build();
+
+        when(transferRepository.getExternalTransferByCoinManageWithdrawalId(pool, "wd-approved"))
+            .thenReturn(Future.succeededFuture(approved));
+        when(transferRepository.updateExternalTransferStatus(pool, "transfer-approved", ExternalTransfer.STATUS_PROCESSING))
+            .thenReturn(Future.succeededFuture(processing));
+        when(transferRepository.getExternalTransferById(pool, "transfer-approved"))
+            .thenReturn(Future.succeededFuture(processing));
+        when(transferRepository.submitExternalTransfer(pool, "transfer-approved", "tx-approved"))
+            .thenReturn(Future.succeededFuture(submitted));
+
+        ExternalTransfer result = service.syncCoinManageWithdrawalState("wd-approved", "TX_BROADCASTED", "tx-approved", 20, null).result();
+
+        assertThat(result.getStatus()).isEqualTo(ExternalTransfer.STATUS_SUBMITTED);
+    }
+
+    @Test
     void confirmsSubmittedTransferWhenCoinManageCompletes() {
         PgPool pool = mock(PgPool.class);
         TransferRepository transferRepository = mock(TransferRepository.class);

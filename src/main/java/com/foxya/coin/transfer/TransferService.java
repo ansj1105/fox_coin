@@ -1008,7 +1008,8 @@ public class TransferService extends BaseService {
         if (transfer == null) {
             return Future.succeededFuture(null);
         }
-        if (ExternalTransfer.STATUS_PENDING.equals(transfer.getStatus())
+        if (ExternalTransfer.STATUS_APPROVED.equals(transfer.getStatus())
+            || ExternalTransfer.STATUS_PENDING.equals(transfer.getStatus())
             || ExternalTransfer.STATUS_WAITING_LIQUIDITY.equals(transfer.getStatus())) {
             return transferRepository.updateExternalTransferStatus(pool, transfer.getTransferId(), ExternalTransfer.STATUS_PROCESSING);
         }
@@ -1026,6 +1027,10 @@ public class TransferService extends BaseService {
         }
         if (txHash == null || txHash.isBlank()) {
             return Future.succeededFuture(transfer);
+        }
+        if (ExternalTransfer.STATUS_APPROVED.equals(transfer.getStatus())) {
+            return transferRepository.updateExternalTransferStatus(pool, transfer.getTransferId(), ExternalTransfer.STATUS_PROCESSING)
+                .compose(updated -> submitExternalTransfer(updated.getTransferId(), txHash));
         }
         return submitExternalTransfer(transfer.getTransferId(), txHash);
     }

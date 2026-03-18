@@ -26,7 +26,7 @@ public class ExternalTransfer {
     private BigDecimal amount;
     private BigDecimal fee;             // 서비스 수수료
     private BigDecimal networkFee;      // 네트워크 수수료 (가스비)
-    private String status;              // PENDING, PROCESSING, SUBMITTED, CONFIRMED, FAILED, CANCELLED
+    private String status;              // APPROVED, PENDING, PROCESSING, SUBMITTED, CONFIRMED, FAILED, CANCELLED
     private String orderNumber;         // 주문번호
     private String transactionType;     // WITHDRAW, TOKEN_DEPOSIT, PAYMENT_DEPOSIT, SWAP, EXCHANGE
     private String txHash;              // 블록체인 트랜잭션 해시
@@ -46,6 +46,7 @@ public class ExternalTransfer {
     
     // 상태 상수
     public static final String STATUS_WAITING_LIQUIDITY = "WAITING_LIQUIDITY"; // 유동성 부족 대기
+    public static final String STATUS_APPROVED = "APPROVED";         // legacy 승인 완료 상태
     public static final String STATUS_PENDING = "PENDING";           // 대기중
     public static final String STATUS_PROCESSING = "PROCESSING";     // 처리중 (잔액 잠금)
     public static final String STATUS_SUBMITTED = "SUBMITTED";       // 블록체인 제출됨
