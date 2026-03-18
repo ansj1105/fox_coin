@@ -56,7 +56,8 @@ curl http://your-domain/metrics
 ```
 
 #### Prometheus UI
-- **URL**: http://localhost:9090
+- **프로덕션 URL**: **https://api.korion.io.kr/prometheus/**
+- **로컬**: http://localhost:9090
 - **예시 쿼리**:
   ```promql
   # 전체 요청 수
@@ -146,7 +147,7 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
 
 - 컨테이너: `docker compose -f docker-compose.prod.yml up -d prometheus grafana`
 - Grafana 접속: **https://dev.korion.io.kr/** — `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_SERVE_FROM_SUB_PATH=false` 로 설정되어 있어야 함
-- Nginx dev 블록에 `location /prometheus/` → Prometheus(9090), 루트 → Grafana(3000) 확인
+- 호스트 Nginx 기준 `dev.korion.io.kr` 루트 → Grafana(3001), `api.korion.io.kr/prometheus/` → Prometheus(9090) 확인
 
 ### 메트릭이 보이지 않을 때
 
@@ -156,7 +157,7 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
    ```
 
 2. **Prometheus 타겟 확인**
-   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/targets`)
+   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/prometheus/targets`)
    - `foxya-api` 타겟이 `UP` 상태인지 확인
 
 3. **로그 확인**
@@ -189,4 +190,3 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
 - [Prometheus 공식 문서](https://prometheus.io/docs/)
 - [Grafana 공식 문서](https://grafana.com/docs/)
 - [Micrometer 공식 문서](https://micrometer.io/docs)
-

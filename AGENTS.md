@@ -44,6 +44,17 @@
   - request creation in `foxya_coin_service`
   - approval, broadcast, confirm, and failure propagation in `coin_manage`
 
+## Monitoring Routing Rule
+
+- The current public monitoring routes are:
+  - Grafana: `https://dev.korion.io.kr/`
+  - Prometheus: `https://api.korion.io.kr/prometheus/`
+- Do not assume `https://api.korion.io.kr/` root is Prometheus; that root remains the Foxya API surface.
+- Legacy paths on `https://korion.io.kr/6s9ex74204/...` should redirect to the public routes above rather than proxying directly.
+- When updating monitoring docs or Nginx, verify both the public route and the localhost upstream:
+  - Grafana upstream: `127.0.0.1:3001`
+  - Prometheus upstream: `127.0.0.1:9090`
+
 ## Commit Rule
 
 - Split unrelated work into separate commits. Keep one commit focused on one change purpose when the diff can be cleanly separated.
