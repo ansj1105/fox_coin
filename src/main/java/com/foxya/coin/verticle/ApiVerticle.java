@@ -395,10 +395,14 @@ public class ApiVerticle extends AbstractVerticle {
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");
         }
+        String internalWithdrawalApiKey = resolveInternalWithdrawalApiKey(
+            System.getenv("KORION_WITHDRAW_CALLBACK_API_KEY"),
+            depositScannerApiKey
+        );
         InternalDepositHandler internalDepositHandler = new InternalDepositHandler(
             vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
         InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
-            vertx, transferService, depositScannerApiKey);
+            vertx, transferService, internalWithdrawalApiKey);
         InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
             vertx, pool, appConfigRepository, depositScannerApiKey);
         InternalWalletHandler internalWalletHandler = new InternalWalletHandler(
@@ -624,6 +628,13 @@ public class ApiVerticle extends AbstractVerticle {
                     startPromise.fail(http.cause());
                 }
             });
+    }
+
+    static String resolveInternalWithdrawalApiKey(String callbackApiKey, String depositScannerApiKey) {
+        if (callbackApiKey != null && !callbackApiKey.isBlank()) {
+            return callbackApiKey;
+        }
+        return depositScannerApiKey;
     }
     
     private PgPool createPgPool(JsonObject config) {

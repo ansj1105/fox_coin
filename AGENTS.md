@@ -39,6 +39,7 @@
 - Keep canonical withdrawal lifecycle state in `coin_manage`; Foxya should cache only the fields needed for user display and recovery.
 - Redis is acceptable for retry queues, stream delivery, or locks, but not as the source of truth for withdrawal status synchronization.
 - Multi-node `app/app2` deployment improves availability, but state convergence still requires an explicit callback or polling contract.
+- Do not reuse deposit-scanner credentials for `coin_manage` withdrawal callbacks once a dedicated callback key exists. Temporary fallback wiring is allowed only for rollout compatibility and should be removed after both sides are updated.
 - When changing bridge behavior, inspect both sides:
   - request creation in `foxya_coin_service`
   - approval, broadcast, confirm, and failure propagation in `coin_manage`
