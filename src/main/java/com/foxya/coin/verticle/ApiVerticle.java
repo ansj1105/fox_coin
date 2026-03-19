@@ -44,6 +44,7 @@ import com.foxya.coin.wallet.WalletService;
 import com.foxya.coin.app.AppConfigRepository;
 import com.foxya.coin.app.AppHandler;
 import com.foxya.coin.app.InternalConfigHandler;
+import com.foxya.coin.admin.AdminWalletOpsHandler;
 import com.foxya.coin.agency.AgencyHandler;
 import com.foxya.coin.agency.AgencyRepository;
 import com.foxya.coin.agency.AgencyService;
@@ -487,6 +488,7 @@ public class ApiVerticle extends AbstractVerticle {
         NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
         NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
         AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, retryQueuePublisher, jwtAuth);
+        AdminWalletOpsHandler adminWalletOpsHandler = new AdminWalletOpsHandler(vertx, webClient, jwtAuth);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -553,6 +555,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Admin test notification API (DB insert + FCM send via NotificationService)
         mainRouter.mountSubRouter("/api/v1/admin/notifications", adminNotificationHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v2/admin/wallet-ops", adminWalletOpsHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());

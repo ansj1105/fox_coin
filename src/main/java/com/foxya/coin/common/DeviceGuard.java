@@ -39,7 +39,7 @@ public class DeviceGuard implements Handler<RoutingContext> {
         }
 
         String path = ctx.request().path();
-        if (path.startsWith("/api/v1/admin") || path.startsWith("/api/v1/client")) {
+        if (path.startsWith("/api/v1/admin") || path.startsWith("/api/v2/admin") || path.startsWith("/api/v1/client")) {
             return Future.succeededFuture();
         }
 

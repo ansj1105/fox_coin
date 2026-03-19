@@ -118,6 +118,73 @@ components:
         code:
           type: integer
 
+    WalletOpsOverviewResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/WalletOpsSummary'
+        monitoringPoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletOpsMonitoringPoint'
+        feeSnapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletOpsFeeSnapshot'
+
+    WalletOpsSummary:
+      type: object
+      properties:
+        signerTotalRequests:
+          type: integer
+        signerFailedRequests:
+          type: integer
+        outboxPendingCount:
+          type: integer
+        outboxDeadLetteredCount:
+          type: integer
+        consumerFailureCount:
+          type: integer
+        consumerDeadLetterCount:
+          type: integer
+
+    WalletOpsMonitoringPoint:
+      type: object
+      properties:
+        snapshotId:
+          type: string
+        walletCode:
+          type: string
+        tokenSymbol:
+          type: string
+        tokenBalance:
+          type: string
+          nullable: true
+        trxBalance:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ok, error]
+        createdAt:
+          type: string
+          format: date-time
+
+    WalletOpsFeeSnapshot:
+      type: object
+      properties:
+        snapshotDate:
+          type: string
+        ledgerFeeAmount:
+          type: string
+        actualFeeAmount:
+          type: string
+        gapFeeAmount:
+          type: string
+        status:
+          type: string
+          enum: [balanced, underbooked, overbooked]
+
     CoinManageWithdrawalStateSyncRequest:
       type: object
       required:
@@ -2467,6 +2534,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+  /api/v2/admin/wallet-ops/overview:
+    get:
+      summary: 관리자 wallet ops overview 조회
+      description: |
+        coin_manage 운영 데이터와 ledger signer 관측 데이터를 집계해 관리자 대시보드용 wallet ops overview를 반환합니다.
+      tags: [System]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: startDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WalletOpsOverviewResponse'
+        '401':
+          description: 인증 실패
   # ==================== System ====================
   /health:
     get:
