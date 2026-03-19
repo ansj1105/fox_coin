@@ -56,9 +56,9 @@ curl http://your-domain/metrics
 ```
 
 #### Prometheus UI
-- **프로덕션 URL**: **https://api.korion.io.kr/**
-- **Graph UI**: **https://api.korion.io.kr/graph**
-- **API Query**: **https://api.korion.io.kr/api/v1/query?query=up**
+- **프로덕션 URL**: **https://api.korion.io.kr/prometheus/**
+- **Graph UI**: **https://api.korion.io.kr/prometheus/graph**
+- **API Query**: **https://api.korion.io.kr/prometheus/api/v1/query?query=up**
 - **로컬**: http://localhost:9090
 - **예시 쿼리**:
   ```promql
@@ -149,7 +149,7 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
 
 - 컨테이너: `docker compose -f docker-compose.prod.yml up -d prometheus grafana`
 - Grafana 접속: **https://dev.korion.io.kr/** — `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_SERVE_FROM_SUB_PATH=false` 로 설정되어 있어야 함
-- 호스트 Nginx 기준 `dev.korion.io.kr` 루트 → Grafana(3001), `api.korion.io.kr` 루트 → Prometheus(9090) 확인
+- 호스트 Nginx 기준 `dev.korion.io.kr` 루트 → Grafana(3001), `api.korion.io.kr/prometheus/` → Prometheus(9090) 확인
 
 ### 메트릭이 보이지 않을 때
 
@@ -159,7 +159,7 @@ Prometheus·Grafana는 **이 서비스와 연동 가능**한 구성입니다.
    ```
 
 2. **Prometheus 타겟 확인**
-   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/targets`)
+   - http://localhost:9090/targets 접속 (또는 `https://api.korion.io.kr/prometheus/targets`)
    - `foxya-api` 타겟이 `UP` 상태인지 확인
 
 3. **로그 확인**

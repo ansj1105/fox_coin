@@ -48,9 +48,10 @@
 
 - The current public monitoring routes are:
   - Grafana: `https://dev.korion.io.kr/`
-  - Prometheus: `https://api.korion.io.kr/`
-- `https://api.korion.io.kr/` root is the Prometheus surface in the dedicated monitoring vhost. Use `/graph` for the UI and `/api/v1/...` for API queries.
-- Keep `/prometheus/*` only as a compatibility redirect layer. Do not document it as the canonical route.
+  - Prometheus: `https://api.korion.io.kr/prometheus/`
+- `https://api.korion.io.kr/` root is the Foxya API surface on the host nginx, not Prometheus.
+- Treat host nginx on `52.200.97.155` as the source of truth for public monitoring routes; container `foxya-nginx` config can diverge.
+- Use `/prometheus/api/v1/...` for canonical public Prometheus API queries.
 - Legacy paths on `https://korion.io.kr/6s9ex74204/...` should redirect to the public routes above rather than proxying directly.
 - When updating monitoring docs or Nginx, verify both the public route and the localhost upstream:
   - Grafana upstream: `127.0.0.1:3001`

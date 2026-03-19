@@ -71,8 +71,8 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost/health
 - **메트릭 수집**: 앱의 `/metrics` (Prometheus 포맷) → Prometheus가 15초마다 스크랩
 - **저장**: Prometheus (기본 30일 보존)
 - **시각화**: Grafana (Prometheus를 데이터 소스로 사용)
-- **접근 경로**: Grafana **`https://dev.korion.io.kr/`**, Prometheus **`https://api.korion.io.kr/`**
-  - 호환 리다이렉트: `https://api.korion.io.kr/prometheus/*` → `https://api.korion.io.kr/*`
+- **접근 경로**: Grafana **`https://dev.korion.io.kr/`**, Prometheus **`https://api.korion.io.kr/prometheus/`**
+  - `https://api.korion.io.kr/` 루트는 Foxya API입니다.
 
 Prometheus/Grafana가 **아직 붙어 있지 않거나** 안 열리는 경우는 [5장](#5-prometheus--grafana-연동-및-안-열릴-때) 참고. **서버 기준 구성법**은 [MONITORING_SERVER_SETUP.md](./MONITORING_SERVER_SETUP.md) 참고.
 
@@ -222,9 +222,9 @@ ab -n 1000 -c 10 https://your-domain/health
 
 - **Grafana (권장 접속)**: **`https://dev.korion.io.kr/`** — Nginx `server_name dev.korion.io.kr` → `proxy_pass http://grafana:3000` (루트 제공, subpath 없음)
 - **Grafana (예전 경로)**: `https://korion.io.kr/6s9ex74204/grafana/*` → 302 리다이렉트 → `https://dev.korion.io.kr/`
-- **Prometheus**: **`https://api.korion.io.kr/`** — Nginx `server_name api.korion.io.kr` → `proxy_pass http://prometheus:9090` (전용 도메인, 리다이렉트 루프 방지)
-- **Prometheus 호환 경로**: `https://api.korion.io.kr/prometheus/*` → `https://api.korion.io.kr/*` 로 302 리다이렉트
-- **Prometheus query 호환 경로**: `https://api.korion.io.kr/prometheus/query` → `https://api.korion.io.kr/graph` 로 302 리다이렉트
+- **Prometheus**: **`https://api.korion.io.kr/prometheus/`** — host Nginx `server_name api.korion.io.kr` 의 `location /prometheus/` → `proxy_pass http://127.0.0.1:9090`
+- **Foxya API 루트**: `https://api.korion.io.kr/` — host Nginx `location /` → `proxy_pass http://127.0.0.1:8080`
+- **Prometheus prefix 주의**: `/prometheus/graph` 같은 일부 UI 경로는 Prometheus 자체 redirect 때문에 prefix를 잃을 수 있으니 실제 응답 기준으로 확인
 - **메트릭**: Nginx `location /metrics` → `proxy_pass http://foxya_api/metrics`
 - **Grafana 환경 변수 (dev.korion.io.kr 사용 시)**: `GF_SERVER_SERVE_FROM_SUB_PATH=false`, `GF_SERVER_ROOT_URL=https://dev.korion.io.kr/`, `GF_SERVER_DOMAIN=dev.korion.io.kr`
 
@@ -333,7 +333,7 @@ docker exec foxya-nginx tail -20 /var/log/nginx/foxya_error.log
 ### 5.3 Prometheus 수집 데이터가 없을 때 (타겟 DOWN / No data)
 
 1. **타겟 상태 확인**  
-   브라우저에서 **https://api.korion.io.kr/targets** 접속 → **foxya-api** 가 **UP** 인지 확인.  
+   브라우저에서 **https://api.korion.io.kr/prometheus/targets** 접속 → **foxya-api** 가 **UP** 인지 확인.  
    **DOWN** 이면 아래 순서로 점검.
 
 2. **앱 컨테이너·네트워크**

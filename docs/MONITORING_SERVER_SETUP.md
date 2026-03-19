@@ -3,36 +3,41 @@
 Foxya monitoring is exposed with two public entrypoints:
 
 - Grafana: `https://dev.korion.io.kr/`
-- Prometheus: `https://api.korion.io.kr/`
+- Prometheus: `https://api.korion.io.kr/prometheus/`
 
 Legacy compatibility redirects are kept for older bookmarks:
 
 - `https://korion.io.kr/6s9ex74204/grafana/*` -> `https://dev.korion.io.kr/`
-- `https://api.korion.io.kr/prometheus/*` -> `https://api.korion.io.kr/*`
-- `https://api.korion.io.kr/prometheus/query` -> `https://api.korion.io.kr/graph`
+- `https://korion.io.kr/6s9ex74204/prometheus/*` -> `https://api.korion.io.kr/prometheus/`
+
+Host nginx is the source of truth for public monitoring exposure on `52.200.97.155`.
+`https://api.korion.io.kr/` root remains the Foxya API surface, not Prometheus.
 
 ## Nginx Routing
 
 - `server_name dev.korion.io.kr`
   - `location /` -> `http://grafana:3000`
-- `server_name api.korion.io.kr`
-  - `location /` -> `http://prometheus:9090`
-  - `location /prometheus*` -> 302 redirect to the equivalent root path
+- host nginx `server_name api.korion.io.kr`
+  - `location /` -> `http://127.0.0.1:8080` (Foxya API)
+  - `location /prometheus/` -> `http://127.0.0.1:9090`
+  - `location = /prometheus` -> `302 /prometheus/`
 
 ## Quick Checks
 
 ```bash
 curl -I https://dev.korion.io.kr/
 curl -I https://api.korion.io.kr/
-curl -I https://api.korion.io.kr/prometheus/query
+curl -I https://api.korion.io.kr/prometheus/
+curl -I https://api.korion.io.kr/prometheus/graph
 ```
 
 Expected:
 
 - Grafana root returns `200` or a login redirect on `dev.korion.io.kr`
-- Prometheus root returns `200` on `api.korion.io.kr`
-- `/prometheus/query` returns `302` to `https://api.korion.io.kr/graph`
-- canonical Prometheus API queries should use `/api/v1/query`, not `/query`
+- Foxya API root on `api.korion.io.kr` may return app responses such as `401`
+- Prometheus is reached via `api.korion.io.kr/prometheus/`
+- `/prometheus/graph` may still redirect without preserving the prefix depending on Prometheus redirect behavior
+- canonical Prometheus API queries should use `/prometheus/api/v1/query`
 
 ## Docker Checks
 

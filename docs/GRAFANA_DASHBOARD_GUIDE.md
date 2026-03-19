@@ -159,4 +159,4 @@ Grafana(https://dev.korion.io.kr/)에서 **API Overview** 대시보드를 처음
   2. 쿼리란에 `http_requests_by_method_path_status_total` 입력 후 **Run query**  
   3. 우리 앱은 카운터 이름이 **`http_requests_by_method_path_status_total`** (끝에 `_total`). RPS/에러율 등은 위 PromQL 그대로 사용하면 됨.
 - Prometheus 타겟이 **UP** 인지:  
-  https://api.korion.io.kr/targets 에서 `foxya-api`(또는 앱 job) 확인
+  https://api.korion.io.kr/prometheus/targets 에서 `foxya-api`(또는 앱 job) 확인
