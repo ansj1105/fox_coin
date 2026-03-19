@@ -60,6 +60,7 @@ curl http://your-domain/metrics
 - **Graph UI**: **https://api.korion.io.kr/prometheus/graph**
 - **API Query**: **https://api.korion.io.kr/prometheus/api/v1/query?query=up**
 - **로컬**: http://localhost:9090
+- **프록시 설정**: Prometheus는 `--web.external-url=https://api.korion.io.kr/prometheus/`, `--web.route-prefix=/` 로 구동
 - **예시 쿼리**:
   ```promql
   # 전체 요청 수

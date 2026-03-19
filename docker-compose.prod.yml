@@ -410,7 +410,8 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
-      - '--web.external-url=https://api.korion.io.kr/'
+      - '--web.external-url=https://api.korion.io.kr/prometheus/'
+      - '--web.route-prefix=/'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:

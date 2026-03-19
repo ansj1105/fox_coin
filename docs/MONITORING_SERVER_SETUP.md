@@ -21,6 +21,9 @@ Host nginx is the source of truth for public monitoring exposure on `52.200.97.1
   - `location /` -> `http://127.0.0.1:8080` (Foxya API)
   - `location /prometheus/` -> `http://127.0.0.1:9090`
   - `location = /prometheus` -> `302 /prometheus/`
+- Prometheus container flags
+  - `--web.external-url=https://api.korion.io.kr/prometheus/`
+  - `--web.route-prefix=/`
 
 ## Quick Checks
 
@@ -36,7 +39,7 @@ Expected:
 - Grafana root returns `200` or a login redirect on `dev.korion.io.kr`
 - Foxya API root on `api.korion.io.kr` may return app responses such as `401`
 - Prometheus is reached via `api.korion.io.kr/prometheus/`
-- `/prometheus/graph` may still redirect without preserving the prefix depending on Prometheus redirect behavior
+- `/prometheus/graph` and `/prometheus/query` should stay under the `/prometheus/` prefix
 - canonical Prometheus API queries should use `/prometheus/api/v1/query`
 
 ## Docker Checks
