@@ -69,27 +69,27 @@ public class AdminWalletOpsHandler extends BaseHandler {
         Future<JsonObject> monitoringFuture = fetchKorionMonitoringPoints(query)
             .recover(error -> {
                 log.warn("wallet ops monitoring fetch failed: {}", error.getMessage());
-                return Future.succeededFuture(new JsonObject().put("items", new JsonArray()));
+                return Future.succeededFuture(fallbackArrayResponse("items", "monitoring_points_unavailable", error));
             });
         Future<JsonObject> feeFuture = fetchKorionFeeSnapshots(query.days)
             .recover(error -> {
                 log.warn("wallet ops fee snapshot fetch failed: {}", error.getMessage());
-                return Future.succeededFuture(new JsonObject().put("items", new JsonArray()));
+                return Future.succeededFuture(fallbackArrayResponse("items", "fee_snapshots_unavailable", error));
             });
         Future<JsonObject> outboxFuture = fetchKorionOutboxSummary()
             .recover(error -> {
                 log.warn("wallet ops outbox fetch failed: {}", error.getMessage());
-                return Future.succeededFuture(new JsonObject().put("summary", new JsonObject()));
+                return Future.succeededFuture(fallbackObjectResponse("summary", "outbox_summary_unavailable", error));
             });
         Future<JsonObject> consumerFuture = fetchKorionEventConsumers()
             .recover(error -> {
                 log.warn("wallet ops event consumer fetch failed: {}", error.getMessage());
-                return Future.succeededFuture(new JsonObject().put("summary", new JsonObject()));
+                return Future.succeededFuture(fallbackObjectResponse("summary", "event_consumer_summary_unavailable", error));
             });
         Future<JsonObject> signerFuture = fetchLedgerSignerObservability()
             .recover(error -> {
                 log.warn("wallet ops signer observability fetch failed: {}", error.getMessage());
-                return Future.succeededFuture(new JsonObject().put("summary", new JsonObject()));
+                return Future.succeededFuture(fallbackObjectResponse("summary", "signer_observability_unavailable", error));
             });
 
         response(ctx, Future.all(monitoringFuture, feeFuture, outboxFuture, consumerFuture, signerFuture)
@@ -123,6 +123,7 @@ public class AdminWalletOpsHandler extends BaseHandler {
 
         JsonArray monitoringItems = monitoringBody.getJsonArray("items", new JsonArray());
         JsonArray feeItems = feeBody.getJsonArray("items", new JsonArray());
+        JsonArray warnings = collectWarnings(monitoringBody, feeBody, outboxBody, consumerBody, signerBody);
 
         JsonArray monitoringPoints = new JsonArray();
         for (int i = 0; i < monitoringItems.size(); i++) {
@@ -166,7 +167,46 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 .put("consumerDeadLetterCount", consumerSummary.getInteger("deadLetterCount", 0))
             )
             .put("monitoringPoints", monitoringPoints)
-            .put("feeSnapshots", feeSnapshots);
+            .put("feeSnapshots", feeSnapshots)
+            .put("warnings", warnings);
+    }
+
+    private JsonObject fallbackArrayResponse(String fieldName, String warningCode, Throwable error) {
+        return new JsonObject()
+            .put(fieldName, new JsonArray())
+            .put("warnings", new JsonArray().add(buildWarning(warningCode, error)));
+    }
+
+    private JsonObject fallbackObjectResponse(String fieldName, String warningCode, Throwable error) {
+        return new JsonObject()
+            .put(fieldName, new JsonObject())
+            .put("warnings", new JsonArray().add(buildWarning(warningCode, error)));
+    }
+
+    private JsonObject buildWarning(String warningCode, Throwable error) {
+        return new JsonObject()
+            .put("code", warningCode)
+            .put("message", error != null && error.getMessage() != null ? error.getMessage() : "unknown upstream error");
+    }
+
+    private JsonArray collectWarnings(JsonObject... bodies) {
+        JsonArray warnings = new JsonArray();
+        for (JsonObject body : bodies) {
+            if (body == null) {
+                continue;
+            }
+            JsonArray bodyWarnings = body.getJsonArray("warnings");
+            if (bodyWarnings == null) {
+                continue;
+            }
+            for (int i = 0; i < bodyWarnings.size(); i++) {
+                JsonObject warning = bodyWarnings.getJsonObject(i);
+                if (warning != null) {
+                    warnings.add(warning);
+                }
+            }
+        }
+        return warnings;
     }
 
     private Future<JsonObject> fetchKorionMonitoringPoints(Query query) {

@@ -131,6 +131,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WalletOpsFeeSnapshot'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletOpsWarning'
 
     WalletOpsSummary:
       type: object
@@ -147,6 +151,14 @@ components:
           type: integer
         consumerDeadLetterCount:
           type: integer
+
+    WalletOpsWarning:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
 
     WalletOpsMonitoringPoint:
       type: object
