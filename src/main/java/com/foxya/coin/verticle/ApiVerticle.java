@@ -20,6 +20,7 @@ import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
 import com.foxya.coin.common.utils.ErrorHandler;
+import com.foxya.coin.admin.AdminDbBackupHandler;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
 import com.foxya.coin.referral.ReferralRepository;
@@ -496,6 +497,7 @@ public class ApiVerticle extends AbstractVerticle {
         NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
         AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, retryQueuePublisher, jwtAuth);
         AdminWalletOpsHandler adminWalletOpsHandler = new AdminWalletOpsHandler(vertx, webClient, jwtAuth);
+        AdminDbBackupHandler adminDbBackupHandler = new AdminDbBackupHandler(vertx, webClient, jwtAuth, pool);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -563,6 +565,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Admin test notification API (DB insert + FCM send via NotificationService)
         mainRouter.mountSubRouter("/api/v1/admin/notifications", adminNotificationHandler.getRouter());
         mainRouter.mountSubRouter("/api/v2/admin/wallet-ops", adminWalletOpsHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v2/admin/db-backup", adminDbBackupHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/inquiries", inquiryHandler.getRouter());

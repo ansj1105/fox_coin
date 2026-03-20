@@ -196,6 +196,83 @@ components:
         status:
           type: string
           enum: [balanced, underbooked, overbooked]
+    DbBackupOverviewResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/DbBackupOverviewSummary'
+        systems:
+          type: array
+          items:
+            $ref: '#/components/schemas/DbBackupSystemStatus'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletOpsWarning'
+    DbBackupOverviewSummary:
+      type: object
+      properties:
+        systemCount:
+          type: integer
+        syncProtectedCount:
+          type: integer
+        archiveEnabledCount:
+          type: integer
+        warningCount:
+          type: integer
+    DbBackupSystemStatus:
+      type: object
+      properties:
+        systemId:
+          type: string
+        displayName:
+          type: string
+        databaseName:
+          type: string
+        currentNode:
+          $ref: '#/components/schemas/DbBackupNodeStatus'
+        replicas:
+          type: array
+          items:
+            $ref: '#/components/schemas/DbBackupReplicaStatus'
+        notes:
+          type: array
+          items:
+            type: string
+    DbBackupNodeStatus:
+      type: object
+      properties:
+        transactionReadOnly:
+          type: boolean
+        walLevel:
+          type: string
+        archiveMode:
+          type: string
+        archiveCommandConfigured:
+          type: boolean
+        archiveTimeoutSec:
+          type: integer
+          nullable: true
+        synchronousStandbyNames:
+          type: string
+        attachedReplicaCount:
+          type: integer
+        healthySyncReplicaCount:
+          type: integer
+    DbBackupReplicaStatus:
+      type: object
+      properties:
+        applicationName:
+          type: string
+        clientAddress:
+          type: string
+          nullable: true
+        state:
+          type: string
+        syncState:
+          type: string
+        replayLagBytes:
+          type: string
 
     CoinManageWithdrawalStateSyncRequest:
       type: object
@@ -2586,6 +2663,28 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/WalletOpsOverviewResponse'
+        '401':
+          description: 인증 실패
+  /api/v2/admin/db-backup/overview:
+    get:
+      summary: 관리자 DB backup overview 조회
+      description: |
+        foxya 현재 DB 노드 상태와 coin_manage의 DB replication 상태를 집계해 관리자 대시보드용 backup overview를 반환합니다.
+      tags: [System]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DbBackupOverviewResponse'
         '401':
           description: 인증 실패
   # ==================== System ====================
