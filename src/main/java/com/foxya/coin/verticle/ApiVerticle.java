@@ -63,6 +63,7 @@ import com.foxya.coin.bonus.BonusService;
 import com.foxya.coin.deposit.InternalDepositHandler;
 import com.foxya.coin.deposit.TokenDepositHandler;
 import com.foxya.coin.transfer.InternalWithdrawalHandler;
+import com.foxya.coin.transfer.InternalOfflinePayHandler;
 import com.foxya.coin.deposit.TokenDepositRepository;
 import com.foxya.coin.deposit.TokenDepositService;
 import com.foxya.coin.event.EventPublisher;
@@ -404,6 +405,12 @@ public class ApiVerticle extends AbstractVerticle {
             vertx, pool, walletRepository, tokenDepositService, depositScannerApiKey);
         InternalWithdrawalHandler internalWithdrawalHandler = new InternalWithdrawalHandler(
             vertx, transferService, internalWithdrawalApiKey);
+        String internalOfflinePayApiKey = System.getenv("OFFLINE_PAY_INTERNAL_API_KEY");
+        if (internalOfflinePayApiKey == null || internalOfflinePayApiKey.isEmpty()) {
+            internalOfflinePayApiKey = depositScannerApiKey;
+        }
+        InternalOfflinePayHandler internalOfflinePayHandler = new InternalOfflinePayHandler(
+            vertx, transferService, internalOfflinePayApiKey);
         InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
             vertx, pool, appConfigRepository, depositScannerApiKey);
         InternalWalletHandler internalWalletHandler = new InternalWalletHandler(
@@ -592,6 +599,7 @@ public class ApiVerticle extends AbstractVerticle {
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/internal/deposits", internalDepositHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/withdrawals", internalWithdrawalHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/offline-pay", internalOfflinePayHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/config", internalConfigHandler.getRouter());
         mainRouter.mountSubRouter("/api/v1/internal/wallets", internalWalletHandler.getRouter());
         

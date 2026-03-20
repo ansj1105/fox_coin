@@ -477,6 +477,88 @@ public class TransferService extends BaseService {
             });
     }
 
+    public Future<InternalTransfer> recordOfflinePaySettlementHistory(
+            Long userId,
+            String settlementId,
+            String batchId,
+            String collateralId,
+            String proofId,
+            String deviceId,
+            String assetCode,
+            String amountRaw,
+            String settlementStatus,
+            String historyType) {
+        BigDecimal amount = new BigDecimal(amountRaw);
+        String normalizedHistoryType =
+            TransactionType.OFFLINE_PAY_CONFLICT.getValue().equalsIgnoreCase(historyType)
+                ? TransactionType.OFFLINE_PAY_CONFLICT.getValue()
+                : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
+
+        return currencyRepository.getCurrencyByCodeAndChain(pool, assetCode != null && !assetCode.isBlank() ? assetCode : "KORI", INTERNAL_CHAIN)
+            .compose(currency -> {
+                if (currency == null) {
+                    return Future.failedFuture(new NotFoundException("Resource not found."));
+                }
+                return getHotWalletUserId()
+                    .compose(hotWalletUserId -> {
+                        if (hotWalletUserId == null) {
+                            return Future.failedFuture(new BadRequestException("Invalid request."));
+                        }
+                        return getOrCreateInternalWallet(hotWalletUserId, currency, false)
+                            .compose(senderWallet ->
+                                getOrCreateInternalWallet(userId, currency, true)
+                                    .compose(receiverWallet -> pool.withTransaction(client ->
+                                        transferRepository.deductBalance(client, senderWallet.getId(), amount)
+                                            .compose(updatedSenderWallet -> {
+                                                if (updatedSenderWallet == null) {
+                                                    return Future.failedFuture(new BadRequestException("Invalid request."));
+                                                }
+                                                return transferRepository.addBalance(client, receiverWallet.getId(), amount);
+                                            })
+                                            .compose(updatedReceiverWallet -> {
+                                                if (updatedReceiverWallet == null) {
+                                                    return Future.failedFuture(new BadRequestException("Invalid request."));
+                                                }
+                                                InternalTransfer transfer = InternalTransfer.builder()
+                                                    .transferId(settlementId)
+                                                    .senderId(hotWalletUserId)
+                                                    .senderWalletId(senderWallet.getId())
+                                                    .receiverId(userId)
+                                                    .receiverWalletId(receiverWallet.getId())
+                                                    .currencyId(currency.getId())
+                                                    .amount(amount)
+                                                    .fee(BigDecimal.ZERO)
+                                                    .status(InternalTransfer.STATUS_COMPLETED)
+                                                    .transferType(InternalTransfer.TYPE_INTERNAL)
+                                                    .orderNumber(batchId != null && !batchId.isBlank() ? batchId : settlementId)
+                                                    .transactionType(normalizedHistoryType)
+                                                    .memo(buildOfflinePayMemo(settlementId, collateralId, proofId, deviceId, settlementStatus))
+                                                    .requestIp("offline_pay_internal")
+                                                    .build();
+                                                return transferRepository.createInternalTransfer(client, transfer);
+                                            })
+                                            .compose(createdTransfer -> transferRepository.completeInternalTransfer(client, settlementId))
+                                    )));
+                    });
+            });
+    }
+
+    private String buildOfflinePayMemo(
+            String settlementId,
+            String collateralId,
+            String proofId,
+            String deviceId,
+            String settlementStatus) {
+        return String.format(
+            "offlinePay settlementId=%s collateralId=%s proofId=%s deviceId=%s status=%s",
+            settlementId,
+            collateralId != null ? collateralId : "",
+            proofId != null ? proofId : "",
+            deviceId != null ? deviceId : "",
+            settlementStatus != null ? settlementStatus : ""
+        ).trim();
+    }
+
     private Future<Boolean> isHotWalletLiquiditySufficient(String chain, String currencyCode, java.math.BigDecimal amount) {
         return getHotWalletUserId()
             .compose(hotUserId -> {
