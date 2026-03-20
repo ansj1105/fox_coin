@@ -250,6 +250,9 @@ public class AdminWalletOpsHandler extends BaseHandler {
     }
 
     private Future<JsonObject> fetchLedgerSignerObservability() {
+        if (ledgerSignerApiBaseUrl == null || ledgerSignerApiBaseUrl.isBlank() || ledgerSignerApiKey == null || ledgerSignerApiKey.isBlank()) {
+            return Future.succeededFuture(new JsonObject().put("summary", new JsonObject()));
+        }
         return getJson(
             normalizeUrl(ledgerSignerApiBaseUrl, "/api/internal/signer/observability"),
             new JsonObject(),
