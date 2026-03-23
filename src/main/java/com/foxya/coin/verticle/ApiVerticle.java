@@ -39,6 +39,7 @@ import com.foxya.coin.user.UserExternalIdRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.InternalWalletHandler;
+import com.foxya.coin.wallet.OfflinePaySnapshotNotifier;
 import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -260,6 +261,8 @@ public class ApiVerticle extends AbstractVerticle {
             .setIdleTimeout(externalIdleTimeoutSec);
         WebClient webClient = WebClient.create(vertx, webClientOptions);
         log.info("External WebClient configured (connectTimeout={}ms, idleTimeout={}s)", externalConnectTimeoutMs, externalIdleTimeoutSec);
+        OfflinePaySnapshotNotifier offlinePaySnapshotNotifier = OfflinePaySnapshotNotifier.fromEnv(vertx, webClient);
+        transferRepository = new TransferRepository(offlinePaySnapshotNotifier);
         DbAlertMonitorService dbAlertMonitorService = DbAlertMonitorService.fromEnv(pool, metricsCollector, webClient);
 
         String profileImageUploadDir = System.getenv("PROFILE_IMAGE_UPLOAD_DIR");

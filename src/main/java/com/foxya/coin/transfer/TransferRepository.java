@@ -8,6 +8,7 @@ import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import com.foxya.coin.utils.BaseQueryBuilder.Sort;
 import com.foxya.coin.utils.QueryBuilder;
+import com.foxya.coin.wallet.OfflinePaySnapshotNotifier;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlClient;
@@ -22,6 +23,16 @@ import java.util.Map;
 
 @Slf4j
 public class TransferRepository extends BaseRepository {
+
+    private final OfflinePaySnapshotNotifier offlinePaySnapshotNotifier;
+
+    public TransferRepository() {
+        this(null);
+    }
+
+    public TransferRepository(OfflinePaySnapshotNotifier offlinePaySnapshotNotifier) {
+        this.offlinePaySnapshotNotifier = offlinePaySnapshotNotifier;
+    }
     
     // ========== Row Mappers ==========
     
@@ -653,6 +664,7 @@ public class TransferRepository extends BaseRepository {
 
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
+            .onSuccess(wallet -> notifyWalletRefresh(wallet, "wallet_balance_decreased"))
             .onFailure(e -> log.error("Failed to deduct balance - walletId: {}, amount: {}", walletId, amount));
     }
     
@@ -674,6 +686,7 @@ public class TransferRepository extends BaseRepository {
 
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
+            .onSuccess(wallet -> notifyWalletRefresh(wallet, "wallet_balance_increased"))
             .onFailure(e -> log.error("Failed to add balance - walletId: {}, amount: {}", walletId, amount));
     }
     
@@ -697,6 +710,7 @@ public class TransferRepository extends BaseRepository {
 
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
+            .onSuccess(wallet -> notifyWalletRefresh(wallet, "wallet_balance_locked"))
             .onFailure(e -> log.error("Failed to lock balance - walletId: {}, amount: {}", walletId, amount));
     }
     
@@ -731,7 +745,15 @@ public class TransferRepository extends BaseRepository {
 
         return query(client, sql, params)
             .map(rows -> fetchOne(walletMapper, rows))
+            .onSuccess(wallet -> notifyWalletRefresh(wallet, refund ? "wallet_balance_refunded" : "wallet_balance_unlocked"))
             .onFailure(e -> log.error("Failed to unlock balance - walletId: {}, amount: {}, refund: {}", walletId, amount, refund));
+    }
+
+    private void notifyWalletRefresh(Wallet wallet, String reason) {
+        if (wallet == null || wallet.getUserId() == null || offlinePaySnapshotNotifier == null) {
+            return;
+        }
+        offlinePaySnapshotNotifier.notifyWalletRefreshAsync(wallet.getUserId(), reason);
     }
     
     /**
