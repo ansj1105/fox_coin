@@ -81,6 +81,11 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 log.warn("wallet ops outbox fetch failed: {}", error.getMessage());
                 return Future.succeededFuture(fallbackObjectResponse("summary", "outbox_summary_unavailable", error));
             });
+        Future<JsonObject> offlinePayOverviewFuture = fetchKorionOfflinePayOverview()
+            .recover(error -> {
+                log.warn("wallet ops offline pay overview fetch failed: {}", error.getMessage());
+                return Future.succeededFuture(fallbackObjectResponse("summary", "offline_pay_overview_unavailable", error));
+            });
         Future<JsonObject> consumerFuture = fetchKorionEventConsumers()
             .recover(error -> {
                 log.warn("wallet ops event consumer fetch failed: {}", error.getMessage());
@@ -92,11 +97,12 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 return Future.succeededFuture(fallbackObjectResponse("summary", "signer_observability_unavailable", error));
             });
 
-        response(ctx, Future.all(monitoringFuture, feeFuture, outboxFuture, consumerFuture, signerFuture)
+        response(ctx, Future.all(monitoringFuture, feeFuture, outboxFuture, offlinePayOverviewFuture, consumerFuture, signerFuture)
             .map(result -> buildOverviewResponse(
                 monitoringFuture.result(),
                 feeFuture.result(),
                 outboxFuture.result(),
+                offlinePayOverviewFuture.result(),
                 consumerFuture.result(),
                 signerFuture.result()
             )));
@@ -114,10 +120,12 @@ public class AdminWalletOpsHandler extends BaseHandler {
         JsonObject monitoringBody,
         JsonObject feeBody,
         JsonObject outboxBody,
+        JsonObject offlinePayOverviewBody,
         JsonObject consumerBody,
         JsonObject signerBody
     ) {
         JsonObject outboxSummary = monitoringSafeObject(outboxBody, "summary");
+        JsonObject offlinePaySummary = monitoringSafeObject(offlinePayOverviewBody, "summary");
         JsonObject consumerSummary = monitoringSafeObject(consumerBody, "summary");
         JsonObject signerSummary = monitoringSafeObject(signerBody, "summary");
 
@@ -167,6 +175,12 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 .put("offlineCollateralReleasedCount", monitoringSafeObject(outboxBody, "workflow").getInteger("collateralReleasedCount", 0))
                 .put("offlineLedgerSyncedCount", monitoringSafeObject(outboxBody, "workflow").getInteger("ledgerSyncedCount", 0))
                 .put("offlineDeadLetteredCount", monitoringSafeObject(outboxBody, "workflow").getInteger("deadLetteredCount", 0))
+                .put("offlineOperationCompletedCount", offlinePaySummary.getInteger("completedCount", 0))
+                .put("offlineOperationPendingCount", offlinePaySummary.getInteger("pendingCount", 0))
+                .put("offlineOperationFailedCount", offlinePaySummary.getInteger("failedCount", 0))
+                .put("offlineOperationSettlementCount", offlinePaySummary.getInteger("settlementCount", 0))
+                .put("offlineOperationTopupCount", offlinePaySummary.getInteger("collateralTopupCount", 0))
+                .put("offlineOperationReleaseCount", offlinePaySummary.getInteger("collateralReleaseCount", 0))
                 .put("consumerFailureCount", consumerSummary.getInteger("failureCount", 0))
                 .put("consumerDeadLetterCount", consumerSummary.getInteger("deadLetterCount", 0))
             )
@@ -239,6 +253,15 @@ public class AdminWalletOpsHandler extends BaseHandler {
         return getJson(
             normalizeUrl(korionSystemApiBaseUrl, "/api/system/outbox"),
             new JsonObject().put("limit", 1),
+            korionSystemAdminApiKey,
+            "X-Api-Key"
+        );
+    }
+
+    private Future<JsonObject> fetchKorionOfflinePayOverview() {
+        return getJson(
+            normalizeUrl(korionSystemApiBaseUrl, "/api/system/offline-pay/operations/overview"),
+            new JsonObject().put("limit", 100),
             korionSystemAdminApiKey,
             "X-Api-Key"
         );
