@@ -7,24 +7,19 @@ import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import lombok.extern.slf4j.Slf4j;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class OfflinePaySnapshotNotifier {
 
     private static final String HEADER_API_KEY = "X-Internal-Api-Key";
+    private static final String DEFAULT_REASON = "wallet_balance_changed";
 
     private final Vertx vertx;
     private final WebClient webClient;
     private final String baseUrl;
     private final String internalApiKey;
     private final TelegramAlertNotifier telegramNotifier;
-    private final int failureThreshold;
-    private final long cooldownMs;
-    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
-    private final AtomicBoolean circuitOpenNotified = new AtomicBoolean(false);
-    private volatile long circuitOpenedAt = 0L;
+    private final OfflinePayNotifyCircuitBreaker circuitBreaker;
 
     public OfflinePaySnapshotNotifier(
         Vertx vertx,
@@ -32,16 +27,14 @@ public class OfflinePaySnapshotNotifier {
         String baseUrl,
         String internalApiKey,
         TelegramAlertNotifier telegramNotifier,
-        int failureThreshold,
-        long cooldownMs
+        OfflinePayNotifyCircuitBreaker circuitBreaker
     ) {
         this.vertx = vertx;
         this.webClient = webClient;
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
         this.internalApiKey = internalApiKey == null ? "" : internalApiKey.trim();
         this.telegramNotifier = telegramNotifier;
-        this.failureThreshold = Math.max(1, failureThreshold);
-        this.cooldownMs = Math.max(1_000L, cooldownMs);
+        this.circuitBreaker = circuitBreaker;
     }
 
     public static OfflinePaySnapshotNotifier fromEnv(Vertx vertx, WebClient webClient) {
@@ -58,8 +51,11 @@ public class OfflinePaySnapshotNotifier {
             baseUrl,
             internalApiKey,
             telegramNotifier,
-            parseIntEnv("OFFLINE_PAY_NOTIFY_FAILURE_THRESHOLD", 3),
-            parseLongEnv("OFFLINE_PAY_NOTIFY_COOLDOWN_MS", 60000L)
+            new OfflinePayNotifyCircuitBreaker(
+                parseBooleanEnv("OFFLINE_PAY_NOTIFY_CIRCUIT_BREAKER_ENABLED", true),
+                parseIntEnv("OFFLINE_PAY_NOTIFY_FAILURE_THRESHOLD", 3),
+                parseLongEnv("OFFLINE_PAY_NOTIFY_COOLDOWN_MS", 60000L)
+            )
         );
     }
 
@@ -67,22 +63,26 @@ public class OfflinePaySnapshotNotifier {
         if (userId == null || baseUrl.isBlank() || internalApiKey.isBlank()) {
             return;
         }
-        if (isCircuitOpen()) {
-            log.warn("offline_pay snapshot notifier circuit open - skipping wallet refresh notify, userId={}", userId);
-            return;
-        }
         vertx.runOnContext(ignored -> notifyWalletRefresh(userId, reason)
-            .onSuccess(ignoredResult -> onSuccess())
-            .onFailure(error -> onFailure(userId, reason, error)));
+            .onFailure(error -> log.warn("Failed to notify offline_pay wallet refresh - userId={}", userId, error)));
     }
 
     public Future<Void> notifyWalletRefresh(Long userId, String reason) {
         if (userId == null || baseUrl.isBlank() || internalApiKey.isBlank()) {
             return Future.succeededFuture();
         }
+        long nowMs = System.currentTimeMillis();
+        OfflinePayNotifyCircuitBreaker.PermitDecision permitDecision = circuitBreaker.tryAcquire(nowMs);
+        if (permitDecision == OfflinePayNotifyCircuitBreaker.PermitDecision.REJECT_OPEN) {
+            return Future.failedFuture(
+                "offline_pay wallet refresh notify circuit open: remainingMs=" + circuitBreaker.openRemainingMs(nowMs)
+            );
+        }
+
+        String normalizedReason = reason == null || reason.isBlank() ? DEFAULT_REASON : reason;
         JsonObject body = new JsonObject()
             .put("userId", userId)
-            .put("reason", reason == null || reason.isBlank() ? "wallet_balance_changed" : reason);
+            .put("reason", normalizedReason);
         return webClient
             .postAbs(baseUrl + "/api/snapshots/internal/wallet-refresh")
             .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -93,51 +93,68 @@ public class OfflinePaySnapshotNotifier {
                     return Future.succeededFuture();
                 }
                 return Future.failedFuture("offline_pay wallet refresh notify failed: HTTP " + response.statusCode());
-            });
+            })
+            .compose(ignored -> handleSuccess(userId, normalizedReason))
+            .recover(error -> handleFailure(userId, normalizedReason, error));
     }
 
-    private void onSuccess() {
-        boolean recovered = circuitOpenedAt != 0L || consecutiveFailures.get() > 0;
-        consecutiveFailures.set(0);
-        circuitOpenedAt = 0L;
-        circuitOpenNotified.set(false);
-        if (recovered) {
-            sendTelegram("[KORION] offline_pay notify recovered", "baseUrl=" + baseUrl + "\nmessage=wallet refresh notify recovered");
+    private Future<Void> handleSuccess(Long userId, String reason) {
+        OfflinePayNotifyCircuitBreaker.Transition transition = circuitBreaker.recordSuccess();
+        if (transition == OfflinePayNotifyCircuitBreaker.Transition.CLOSED) {
+            log.info("offline_pay snapshot notify circuit recovered - userId={}, reason={}", userId, reason);
+            return sendRecoveryAlert(userId, reason)
+                .recover(alertError -> {
+                    log.warn("Failed to send offline_pay notifier recovery telegram alert", alertError);
+                    return Future.succeededFuture();
+                });
         }
+        return Future.succeededFuture();
     }
 
-    private void onFailure(Long userId, String reason, Throwable error) {
-        log.warn("Failed to notify offline_pay wallet refresh - userId={}", userId, error);
-        int failures = consecutiveFailures.incrementAndGet();
-        if (failures < failureThreshold) {
-            return;
-        }
-        if (circuitOpenedAt == 0L) {
-            circuitOpenedAt = System.currentTimeMillis();
-        }
-        if (circuitOpenNotified.compareAndSet(false, true)) {
-            String title = "[KORION] offline_pay notify circuit opened";
-            String body = "userId=" + userId +
-                "\nreason=" + normalizeReason(reason) +
-                "\nfailures=" + failures +
-                "\nbaseUrl=" + baseUrl +
-                "\nerror=" + safeMessage(error);
-            sendTelegram(title, body);
-        }
+    private Future<Void> handleFailure(Long userId, String reason, Throwable error) {
+        long nowMs = System.currentTimeMillis();
+        OfflinePayNotifyCircuitBreaker.Transition transition = circuitBreaker.recordFailure(nowMs);
+        Future<Void> alertFuture = transition == OfflinePayNotifyCircuitBreaker.Transition.OPENED
+            ? sendOpenAlert(userId, reason, error, nowMs)
+            : Future.succeededFuture();
+
+        return alertFuture
+            .recover(alertError -> {
+                log.warn("Failed to send offline_pay notifier telegram alert", alertError);
+                return Future.succeededFuture();
+            })
+            .compose(ignored -> Future.failedFuture(error));
     }
 
-    private boolean isCircuitOpen() {
-        if (circuitOpenedAt == 0L) {
-            return false;
+    private Future<Void> sendOpenAlert(Long userId, String reason, Throwable error, long nowMs) {
+        if (telegramNotifier == null || !telegramNotifier.isEnabled()) {
+            return Future.succeededFuture();
         }
-        long elapsed = System.currentTimeMillis() - circuitOpenedAt;
-        if (elapsed < cooldownMs) {
-            return true;
+
+        String body = "service=foxya_coin_service" +
+            "\ntarget=offline_pay" +
+            "\nevent=circuit_opened" +
+            "\nbaseUrl=" + baseUrl +
+            "\nuserId=" + userId +
+            "\nreason=" + reason +
+            "\nconsecutiveFailures=" + circuitBreaker.consecutiveFailures() +
+            "\nopenRemainingMs=" + circuitBreaker.openRemainingMs(nowMs) +
+            "\nerror=" + safeMessage(error);
+        return telegramNotifier.sendMessage("[FOX] offline_pay snapshot notify circuit opened", body);
+    }
+
+    private Future<Void> sendRecoveryAlert(Long userId, String reason) {
+        if (telegramNotifier == null || !telegramNotifier.isEnabled()) {
+            return Future.succeededFuture();
         }
-        consecutiveFailures.set(0);
-        circuitOpenedAt = 0L;
-        circuitOpenNotified.set(false);
-        return false;
+
+        String body = "service=foxya_coin_service" +
+            "\ntarget=offline_pay" +
+            "\nevent=circuit_recovered" +
+            "\nbaseUrl=" + baseUrl +
+            "\nuserId=" + userId +
+            "\nreason=" + reason;
+        return telegramNotifier.sendMessage("[FOX] offline_pay snapshot notify recovered", body);
     }
 
     private String safeMessage(Throwable error) {
@@ -147,19 +164,13 @@ public class OfflinePaySnapshotNotifier {
         return error.getMessage();
     }
 
-    private String normalizeReason(String reason) {
-        if (reason == null || reason.isBlank()) {
-            return "wallet_balance_changed";
+    private static boolean parseBooleanEnv(String key, boolean defaultValue) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
         }
-        return reason;
-    }
-
-    private void sendTelegram(String title, String body) {
-        if (telegramNotifier == null || !telegramNotifier.isEnabled()) {
-            return;
-        }
-        telegramNotifier.sendMessage(title, body)
-            .onFailure(alertError -> log.warn("Failed to send offline_pay notifier telegram alert", alertError));
+        String normalized = value.trim();
+        return "true".equalsIgnoreCase(normalized) || "1".equals(normalized);
     }
 
     private static int parseIntEnv(String key, int defaultValue) {

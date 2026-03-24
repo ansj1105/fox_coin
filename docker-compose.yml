@@ -43,8 +43,14 @@ services:
     container_name: foxya-coin-api
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       TZ: Asia/Seoul
+      APP_ENV: prod
+      ENV: prod
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH:-/var/secrets/firebase-service-account.json}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/var/secrets/firebase-service-account.json}
@@ -59,6 +65,7 @@ services:
         condition: service_healthy
     networks:
       - fox_coin_foxya-network
+      - coin-shared
     restart: unless-stopped
 
 volumes:
@@ -68,3 +75,5 @@ volumes:
 networks:
   fox_coin_foxya-network:  # coin_csms와 공유하는 네트워크
     driver: bridge
+  coin-shared:
+    external: true
