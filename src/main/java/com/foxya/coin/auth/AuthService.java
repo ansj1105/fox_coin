@@ -1666,7 +1666,9 @@ public class AuthService extends BaseService {
         if (usingCode) {
             userInfoFuture = GoogleOAuthUtil.authenticate(webClient, dto.getCode(), clientId, clientSecret, redirectUri, dto.getCodeVerifier());
         } else {
-            String expectedAud = googleConfig.getString("clientId", clientId);
+            // Native Google sign-in id_tokens are issued for the platform client ID,
+            // not always the web client ID.
+            String expectedAud = clientId;
             userInfoFuture = GoogleOAuthUtil.verifyIdToken(webClient, dto.getIdToken(), expectedAud);
         }
 
