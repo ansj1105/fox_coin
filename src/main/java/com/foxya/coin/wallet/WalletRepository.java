@@ -11,6 +11,7 @@ import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.wallet.entities.Wallet;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -69,6 +70,44 @@ public class WalletRepository extends BaseRepository {
 
         return query(client, sql, Collections.singletonMap("userId", userId))
             .map(rows -> fetchAll(walletMapper, rows));
+    }
+
+    public Future<WalletBalanceSummary> getCurrencyBalanceSummary(SqlClient client, String currencyCode) {
+        String sql = QueryBuilder
+            .selectAlias("user_wallets", "uw",
+                "COUNT(*)::int AS wallet_count",
+                "COALESCE(SUM(uw.balance), 0) AS total_balance",
+                "COALESCE(SUM(uw.locked_balance), 0) AS total_locked_balance")
+            .innerJoin("currency", "c")
+            .on("uw.currency_id", Op.Equal, "c.id")
+            .where("c.code", Op.Equal, "currencyCode")
+            .andWhere("uw.status", Op.Equal, "status")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("currencyCode", currencyCode);
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> {
+                if (!rows.iterator().hasNext()) {
+                    return WalletBalanceSummary.builder()
+                        .currencyCode(currencyCode)
+                        .totalBalance(BigDecimal.ZERO)
+                        .totalLockedBalance(BigDecimal.ZERO)
+                        .walletCount(0)
+                        .build();
+                }
+
+                io.vertx.sqlclient.Row row = rows.iterator().next();
+                return WalletBalanceSummary.builder()
+                    .currencyCode(currencyCode)
+                    .totalBalance(getBigDecimalColumnValue(row, "total_balance"))
+                    .totalLockedBalance(getBigDecimalColumnValue(row, "total_locked_balance"))
+                    .walletCount(getIntegerColumnValue(row, "wallet_count"))
+                    .build();
+            });
     }
     
     /**

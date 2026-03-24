@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class WalletServiceNormalizeWalletsTest {
 
     @Test
-    void normalizeWalletsForClient_sumsKoriTronAndInternalBalances() {
+    void normalizeWalletsForClient_prefersInternalKoriBalanceWhileKeepingTronAddress() {
         Wallet koriTron = Wallet.builder()
             .id(10L)
             .userId(1L)
@@ -71,14 +71,14 @@ class WalletServiceNormalizeWalletsTest {
             .findFirst()
             .orElse(null);
         assertNotNull(normalizedKori);
-        assertEquals(new BigDecimal("197.016033492063491120"), normalizedKori.getBalance());
-        assertEquals(new BigDecimal("1.001"), normalizedKori.getLockedBalance());
+        assertEquals(new BigDecimal("35.017033492063491120"), normalizedKori.getBalance());
+        assertEquals(BigDecimal.ZERO, normalizedKori.getLockedBalance());
         assertEquals("TRON", normalizedKori.getNetwork());
         assertEquals("T_KORI_TRON", normalizedKori.getAddress());
     }
 
     @Test
-    void sumLogicalBalanceByCurrencyCode_usesSameKoriClientViewBalance() {
+    void sumLogicalBalanceByCurrencyCode_usesInternalKoriClientViewBalance() {
         Wallet koriTron = Wallet.builder()
             .id(10L)
             .userId(1L)
@@ -108,6 +108,6 @@ class WalletServiceNormalizeWalletsTest {
             "KORI"
         );
 
-        assertEquals(new BigDecimal("197.016033492063491120"), logicalKoriBalance);
+        assertEquals(new BigDecimal("35.017033492063491120"), logicalKoriBalance);
     }
 }

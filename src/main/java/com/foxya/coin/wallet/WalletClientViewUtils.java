@@ -47,14 +47,12 @@ public final class WalletClientViewUtils {
         }
 
         if (koriTron != null) {
-            BigDecimal effectiveBalance = sumNullableBalances(
-                koriTron.getBalance(),
-                koriInternal != null ? koriInternal.getBalance() : null
-            );
-            BigDecimal effectiveLockedBalance = sumNullableBalances(
-                koriTron.getLockedBalance(),
-                koriInternal != null ? koriInternal.getLockedBalance() : null
-            );
+            BigDecimal effectiveBalance = koriInternal != null
+                ? normalizeBalance(koriInternal.getBalance())
+                : normalizeBalance(koriTron.getBalance());
+            BigDecimal effectiveLockedBalance = koriInternal != null
+                ? normalizeBalance(koriInternal.getLockedBalance())
+                : normalizeBalance(koriTron.getLockedBalance());
             normalized.add(Wallet.builder()
                 .id(koriTron.getId())
                 .userId(koriTron.getUserId())
@@ -96,5 +94,9 @@ public final class WalletClientViewUtils {
         BigDecimal normalizedFirst = first != null ? first : BigDecimal.ZERO;
         BigDecimal normalizedSecond = second != null ? second : BigDecimal.ZERO;
         return normalizedFirst.add(normalizedSecond);
+    }
+
+    private static BigDecimal normalizeBalance(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 }

@@ -499,7 +499,7 @@ public class ApiVerticle extends AbstractVerticle {
         NoticeHandler noticeHandler = new NoticeHandler(vertx, noticeService, jwtAuth);
         NotificationHandler notificationHandler = new NotificationHandler(vertx, notificationService, jwtAuth);
         AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, retryQueuePublisher, jwtAuth);
-        AdminWalletOpsHandler adminWalletOpsHandler = new AdminWalletOpsHandler(vertx, webClient, jwtAuth);
+        AdminWalletOpsHandler adminWalletOpsHandler = new AdminWalletOpsHandler(vertx, webClient, jwtAuth, pool, walletRepository);
         AdminDbBackupHandler adminDbBackupHandler = new AdminDbBackupHandler(vertx, webClient, jwtAuth, pool);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);

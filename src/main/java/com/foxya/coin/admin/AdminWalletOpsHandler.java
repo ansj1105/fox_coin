@@ -4,6 +4,8 @@ import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.enums.UserRole;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.utils.AuthUtils;
+import com.foxya.coin.wallet.WalletBalanceSummary;
+import com.foxya.coin.wallet.WalletRepository;
 import io.vertx.core.Future;
 import io.vertx.core.MultiMap;
 import io.vertx.core.Vertx;
@@ -16,10 +18,13 @@ import io.vertx.ext.web.client.HttpRequest;
 import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.handler.JWTAuthHandler;
+import io.vertx.sqlclient.Pool;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 @Slf4j
 public class AdminWalletOpsHandler extends BaseHandler {
@@ -32,15 +37,19 @@ public class AdminWalletOpsHandler extends BaseHandler {
 
     private final WebClient webClient;
     private final JWTAuth jwtAuth;
+    private final Pool pool;
+    private final WalletRepository walletRepository;
     private final String korionSystemApiBaseUrl;
     private final String korionSystemAdminApiKey;
     private final String ledgerSignerApiBaseUrl;
     private final String ledgerSignerApiKey;
 
-    public AdminWalletOpsHandler(Vertx vertx, WebClient webClient, JWTAuth jwtAuth) {
+    public AdminWalletOpsHandler(Vertx vertx, WebClient webClient, JWTAuth jwtAuth, Pool pool, WalletRepository walletRepository) {
         super(vertx);
         this.webClient = webClient;
         this.jwtAuth = jwtAuth;
+        this.pool = pool;
+        this.walletRepository = walletRepository;
         this.korionSystemApiBaseUrl = readEnv("KORION_SYSTEM_API_BASE_URL", DEFAULT_KORION_SYSTEM_API_URL);
         this.korionSystemAdminApiKey = readEnv("KORION_SYSTEM_ADMIN_API_KEY", readEnv("KORION_WITHDRAW_ADMIN_API_KEY", ""));
         this.ledgerSignerApiBaseUrl = readEnv("LEDGER_SIGNER_API_URL", DEFAULT_LEDGER_SIGNER_API_URL);
@@ -86,6 +95,11 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 log.warn("wallet ops offline pay overview fetch failed: {}", error.getMessage());
                 return Future.succeededFuture(fallbackObjectResponse("summary", "offline_pay_overview_unavailable", error));
             });
+        Future<JsonObject> reconciliationFuture = fetchKorionReconciliation()
+            .recover(error -> {
+                log.warn("wallet ops reconciliation fetch failed: {}", error.getMessage());
+                return Future.succeededFuture(fallbackObjectResponse("ledger", "reconciliation_unavailable", error));
+            });
         Future<JsonObject> consumerFuture = fetchKorionEventConsumers()
             .recover(error -> {
                 log.warn("wallet ops event consumer fetch failed: {}", error.getMessage());
@@ -96,15 +110,36 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 log.warn("wallet ops signer observability fetch failed: {}", error.getMessage());
                 return Future.succeededFuture(fallbackObjectResponse("summary", "signer_observability_unavailable", error));
             });
+        Future<WalletBalanceSummary> walletBalanceSummaryFuture = walletRepository.getCurrencyBalanceSummary(pool, "KORI")
+            .recover(error -> {
+                log.warn("wallet ops wallet balance summary fetch failed: {}", error.getMessage());
+                return Future.succeededFuture(WalletBalanceSummary.builder()
+                    .currencyCode("KORI")
+                    .totalBalance(BigDecimal.ZERO)
+                    .totalLockedBalance(BigDecimal.ZERO)
+                    .walletCount(0)
+                    .build());
+            });
 
-        response(ctx, Future.all(monitoringFuture, feeFuture, outboxFuture, offlinePayOverviewFuture, consumerFuture, signerFuture)
+        response(ctx, Future.all(List.of(
+                monitoringFuture,
+                feeFuture,
+                outboxFuture,
+                offlinePayOverviewFuture,
+                reconciliationFuture,
+                consumerFuture,
+                signerFuture,
+                walletBalanceSummaryFuture
+            ))
             .map(result -> buildOverviewResponse(
                 monitoringFuture.result(),
                 feeFuture.result(),
                 outboxFuture.result(),
                 offlinePayOverviewFuture.result(),
+                reconciliationFuture.result(),
                 consumerFuture.result(),
-                signerFuture.result()
+                signerFuture.result(),
+                walletBalanceSummaryFuture.result()
             )));
     }
 
@@ -121,17 +156,31 @@ public class AdminWalletOpsHandler extends BaseHandler {
         JsonObject feeBody,
         JsonObject outboxBody,
         JsonObject offlinePayOverviewBody,
+        JsonObject reconciliationBody,
         JsonObject consumerBody,
-        JsonObject signerBody
+        JsonObject signerBody,
+        WalletBalanceSummary walletBalanceSummary
     ) {
         JsonObject outboxSummary = monitoringSafeObject(outboxBody, "summary");
         JsonObject offlinePaySummary = monitoringSafeObject(offlinePayOverviewBody, "summary");
+        JsonObject reconciliationLedger = monitoringSafeObject(reconciliationBody, "ledger");
         JsonObject consumerSummary = monitoringSafeObject(consumerBody, "summary");
         JsonObject signerSummary = monitoringSafeObject(signerBody, "summary");
 
         JsonArray monitoringItems = monitoringBody.getJsonArray("items", new JsonArray());
         JsonArray feeItems = feeBody.getJsonArray("items", new JsonArray());
-        JsonArray warnings = collectWarnings(monitoringBody, feeBody, outboxBody, consumerBody, signerBody);
+        JsonArray warnings = collectWarnings(monitoringBody, feeBody, outboxBody, reconciliationBody, consumerBody, signerBody);
+        BigDecimal clientVisibleBalance = walletBalanceSummary != null && walletBalanceSummary.getTotalBalance() != null
+            ? walletBalanceSummary.getTotalBalance()
+            : BigDecimal.ZERO;
+        BigDecimal clientVisibleLockedBalance = walletBalanceSummary != null && walletBalanceSummary.getTotalLockedBalance() != null
+            ? walletBalanceSummary.getTotalLockedBalance()
+            : BigDecimal.ZERO;
+        BigDecimal ledgerAvailableBalance = parseDecimal(reconciliationLedger.getString("availableBalance"));
+        BigDecimal ledgerLockedBalance = parseDecimal(reconciliationLedger.getString("lockedBalance"));
+        BigDecimal ledgerLiabilityBalance = parseDecimal(reconciliationLedger.getString("liabilityBalance"));
+        BigDecimal clientVsLedgerGap = clientVisibleBalance.subtract(ledgerLiabilityBalance);
+        BigDecimal lockedVsLedgerGap = clientVisibleLockedBalance.subtract(ledgerLockedBalance);
 
         JsonArray monitoringPoints = new JsonArray();
         for (int i = 0; i < monitoringItems.size(); i++) {
@@ -181,6 +230,16 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 .put("offlineOperationSettlementCount", offlinePaySummary.getInteger("settlementCount", 0))
                 .put("offlineOperationTopupCount", offlinePaySummary.getInteger("collateralTopupCount", 0))
                 .put("offlineOperationReleaseCount", offlinePaySummary.getInteger("collateralReleaseCount", 0))
+                .put("clientVisibleKoriBalance", toPlain(clientVisibleBalance))
+                .put("clientVisibleKoriLockedBalance", toPlain(clientVisibleLockedBalance))
+                .put("clientVisibleKoriWalletCount", walletBalanceSummary != null ? walletBalanceSummary.getWalletCount() : 0)
+                .put("ledgerAvailableBalance", toPlain(ledgerAvailableBalance))
+                .put("ledgerLockedBalance", toPlain(ledgerLockedBalance))
+                .put("ledgerLiabilityBalance", toPlain(ledgerLiabilityBalance))
+                .put("clientVsLedgerGapAmount", toPlain(clientVsLedgerGap))
+                .put("clientVsLedgerGapStatus", classifyGap(clientVsLedgerGap))
+                .put("lockedVsLedgerGapAmount", toPlain(lockedVsLedgerGap))
+                .put("lockedVsLedgerGapStatus", classifyGap(lockedVsLedgerGap))
                 .put("consumerFailureCount", consumerSummary.getInteger("failureCount", 0))
                 .put("consumerDeadLetterCount", consumerSummary.getInteger("deadLetterCount", 0))
             )
@@ -262,6 +321,15 @@ public class AdminWalletOpsHandler extends BaseHandler {
         return getJson(
             normalizeUrl(korionSystemApiBaseUrl, "/api/system/offline-pay/operations/overview"),
             new JsonObject().put("limit", 100),
+            korionSystemAdminApiKey,
+            "X-Api-Key"
+        );
+    }
+
+    private Future<JsonObject> fetchKorionReconciliation() {
+        return getJson(
+            normalizeUrl(korionSystemApiBaseUrl, "/api/system/reconciliation"),
+            new JsonObject(),
             korionSystemAdminApiKey,
             "X-Api-Key"
         );
@@ -351,6 +419,28 @@ public class AdminWalletOpsHandler extends BaseHandler {
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = path.startsWith("/") ? path : "/" + path;
         return normalizedBase + normalizedPath;
+    }
+
+    private BigDecimal parseDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException error) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private String toPlain(BigDecimal value) {
+        return value != null ? value.stripTrailingZeros().toPlainString() : "0";
+    }
+
+    private String classifyGap(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) == 0) {
+            return "balanced";
+        }
+        return value.compareTo(BigDecimal.ZERO) > 0 ? "surplus" : "deficit";
     }
 
     private String readEnv(String key, String fallback) {
