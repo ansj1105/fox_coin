@@ -97,9 +97,13 @@ public class OfflinePaySnapshotNotifier {
     }
 
     private void onSuccess() {
+        boolean recovered = circuitOpenedAt != 0L || consecutiveFailures.get() > 0;
         consecutiveFailures.set(0);
         circuitOpenedAt = 0L;
         circuitOpenNotified.set(false);
+        if (recovered) {
+            sendTelegram("[KORION] offline_pay notify recovered", "baseUrl=" + baseUrl + "\nmessage=wallet refresh notify recovered");
+        }
     }
 
     private void onFailure(Long userId, String reason, Throwable error) {
@@ -114,12 +118,11 @@ public class OfflinePaySnapshotNotifier {
         if (circuitOpenNotified.compareAndSet(false, true)) {
             String title = "[KORION] offline_pay notify circuit opened";
             String body = "userId=" + userId +
-                "\nreason=" + (reason == null ? "" : reason) +
+                "\nreason=" + normalizeReason(reason) +
                 "\nfailures=" + failures +
                 "\nbaseUrl=" + baseUrl +
                 "\nerror=" + safeMessage(error);
-            telegramNotifier.sendMessage(title, body)
-                .onFailure(alertError -> log.warn("Failed to send offline_pay notifier telegram alert", alertError));
+            sendTelegram(title, body);
         }
     }
 
@@ -142,6 +145,21 @@ public class OfflinePaySnapshotNotifier {
             return "unknown";
         }
         return error.getMessage();
+    }
+
+    private String normalizeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "wallet_balance_changed";
+        }
+        return reason;
+    }
+
+    private void sendTelegram(String title, String body) {
+        if (telegramNotifier == null || !telegramNotifier.isEnabled()) {
+            return;
+        }
+        telegramNotifier.sendMessage(title, body)
+            .onFailure(alertError -> log.warn("Failed to send offline_pay notifier telegram alert", alertError));
     }
 
     private static int parseIntEnv(String key, int defaultValue) {
