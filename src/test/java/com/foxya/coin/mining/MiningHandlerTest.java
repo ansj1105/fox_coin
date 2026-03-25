@@ -295,7 +295,7 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(11)
-        @DisplayName("성공 - INTERNAL/TRON KORI 지갑이 함께 있으면 totalBalance는 합산값을 반환")
+        @DisplayName("성공 - INTERNAL/TRON KORI 지갑이 함께 있으면 totalBalance는 INTERNAL 기준으로 반환")
         void successGetMiningInfoSumsAllKoriWallets(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
             String insertTronKoriCurrencySql = """
@@ -330,7 +330,7 @@ public class MiningHandlerTest extends HandlerTestBase {
                     .send())
                 .onComplete(tc.succeeding(res -> tc.verify(() -> {
                     MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
-                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1234.567000000000000000"));
+                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1000.000000000000000000"));
                     tc.completeNow();
                 })));
         }

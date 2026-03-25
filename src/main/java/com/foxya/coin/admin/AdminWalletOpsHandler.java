@@ -110,7 +110,7 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 log.warn("wallet ops signer observability fetch failed: {}", error.getMessage());
                 return Future.succeededFuture(fallbackObjectResponse("summary", "signer_observability_unavailable", error));
             });
-        Future<WalletBalanceSummary> walletBalanceSummaryFuture = walletRepository.getCurrencyBalanceSummary(pool, "KORI")
+        Future<WalletBalanceSummary> walletBalanceSummaryFuture = walletRepository.getLogicalCurrencyBalanceSummary(pool, "KORI")
             .recover(error -> {
                 log.warn("wallet ops wallet balance summary fetch failed: {}", error.getMessage());
                 return Future.succeededFuture(WalletBalanceSummary.builder()

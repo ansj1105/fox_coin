@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class WalletRepository extends BaseRepository {
@@ -106,6 +107,58 @@ public class WalletRepository extends BaseRepository {
                     .totalBalance(getBigDecimalColumnValue(row, "total_balance"))
                     .totalLockedBalance(getBigDecimalColumnValue(row, "total_locked_balance"))
                     .walletCount(getIntegerColumnValue(row, "wallet_count"))
+                    .build();
+            });
+    }
+
+    public Future<WalletBalanceSummary> getLogicalCurrencyBalanceSummary(SqlClient client, String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank()) {
+            return Future.succeededFuture(WalletBalanceSummary.builder()
+                .currencyCode(currencyCode)
+                .totalBalance(BigDecimal.ZERO)
+                .totalLockedBalance(BigDecimal.ZERO)
+                .walletCount(0)
+                .build());
+        }
+
+        String sql = managedWalletWithCurrencySelect()
+            .where("c.code", Op.Equal, "currencyCode")
+            .andWhere("uw.status", Op.Equal, "status")
+            .andWhere("uw.deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("currencyCode", currencyCode);
+        params.put("status", "ACTIVE");
+
+        return query(client, sql, params)
+            .map(rows -> fetchAll(walletMapper, rows))
+            .map(wallets -> {
+                Map<Long, List<Wallet>> walletsByUserId = wallets.stream()
+                    .filter(wallet -> wallet.getUserId() != null)
+                    .collect(Collectors.groupingBy(Wallet::getUserId));
+
+                BigDecimal totalBalance = BigDecimal.ZERO;
+                BigDecimal totalLockedBalance = BigDecimal.ZERO;
+                int logicalWalletCount = 0;
+
+                for (List<Wallet> userWallets : walletsByUserId.values()) {
+                    List<Wallet> normalizedWallets = WalletClientViewUtils.normalizeWalletsForClient(userWallets);
+                    for (Wallet wallet : normalizedWallets) {
+                        if (!currencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
+                            continue;
+                        }
+                        totalBalance = totalBalance.add(wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO);
+                        totalLockedBalance = totalLockedBalance.add(wallet.getLockedBalance() != null ? wallet.getLockedBalance() : BigDecimal.ZERO);
+                        logicalWalletCount++;
+                    }
+                }
+
+                return WalletBalanceSummary.builder()
+                    .currencyCode(currencyCode)
+                    .totalBalance(totalBalance)
+                    .totalLockedBalance(totalLockedBalance)
+                    .walletCount(logicalWalletCount)
                     .build();
             });
     }
