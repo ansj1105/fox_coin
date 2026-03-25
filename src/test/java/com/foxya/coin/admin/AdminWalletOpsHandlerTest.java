@@ -34,8 +34,12 @@ class AdminWalletOpsHandlerTest extends HandlerTestBase {
                 assertThat(data.getJsonObject("summary").getInteger("outboxPendingCount")).isGreaterThanOrEqualTo(0);
                 assertThat(data.getJsonObject("summary").getInteger("consumerFailureCount")).isGreaterThanOrEqualTo(0);
                 assertThat(data.getJsonObject("summary").getString("clientVisibleKoriBalance")).isNotNull();
+                assertThat(data.getJsonObject("summary").getString("clientVisibleCanonicalBasis")).isEqualTo("FOX_INTERNAL_KORI_BALANCE");
+                assertThat(data.getJsonObject("summary").getString("custodyCanonicalBasis")).isEqualTo("COIN_MANAGE_LEDGER");
                 assertThat(data.getJsonObject("summary").getString("ledgerLiabilityBalance")).isNotNull();
                 assertThat(data.getJsonObject("summary").getString("clientVsLedgerGapAmount")).isNotNull();
+                assertThat(data.getJsonObject("summary").getString("clientVsLedgerRecommendedAction")).isNotNull();
+                assertThat(data.getJsonObject("summary").getString("lockedVsLedgerRecommendedAction")).isNotNull();
                 assertThat(data.getJsonArray("monitoringPoints", new JsonArray())).isNotNull();
                 assertThat(data.getJsonArray("feeSnapshots", new JsonArray())).isNotNull();
                 assertThat(data.getJsonArray("warnings", new JsonArray())).isNotEmpty();

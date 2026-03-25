@@ -233,13 +233,23 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 .put("clientVisibleKoriBalance", toPlain(clientVisibleBalance))
                 .put("clientVisibleKoriLockedBalance", toPlain(clientVisibleLockedBalance))
                 .put("clientVisibleKoriWalletCount", walletBalanceSummary != null ? walletBalanceSummary.getWalletCount() : 0)
+                .put("clientVisibleCanonicalBasis", "FOX_INTERNAL_KORI_BALANCE")
+                .put("clientVisibleBalanceIncludes", new JsonArray()
+                    .add("mining_rewards")
+                    .add("referral_rewards")
+                    .add("airdrops")
+                    .add("internal_settlements"))
+                .put("custodyCanonicalBasis", "COIN_MANAGE_LEDGER")
+                .put("offlineCollateralCanonicalBasis", "COIN_MANAGE_LOCKED_BALANCE")
                 .put("ledgerAvailableBalance", toPlain(ledgerAvailableBalance))
                 .put("ledgerLockedBalance", toPlain(ledgerLockedBalance))
                 .put("ledgerLiabilityBalance", toPlain(ledgerLiabilityBalance))
                 .put("clientVsLedgerGapAmount", toPlain(clientVsLedgerGap))
                 .put("clientVsLedgerGapStatus", classifyGap(clientVsLedgerGap))
+                .put("clientVsLedgerRecommendedAction", classifyClientLedgerSyncAction(clientVsLedgerGap))
                 .put("lockedVsLedgerGapAmount", toPlain(lockedVsLedgerGap))
                 .put("lockedVsLedgerGapStatus", classifyGap(lockedVsLedgerGap))
+                .put("lockedVsLedgerRecommendedAction", classifyLockedLedgerSyncAction(lockedVsLedgerGap))
                 .put("consumerFailureCount", consumerSummary.getInteger("failureCount", 0))
                 .put("consumerDeadLetterCount", consumerSummary.getInteger("deadLetterCount", 0))
             )
@@ -441,6 +451,24 @@ public class AdminWalletOpsHandler extends BaseHandler {
             return "balanced";
         }
         return value.compareTo(BigDecimal.ZERO) > 0 ? "surplus" : "deficit";
+    }
+
+    private String classifyClientLedgerSyncAction(BigDecimal gap) {
+        if (gap == null || gap.compareTo(BigDecimal.ZERO) == 0) {
+            return "none";
+        }
+        return gap.compareTo(BigDecimal.ZERO) > 0
+            ? "reconcile_coin_manage_liability_up_or_foxya_client_balance_down"
+            : "reconcile_coin_manage_liability_down_or_foxya_client_balance_up";
+    }
+
+    private String classifyLockedLedgerSyncAction(BigDecimal gap) {
+        if (gap == null || gap.compareTo(BigDecimal.ZERO) == 0) {
+            return "none";
+        }
+        return gap.compareTo(BigDecimal.ZERO) > 0
+            ? "reconcile_coin_manage_locked_balance_up_or_foxya_locked_balance_down"
+            : "reconcile_coin_manage_locked_balance_down_or_foxya_locked_balance_up";
     }
 
     private String readEnv(String key, String fallback) {
