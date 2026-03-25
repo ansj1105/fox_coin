@@ -73,6 +73,40 @@ public class WalletService extends BaseService {
             .compose(v -> walletRepository.getWalletsByUserId(pool, userId))
             .map(WalletClientViewUtils::normalizeWalletsForClient);
     }
+
+    public Future<CanonicalWalletSnapshot> getCanonicalWalletSnapshot(Long userId, String currencyCode) {
+        String normalizedCurrencyCode = currencyCode == null || currencyCode.isBlank()
+            ? "KORI"
+            : currencyCode.trim().toUpperCase();
+        return walletRepository.getWalletsByUserId(pool, userId)
+            .map(wallets -> {
+                BigDecimal totalBalance = BigDecimal.ZERO;
+                BigDecimal lockedBalance = BigDecimal.ZERO;
+                int walletCount = 0;
+                for (Wallet wallet : wallets) {
+                    if (wallet == null) {
+                        continue;
+                    }
+                    if (!normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
+                        continue;
+                    }
+                    if (!"INTERNAL".equalsIgnoreCase(wallet.getNetwork())) {
+                        continue;
+                    }
+                    totalBalance = totalBalance.add(wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance());
+                    lockedBalance = lockedBalance.add(wallet.getLockedBalance() == null ? BigDecimal.ZERO : wallet.getLockedBalance());
+                    walletCount += 1;
+                }
+                return CanonicalWalletSnapshot.builder()
+                    .userId(userId)
+                    .currencyCode(normalizedCurrencyCode)
+                    .totalBalance(totalBalance)
+                    .lockedBalance(lockedBalance)
+                    .walletCount(walletCount)
+                    .canonicalBasis("FOX_INTERNAL_KORI_BALANCE")
+                    .build();
+            });
+    }
     
     /**
      * 지갑 생성
@@ -180,6 +214,17 @@ public class WalletService extends BaseService {
                                 .build());
                     });
             });
+    }
+
+    @lombok.Value
+    @lombok.Builder
+    public static class CanonicalWalletSnapshot {
+        Long userId;
+        String currencyCode;
+        BigDecimal totalBalance;
+        BigDecimal lockedBalance;
+        Integer walletCount;
+        String canonicalBasis;
     }
 
     public Future<String> requestWalletRegistrationChallenge(Long userId, String address, String chain) {

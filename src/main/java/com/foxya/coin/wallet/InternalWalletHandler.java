@@ -7,6 +7,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
 
 /**
  * 외부 wallet issuer(coin_manage)용 내부 API.
@@ -31,6 +32,7 @@ public class InternalWalletHandler extends BaseHandler {
         Router router = Router.router(getVertx());
         router.route().handler(this::checkInternalApiKey);
         router.post("/sync-virtual").handler(this::syncVirtualWallet);
+        router.get("/snapshot").handler(this::getCanonicalWalletSnapshot);
         return router;
     }
 
@@ -71,5 +73,37 @@ public class InternalWalletHandler extends BaseHandler {
 
         log.info("Internal wallet sync: userId={}, currencyId={}, address={}", userId, currencyId, address);
         response(ctx, walletService.syncInternalVirtualWallet(userId, currencyId, address, privateKey, verified));
+    }
+
+    private void getCanonicalWalletSnapshot(RoutingContext ctx) {
+        String userIdRaw = ctx.request().getParam("userId");
+        if (userIdRaw == null || userIdRaw.isBlank()) {
+            ctx.fail(400, new IllegalArgumentException("userId required"));
+            return;
+        }
+
+        long userId;
+        try {
+            userId = Long.parseLong(userIdRaw);
+        } catch (NumberFormatException exception) {
+            ctx.fail(400, new IllegalArgumentException("invalid userId"));
+            return;
+        }
+
+        String currencyCode = ctx.request().getParam("currencyCode");
+        walletService.getCanonicalWalletSnapshot(userId, currencyCode)
+            .map(snapshot -> new JsonObject()
+                .put("status", "OK")
+                .put("userId", snapshot.getUserId())
+                .put("currencyCode", snapshot.getCurrencyCode())
+                .put("totalBalance", snapshot.getTotalBalance().toPlainString())
+                .put("lockedBalance", snapshot.getLockedBalance().toPlainString())
+                .put("walletCount", snapshot.getWalletCount())
+                .put("canonicalBasis", snapshot.getCanonicalBasis())
+                .put("refreshedAt", Instant.now().toString()))
+            .onSuccess(payload -> ctx.response()
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .end(payload.encode()))
+            .onFailure(ctx::fail);
     }
 }
