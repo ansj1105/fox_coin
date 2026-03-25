@@ -80,17 +80,12 @@ public class WalletService extends BaseService {
             : currencyCode.trim().toUpperCase();
         return walletRepository.getWalletsByUserId(pool, userId)
             .map(wallets -> {
+                List<Wallet> normalizedWallets = WalletClientViewUtils.normalizeWalletsForClient(wallets);
                 BigDecimal totalBalance = BigDecimal.ZERO;
                 BigDecimal lockedBalance = BigDecimal.ZERO;
                 int walletCount = 0;
-                for (Wallet wallet : wallets) {
-                    if (wallet == null) {
-                        continue;
-                    }
-                    if (!normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
-                        continue;
-                    }
-                    if (!"INTERNAL".equalsIgnoreCase(wallet.getNetwork())) {
+                for (Wallet wallet : normalizedWallets) {
+                    if (wallet == null || !normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
                         continue;
                     }
                     totalBalance = totalBalance.add(wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance());
@@ -103,7 +98,7 @@ public class WalletService extends BaseService {
                     .totalBalance(totalBalance)
                     .lockedBalance(lockedBalance)
                     .walletCount(walletCount)
-                    .canonicalBasis("FOX_INTERNAL_KORI_BALANCE")
+                    .canonicalBasis("FOX_CLIENT_VISIBLE_TOTAL_KORI")
                     .build();
             });
     }

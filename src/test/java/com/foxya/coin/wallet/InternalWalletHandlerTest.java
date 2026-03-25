@@ -30,7 +30,7 @@ class InternalWalletHandlerTest {
                 .totalBalance(new BigDecimal("198.253587"))
                 .lockedBalance(new BigDecimal("1.001"))
                 .walletCount(1)
-                .canonicalBasis("FOX_INTERNAL_KORI_BALANCE")
+                .canonicalBasis("FOX_CLIENT_VISIBLE_TOTAL_KORI")
                 .build()
         ));
 
@@ -50,7 +50,7 @@ class InternalWalletHandlerTest {
                     assertThat(response.statusCode()).isEqualTo(200);
                     assertThat(response.bodyAsJsonObject().getString("currencyCode")).isEqualTo("KORI");
                     assertThat(response.bodyAsJsonObject().getString("totalBalance")).isEqualTo("198.253587");
-                    assertThat(response.bodyAsJsonObject().getString("canonicalBasis")).isEqualTo("FOX_INTERNAL_KORI_BALANCE");
+                    assertThat(response.bodyAsJsonObject().getString("canonicalBasis")).isEqualTo("FOX_CLIENT_VISIBLE_TOTAL_KORI");
                     return server.close();
                 })
         ).onSuccess(v -> tc.completeNow())
