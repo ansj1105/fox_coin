@@ -280,8 +280,16 @@ public class AuthService extends BaseService {
         String normalizedOs = deviceOs.toUpperCase();
         String slotType = resolveDeviceSlotType(normalizedType);
         LocalDateTime now = LocalDateTime.now();
-        Future<Device> existingFuture = deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
-        return existingFuture
+        Future<Device> existingByDeviceIdFuture = deviceRepository.getActiveDeviceByUserAndDeviceId(pool, userId, deviceId);
+        Future<Device> existingByTypeFuture = deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
+        return existingByDeviceIdFuture
+            .compose(existingByDeviceId -> {
+                if (existingByDeviceId != null) {
+                    return deviceRepository.updateDeviceRegistration(pool, existingByDeviceId.getId(), slotType, normalizedOs, appVersion, userAgent, clientIp, now)
+                        .map(existingByDeviceId);
+                }
+                return existingByTypeFuture;
+            })
             .compose(existing -> {
                 if (existing == null) {
                     return createDeviceWithUniqueRetry(userId, deviceId, slotType, normalizedOs, appVersion, clientIp, userAgent, now);
@@ -311,11 +319,18 @@ public class AuthService extends BaseService {
             .build();
         return deviceRepository.createDevice(pool, device)
             .recover(throwable -> {
-                if (!isActiveDeviceTypeUniqueViolation(throwable)) {
+                if (!isActiveDeviceUniqueViolation(throwable)) {
                     return Future.failedFuture(throwable);
                 }
-                log.warn("Concurrent device slot insert detected. userId={}, slotType={}, deviceId={}", userId, slotType, deviceId);
-                return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
+                log.warn("Concurrent device insert detected. userId={}, slotType={}, deviceId={}", userId, slotType, deviceId);
+                return deviceRepository.getActiveDeviceByUserAndDeviceId(pool, userId, deviceId)
+                    .compose(activeDevice -> {
+                        if (activeDevice != null) {
+                            return deviceRepository.updateDeviceRegistration(pool, activeDevice.getId(), slotType, normalizedOs, appVersion, userAgent, clientIp, now)
+                                .map(activeDevice);
+                        }
+                        return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
+                    })
                     .compose(activeDevice -> {
                         if (activeDevice == null) {
                             return Future.failedFuture(throwable);
@@ -334,11 +349,13 @@ public class AuthService extends BaseService {
         return "WEB".equals(normalizedType) ? "WEB" : "MOBILE";
     }
 
-    private boolean isActiveDeviceTypeUniqueViolation(Throwable throwable) {
+    private boolean isActiveDeviceUniqueViolation(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
             if (current instanceof PgException pgException) {
-                if ("23505".equals(pgException.getCode()) && "ux_devices_user_type_active".equals(pgException.getConstraint())) {
+                if ("23505".equals(pgException.getCode())
+                    && ("ux_devices_user_type_active".equals(pgException.getConstraint())
+                    || "ux_devices_user_device_active".equals(pgException.getConstraint()))) {
                     return true;
                 }
             }

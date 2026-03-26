@@ -200,6 +200,26 @@ public class DeviceRepository extends BaseRepository {
             .mapEmpty();
     }
 
+    public Future<Void> updateDeviceRegistration(SqlClient client, Long id, String deviceType, String deviceOs, String appVersion, String userAgent, String lastIp, LocalDateTime lastLoginAt) {
+        String sql = QueryBuilder.update("devices", "device_type", "device_os", "app_version", "user_agent", "last_ip", "last_login_at", "updated_at")
+            .where("id", Op.Equal, "id")
+            .andWhere("deleted_at", Op.IsNull)
+            .build();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", id);
+        params.put("device_type", deviceType);
+        params.put("device_os", deviceOs);
+        params.put("app_version", appVersion);
+        params.put("user_agent", userAgent);
+        params.put("last_ip", lastIp);
+        params.put("last_login_at", lastLoginAt);
+        params.put("updated_at", LocalDateTime.now());
+
+        return query(client, sql, params)
+            .mapEmpty();
+    }
+
     public Future<Void> softDeleteDeviceByUserAndType(SqlClient client, Long userId, String deviceType) {
         String sql = QueryBuilder.update("devices", "deleted_at", "updated_at")
             .where("user_id", Op.Equal, "userId")
