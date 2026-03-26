@@ -277,11 +277,9 @@ public class AuthService extends BaseService {
         }
         String normalizedType = deviceType.toUpperCase();
         String normalizedOs = deviceOs.toUpperCase();
-        String slotType = "WEB".equals(normalizedType) ? "WEB" : normalizedOs;
+        String slotType = resolveDeviceSlotType(normalizedType);
         LocalDateTime now = LocalDateTime.now();
-        Future<Device> existingFuture = "WEB".equals(slotType)
-            ? deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
-            : deviceRepository.getActiveDeviceByUserAndDeviceOs(pool, userId, slotType);
+        Future<Device> existingFuture = deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
         return existingFuture
             .compose(existing -> {
                 if (existing == null) {
@@ -319,7 +317,11 @@ public class AuthService extends BaseService {
                         .compose(v -> createNewDeviceLoginNotice(userId, existing.getDeviceId(), deviceId, slotType));
                 }
                 return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
-            });
+                });
+    }
+
+    private String resolveDeviceSlotType(String normalizedType) {
+        return "WEB".equals(normalizedType) ? "WEB" : "MOBILE";
     }
 
     /**
@@ -1353,26 +1355,14 @@ public class AuthService extends BaseService {
                 });
         }
         if (deviceType != null && !deviceType.isBlank()) {
-            String normalizedType = deviceType.toUpperCase();
-            if ("WEB".equals(normalizedType)) {
-                return deviceRepository.getActiveDeviceByUserAndType(pool, userId, "WEB")
-                    .compose(device -> {
-                        if (device == null) {
-                            return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
-                        }
-                        return Future.succeededFuture();
-                    });
-            }
-            if (deviceOs != null && !deviceOs.isBlank()) {
-                String normalizedOs = deviceOs.toUpperCase();
-                return deviceRepository.getActiveDeviceByUserAndDeviceOs(pool, userId, normalizedOs)
-                    .compose(device -> {
-                        if (device == null) {
-                            return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
-                        }
-                        return Future.succeededFuture();
-                    });
-            }
+            String slotType = resolveDeviceSlotType(deviceType.toUpperCase());
+            return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
+                .compose(device -> {
+                    if (device == null) {
+                        return Future.failedFuture(new UnauthorizedException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
+                    }
+                    return Future.succeededFuture();
+                });
         }
         return Future.succeededFuture();
     }
@@ -1463,15 +1453,8 @@ public class AuthService extends BaseService {
         } else if (deviceId != null && !deviceId.isBlank()) {
             deviceCleanup = deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, deviceId);
         } else if (deviceType != null && !deviceType.isBlank()) {
-            String normalizedType = deviceType.toUpperCase();
-            String normalizedOs = deviceOs != null ? deviceOs.toUpperCase() : null;
-            if ("WEB".equals(normalizedType)) {
-                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, "WEB");
-            } else if (normalizedOs != null && !normalizedOs.isBlank()) {
-                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndDeviceOs(pool, userId, normalizedOs);
-            } else {
-                deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, normalizedType);
-            }
+            String slotType = resolveDeviceSlotType(deviceType.toUpperCase());
+            deviceCleanup = deviceRepository.softDeleteDeviceByUserAndType(pool, userId, slotType);
         } else {
             deviceCleanup = Future.succeededFuture();
         }

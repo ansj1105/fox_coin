@@ -575,6 +575,62 @@ public class AuthHandlerTest extends HandlerTestBase {
                         })));
                 })));
         }
+
+        @Test
+        @Order(27)
+        @DisplayName("성공 - 모바일 OS가 달라도 동일 MOBILE 슬롯 로그인 시 기존 기기 교체")
+        void replaceMobileDeviceAcrossDifferentOs(VertxTestContext tc) {
+            JsonObject androidLogin = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("limit-device-mobile-android-1", "MOBILE", "ANDROID"));
+            JsonObject iosLogin = new JsonObject()
+                .put("loginId", "testuser")
+                .put("password", "Test1234!@")
+                .mergeIn(deviceInfo("limit-device-mobile-ios-1", "MOBILE", "IOS"));
+
+            reqPost(getUrl("/login"))
+                .sendJson(androidLogin, tc.succeeding(androidRes -> tc.verify(() -> {
+                    LoginResponseDto androidDto = expectSuccessAndGetResponse(androidRes, refLoginResponse);
+                    reqPost(getUrl("/login"))
+                        .sendJson(iosLogin, tc.succeeding(iosRes -> tc.verify(() -> {
+                            LoginResponseDto iosDto = expectSuccessAndGetResponse(iosRes, refLoginResponse);
+                            reqGetWithCustomHeaders(
+                                "/api/v1/users/me",
+                                androidDto.getAccessToken(),
+                                "limit-device-mobile-android-1",
+                                "MOBILE",
+                                "ANDROID"
+                            ).send(tc.succeeding(oldRes -> tc.verify(() -> {
+                                expectError(oldRes, 401);
+                                reqGetWithCustomHeaders(
+                                    "/api/v1/users/me",
+                                    iosDto.getAccessToken(),
+                                    "limit-device-mobile-ios-1",
+                                    "MOBILE",
+                                    "IOS"
+                                ).send(tc.succeeding(newRes -> tc.verify(() -> {
+                                    expectSuccess(newRes);
+                                    sqlClient.preparedQuery(
+                                            "SELECT device_id, device_os, deleted_at FROM devices WHERE user_id = $1 AND device_type = 'MOBILE' ORDER BY id"
+                                        )
+                                        .execute(Tuple.of(1L), tc.succeeding(rows -> tc.verify(() -> {
+                                            assertThat(rows.size()).isEqualTo(2);
+                                            var iterator = rows.iterator();
+                                            var firstRow = iterator.next();
+                                            var secondRow = iterator.next();
+                                            assertThat(firstRow.getString("device_id")).isEqualTo("limit-device-mobile-android-1");
+                                            assertThat(firstRow.getLocalDateTime("deleted_at")).isNotNull();
+                                            assertThat(secondRow.getString("device_id")).isEqualTo("limit-device-mobile-ios-1");
+                                            assertThat(secondRow.getString("device_os")).isEqualTo("IOS");
+                                            assertThat(secondRow.getLocalDateTime("deleted_at")).isNull();
+                                            tc.completeNow();
+                                        })));
+                                })));
+                            })));
+                        })));
+                })));
+        }
     }
 
     @Nested

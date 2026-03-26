@@ -87,7 +87,7 @@ public class DeviceGuard implements Handler<RoutingContext> {
         if (!"IOS".equals(normalizedOs) && !"ANDROID".equals(normalizedOs)) {
             return Future.failedFuture(new UnauthorizedException("디바이스 정보가 올바르지 않습니다."));
         }
-        return deviceRepository.getActiveDeviceByUserAndDeviceOs(pool, userId, normalizedOs)
+        return deviceRepository.getActiveDeviceByUserAndType(pool, userId, "MOBILE")
             .compose(device -> validateDevice(device, deviceId));
     }
 
