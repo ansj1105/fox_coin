@@ -9,6 +9,7 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.pgclient.PgPool;
+import io.vertx.pgclient.PgException;
 import io.vertx.redis.client.RedisAPI;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.utils.CountryCodeUtils;
@@ -283,45 +284,67 @@ public class AuthService extends BaseService {
         return existingFuture
             .compose(existing -> {
                 if (existing == null) {
-                    Device device = Device.builder()
-                        .userId(userId)
-                        .deviceId(deviceId)
-                        .deviceType(slotType)
-                        .deviceOs(normalizedOs)
-                        .appVersion(appVersion)
-                        .userAgent(userAgent)
-                        .lastIp(clientIp)
-                        .lastLoginAt(now)
-                        .createdAt(now)
-                        .updatedAt(now)
-                        .build();
-                    return deviceRepository.createDevice(pool, device).mapEmpty();
+                    return createDeviceWithUniqueRetry(userId, deviceId, slotType, normalizedOs, appVersion, clientIp, userAgent, now);
                 }
                 if (!deviceId.equals(existing.getDeviceId())) {
                     return deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, existing.getDeviceId())
-                        .compose(v -> {
-                            Device device = Device.builder()
-                                .userId(userId)
-                                .deviceId(deviceId)
-                                .deviceType(slotType)
-                                .deviceOs(normalizedOs)
-                                .appVersion(appVersion)
-                                .userAgent(userAgent)
-                                .lastIp(clientIp)
-                                .lastLoginAt(now)
-                                .createdAt(now)
-                                .updatedAt(now)
-                                .build();
-                            return deviceRepository.createDevice(pool, device).mapEmpty();
-                        })
+                        .compose(v -> createDeviceWithUniqueRetry(userId, deviceId, slotType, normalizedOs, appVersion, clientIp, userAgent, now))
                         .compose(v -> createNewDeviceLoginNotice(userId, existing.getDeviceId(), deviceId, slotType));
                 }
                 return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
                 });
     }
 
+    private Future<Void> createDeviceWithUniqueRetry(Long userId, String deviceId, String slotType, String normalizedOs,
+                                                     String appVersion, String clientIp, String userAgent, LocalDateTime now) {
+        Device device = Device.builder()
+            .userId(userId)
+            .deviceId(deviceId)
+            .deviceType(slotType)
+            .deviceOs(normalizedOs)
+            .appVersion(appVersion)
+            .userAgent(userAgent)
+            .lastIp(clientIp)
+            .lastLoginAt(now)
+            .createdAt(now)
+            .updatedAt(now)
+            .build();
+        return deviceRepository.createDevice(pool, device)
+            .recover(throwable -> {
+                if (!isActiveDeviceTypeUniqueViolation(throwable)) {
+                    return Future.failedFuture(throwable);
+                }
+                log.warn("Concurrent device slot insert detected. userId={}, slotType={}, deviceId={}", userId, slotType, deviceId);
+                return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
+                    .compose(activeDevice -> {
+                        if (activeDevice == null) {
+                            return Future.failedFuture(throwable);
+                        }
+                        if (deviceId.equals(activeDevice.getDeviceId())) {
+                            return deviceRepository.updateDeviceLogin(pool, activeDevice.getId(), normalizedOs, appVersion, userAgent, clientIp, now)
+                                .map(activeDevice);
+                        }
+                        return Future.failedFuture(new ConflictException("다른기기에서 로그인중입니다. 이전기기를 로그아웃 시킵니다."));
+                    });
+            })
+            .mapEmpty();
+    }
+
     private String resolveDeviceSlotType(String normalizedType) {
         return "WEB".equals(normalizedType) ? "WEB" : "MOBILE";
+    }
+
+    private boolean isActiveDeviceTypeUniqueViolation(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof PgException pgException) {
+                if ("23505".equals(pgException.getCode()) && "ux_devices_user_type_active".equals(pgException.getConstraint())) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
@@ -1617,8 +1640,9 @@ public class AuthService extends BaseService {
         boolean isAndroid = "ANDROID".equalsIgnoreCase(platform);
         boolean isIos = "IOS".equalsIgnoreCase(platform);
 
-        // 플랫폼 미지정 + PKCE면 기존 Android 처리 유지 (레거시 호환)
-        if (!isAndroid && !isIos && hasCodeVerifier) {
+        // 플랫폼이 누락된 레거시 모바일 요청만 PKCE 기반 Android로 보정한다.
+        boolean platformMissing = platform == null || platform.isBlank();
+        if (platformMissing && hasCodeVerifier) {
             isAndroid = true;
         }
 

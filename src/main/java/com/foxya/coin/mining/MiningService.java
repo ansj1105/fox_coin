@@ -110,6 +110,10 @@ public class MiningService extends BaseService {
                         LocalDateTime resetAt = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
                         
                         return miningRepository.getDailyMining(pool, userId, today)
+                            .recover(throwable -> {
+                                log.error("Failed to read daily mining snapshot. userId={}, date={}", userId, today, throwable);
+                                return Future.succeededFuture(null);
+                            })
                             .map(dailyMining -> {
                                 BigDecimal todayAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
                                 BigDecimal maxMining = miningLevel.getDailyMaxMining();
@@ -247,20 +251,52 @@ public class MiningService extends BaseService {
             .compose(v -> {
                 // Normalized comment.
                 Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
-                Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today);
+                Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today)
+                    .recover(throwable -> {
+                        log.error("Failed to read daily mining snapshot for mining info. userId={}, date={}", userId, today, throwable);
+                        return Future.succeededFuture(null);
+                    });
                 // 보너스 효율: 초대 효율 + 미션 효율 합산. (미션 효율은 BonusService 기준, 초대는 invite multiplier)
                 // Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId).map(response -> response.getTotalEfficiency());
-                Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH");
+                Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH")
+                    .recover(throwable -> {
+                        log.error("Failed to read ad watch bonus for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(null);
+                    });
                 // Normalized comment.
                 Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
-                    .map(wallets -> WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(wallets, "KORI"));
-                Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId);
+                    .map(wallets -> WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(wallets, "KORI"))
+                    .recover(throwable -> {
+                        log.error("Failed to read wallet balance for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(BigDecimal.ZERO);
+                    });
+                Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId)
+                    .recover(throwable -> {
+                        log.error("Failed to read invite bonus for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(BigDecimal.ONE);
+                    });
                 Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
-                Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId);
-                Future<SubscriptionStatusResponseDto> subscriptionStatusFuture = subscriptionService.getSubscriptionStatus(userId);
+                Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId)
+                    .recover(throwable -> {
+                        log.error("Failed to read valid direct referral count for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(0);
+                    });
+                Future<SubscriptionStatusResponseDto> subscriptionStatusFuture = subscriptionService.getSubscriptionStatus(userId)
+                    .recover(throwable -> {
+                        log.error("Failed to read subscription status for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(null);
+                    });
                 // Normalized comment.
-                Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today);
-                Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId);
+                Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today)
+                    .recover(throwable -> {
+                        log.error("Failed to count sessions started today for mining info. userId={}, date={}", userId, today, throwable);
+                        return Future.succeededFuture(0);
+                    });
+                Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId)
+                    .recover(throwable -> {
+                        log.error("Failed to read active mining session for mining info. userId={}", userId, throwable);
+                        return Future.succeededFuture(null);
+                    });
                 
                 return Future.all(List.of(
                     userFuture,
