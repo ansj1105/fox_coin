@@ -22,6 +22,7 @@ import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
 import com.foxya.coin.common.utils.ErrorHandler;
 import com.foxya.coin.admin.AdminDbBackupHandler;
+import com.foxya.coin.admin.OfflinePayAdminProxyHandler;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.referral.ReferralHandler;
 import com.foxya.coin.referral.ReferralRepository;
@@ -41,6 +42,7 @@ import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.InternalWalletHandler;
 import com.foxya.coin.wallet.OfflinePaySnapshotNotifier;
+import com.foxya.coin.wallet.OfflinePaySnapshotProxyHandler;
 import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -424,6 +426,11 @@ public class ApiVerticle extends AbstractVerticle {
             vertx, pool, appConfigRepository, depositScannerApiKey);
         InternalWalletHandler internalWalletHandler = new InternalWalletHandler(
             vertx, walletService, internalOfflinePayApiKey);
+        OfflinePaySnapshotProxyHandler offlinePaySnapshotProxyHandler = new OfflinePaySnapshotProxyHandler(
+            vertx,
+            webClient,
+            System.getenv("OFFLINE_PAY_BASE_URL")
+        );
         
         // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -506,6 +513,12 @@ public class ApiVerticle extends AbstractVerticle {
         AdminNotificationHandler adminNotificationHandler = new AdminNotificationHandler(vertx, notificationService, retryQueuePublisher, jwtAuth);
         AdminWalletOpsHandler adminWalletOpsHandler = new AdminWalletOpsHandler(vertx, webClient, jwtAuth, pool, walletRepository);
         AdminDbBackupHandler adminDbBackupHandler = new AdminDbBackupHandler(vertx, webClient, jwtAuth, pool);
+        OfflinePayAdminProxyHandler offlinePayAdminProxyHandler = new OfflinePayAdminProxyHandler(
+            vertx,
+            webClient,
+            jwtAuth,
+            System.getenv("OFFLINE_PAY_BASE_URL")
+        );
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(vertx, subscriptionService, jwtAuth);
         ReviewHandler reviewHandler = new ReviewHandler(vertx, reviewService, jwtAuth);
         AgencyHandler agencyHandler = new AgencyHandler(vertx, agencyService, jwtAuth);
@@ -572,6 +585,7 @@ public class ApiVerticle extends AbstractVerticle {
 
         // Admin test notification API (DB insert + FCM send via NotificationService)
         mainRouter.mountSubRouter("/api/v1/admin/notifications", adminNotificationHandler.getRouter());
+        mainRouter.mountSubRouter("/api/admin", offlinePayAdminProxyHandler.getRouter());
         mainRouter.mountSubRouter("/api/v2/admin/wallet-ops", adminWalletOpsHandler.getRouter());
         mainRouter.mountSubRouter("/api/v2/admin/db-backup", adminDbBackupHandler.getRouter());
         
@@ -633,7 +647,8 @@ public class ApiVerticle extends AbstractVerticle {
         Router protectedRouter = Router.router(vertx);
         protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
-        
+        protectedRouter.mountSubRouter("/api/snapshots", offlinePaySnapshotProxyHandler.getRouter());
+
         mainRouter.mountSubRouter("/", protectedRouter);
         
         // Normalized comment.
