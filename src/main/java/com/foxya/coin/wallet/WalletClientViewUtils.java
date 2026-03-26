@@ -14,7 +14,7 @@ public final class WalletClientViewUtils {
 
     /**
      * Expose KORI as a single logical asset to clients:
-     * keep the TRON wallet/address for deposits while surfacing the INTERNAL balance.
+     * keep the TRON wallet/address for deposits while surfacing the combined logical balance.
      */
     public static List<Wallet> normalizeWalletsForClient(List<Wallet> wallets) {
         if (wallets == null || wallets.isEmpty()) {
@@ -47,12 +47,14 @@ public final class WalletClientViewUtils {
         }
 
         if (koriTron != null) {
-            BigDecimal effectiveBalance = koriInternal != null
-                ? normalizeBalance(koriInternal.getBalance())
-                : normalizeBalance(koriTron.getBalance());
-            BigDecimal effectiveLockedBalance = koriInternal != null
-                ? normalizeBalance(koriInternal.getLockedBalance())
-                : normalizeBalance(koriTron.getLockedBalance());
+            BigDecimal effectiveBalance = sumNullableBalances(
+                koriTron.getBalance(),
+                koriInternal != null ? koriInternal.getBalance() : null
+            );
+            BigDecimal effectiveLockedBalance = sumNullableBalances(
+                koriTron.getLockedBalance(),
+                koriInternal != null ? koriInternal.getLockedBalance() : null
+            );
             normalized.add(Wallet.builder()
                 .id(koriTron.getId())
                 .userId(koriTron.getUserId())
