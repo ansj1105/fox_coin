@@ -418,7 +418,7 @@ public class ApiVerticle extends AbstractVerticle {
         InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
             vertx, pool, appConfigRepository, depositScannerApiKey);
         InternalWalletHandler internalWalletHandler = new InternalWalletHandler(
-            vertx, walletService, depositScannerApiKey);
+            vertx, walletService, internalOfflinePayApiKey);
         
         // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
