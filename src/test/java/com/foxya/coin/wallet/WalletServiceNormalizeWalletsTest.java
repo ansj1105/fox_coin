@@ -12,6 +12,54 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class WalletServiceNormalizeWalletsTest {
 
     @Test
+    void canonicalSnapshotBasis_sumsActiveRawKoriWallets() {
+        Wallet koriTron = Wallet.builder()
+            .id(10L)
+            .userId(1L)
+            .currencyCode("KORI")
+            .network("TRON")
+            .balance(new BigDecimal("162.999000000000000000"))
+            .lockedBalance(new BigDecimal("1.001000000000000000"))
+            .status("ACTIVE")
+            .build();
+
+        Wallet koriInternal = Wallet.builder()
+            .id(11L)
+            .userId(1L)
+            .currencyCode("KORI")
+            .network("INTERNAL")
+            .balance(new BigDecimal("35.254587460317457206"))
+            .lockedBalance(BigDecimal.ZERO)
+            .status("ACTIVE")
+            .build();
+
+        Wallet inactiveKori = Wallet.builder()
+            .id(12L)
+            .userId(1L)
+            .currencyCode("KORI")
+            .network("TRON")
+            .balance(new BigDecimal("999"))
+            .lockedBalance(new BigDecimal("999"))
+            .status("INACTIVE")
+            .build();
+
+        BigDecimal totalBalance = List.of(koriTron, koriInternal, inactiveKori).stream()
+            .filter(wallet -> "ACTIVE".equalsIgnoreCase(wallet.getStatus()))
+            .filter(wallet -> "KORI".equalsIgnoreCase(wallet.getCurrencyCode()))
+            .map(wallet -> wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal lockedBalance = List.of(koriTron, koriInternal, inactiveKori).stream()
+            .filter(wallet -> "ACTIVE".equalsIgnoreCase(wallet.getStatus()))
+            .filter(wallet -> "KORI".equalsIgnoreCase(wallet.getCurrencyCode()))
+            .map(wallet -> wallet.getLockedBalance() == null ? BigDecimal.ZERO : wallet.getLockedBalance())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        assertEquals(new BigDecimal("198.253587460317457206"), totalBalance);
+        assertEquals(new BigDecimal("1.001000000000000000"), lockedBalance);
+    }
+
+    @Test
     void normalizeWalletsForClient_prefersInternalKoriBalanceWhileKeepingTronAddress() {
         Wallet koriTron = Wallet.builder()
             .id(10L)

@@ -80,12 +80,13 @@ public class WalletService extends BaseService {
             : currencyCode.trim().toUpperCase();
         return walletRepository.getWalletsByUserId(pool, userId)
             .map(wallets -> {
-                List<Wallet> normalizedWallets = WalletClientViewUtils.normalizeWalletsForClient(wallets);
                 BigDecimal totalBalance = BigDecimal.ZERO;
                 BigDecimal lockedBalance = BigDecimal.ZERO;
                 int walletCount = 0;
-                for (Wallet wallet : normalizedWallets) {
-                    if (wallet == null || !normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
+                for (Wallet wallet : wallets) {
+                    if (wallet == null
+                        || !"ACTIVE".equalsIgnoreCase(wallet.getStatus())
+                        || !normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
                         continue;
                     }
                     totalBalance = totalBalance.add(wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance());
