@@ -1,6 +1,7 @@
 package com.foxya.coin.common.alert;
 
 import com.foxya.coin.common.metrics.MetricsCollector;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
@@ -32,29 +33,53 @@ public class DbAlertMonitorService {
     private final PgPool pool;
     private final MetricsCollector metricsCollector;
     private final TelegramAlertNotifier notifier;
+    private final WebClient webClient;
     private final boolean monitorEnabled;
     private final double connectionRatioThreshold;
     private final int lockWaitThreshold;
     private final int syncRepWaitThreshold;
     private final int consecutiveBreaches;
+    private final boolean dbProbeEnabled;
+    private final String dbProbeSql;
+    private final boolean catalogProbeEnabled;
+    private final String catalogProbeSql;
+    private final boolean appHealthCheckEnabled;
+    private final String appHealthCheckUrl;
+    private final int appHealthCheckTimeoutMs;
     private final Map<String, AlertState> alertStates = new ConcurrentHashMap<>();
 
     public DbAlertMonitorService(PgPool pool,
                                  MetricsCollector metricsCollector,
                                  TelegramAlertNotifier notifier,
+                                 WebClient webClient,
                                  boolean monitorEnabled,
                                  double connectionRatioThreshold,
                                  int lockWaitThreshold,
                                  int syncRepWaitThreshold,
-                                 int consecutiveBreaches) {
+                                 int consecutiveBreaches,
+                                 boolean dbProbeEnabled,
+                                 String dbProbeSql,
+                                 boolean catalogProbeEnabled,
+                                 String catalogProbeSql,
+                                 boolean appHealthCheckEnabled,
+                                 String appHealthCheckUrl,
+                                 int appHealthCheckTimeoutMs) {
         this.pool = pool;
         this.metricsCollector = metricsCollector;
         this.notifier = notifier;
+        this.webClient = webClient;
         this.monitorEnabled = monitorEnabled;
         this.connectionRatioThreshold = connectionRatioThreshold;
         this.lockWaitThreshold = lockWaitThreshold;
         this.syncRepWaitThreshold = syncRepWaitThreshold;
         this.consecutiveBreaches = consecutiveBreaches;
+        this.dbProbeEnabled = dbProbeEnabled;
+        this.dbProbeSql = dbProbeSql;
+        this.catalogProbeEnabled = catalogProbeEnabled;
+        this.catalogProbeSql = catalogProbeSql;
+        this.appHealthCheckEnabled = appHealthCheckEnabled;
+        this.appHealthCheckUrl = appHealthCheckUrl;
+        this.appHealthCheckTimeoutMs = appHealthCheckTimeoutMs;
     }
 
     public static DbAlertMonitorService fromEnv(PgPool pool, MetricsCollector metricsCollector, WebClient webClient) {
@@ -68,11 +93,19 @@ public class DbAlertMonitorService {
             pool,
             metricsCollector,
             notifier,
+            webClient,
             parseBooleanEnv("DB_ALERT_MONITOR_ENABLED", true),
             parseDoubleEnv("DB_ALERT_CONNECTION_RATIO_THRESHOLD", 0.75d, 0.10d, 1.0d),
             parseIntEnv("DB_ALERT_LOCK_WAIT_THRESHOLD", 3, 1, 1_000),
             parseIntEnv("DB_ALERT_SYNC_REP_WAIT_THRESHOLD", 1, 1, 1_000),
-            parseIntEnv("DB_ALERT_CONSECUTIVE_BREACHES", 2, 1, 10)
+            parseIntEnv("DB_ALERT_CONSECUTIVE_BREACHES", 2, 1, 10),
+            parseBooleanEnv("DB_ALERT_DB_PROBE_ENABLED", true),
+            parseStringEnv("DB_ALERT_DB_PROBE_SQL", "SELECT 1 FROM public.coin_prices LIMIT 1"),
+            parseBooleanEnv("DB_ALERT_DB_CATALOG_PROBE_ENABLED", true),
+            parseStringEnv("DB_ALERT_DB_CATALOG_PROBE_SQL", "SELECT 1 FROM pg_catalog.pg_statistic LIMIT 1"),
+            parseBooleanEnv("DB_ALERT_APP_HEALTHCHECK_ENABLED", true),
+            parseStringEnv("DB_ALERT_APP_HEALTHCHECK_URL", "http://127.0.0.1:8080/health"),
+            parseIntEnv("DB_ALERT_APP_HEALTHCHECK_TIMEOUT_MS", 3_000, 500, 30_000)
         );
     }
 
@@ -132,9 +165,14 @@ public class DbAlertMonitorService {
                     getInt(row, "healthy_sync_replicas"),
                     row.getString("synchronous_standby_names"),
                     Boolean.TRUE.equals(row.getBoolean("transaction_read_only")),
-                    Boolean.TRUE.equals(row.getBoolean("in_recovery"))
+                    Boolean.TRUE.equals(row.getBoolean("in_recovery")),
+                    null,
+                    null,
+                    true,
+                    null
                 ));
-            });
+            })
+            .compose(this::enrichSnapshotWithProbes);
     }
 
     private Future<Void> evaluateSnapshot(DbHealthSnapshot snapshot) {
@@ -234,7 +272,105 @@ public class DbAlertMonitorService {
                 "pgIsInRecovery=" + snapshot.inRecovery()
             ),
             1
+        )).compose(v -> processAlert(
+            "db_probe_failed",
+            snapshot.dbProbeError() != null,
+            "[KORION] DB Alert - Critical Table Probe Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "probeSql=" + dbProbeSql,
+                "error=" + blankAsDash(snapshot.dbProbeError())
+            ),
+            "[KORION] DB Recovered - Critical Table Probe Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "probeSql=" + dbProbeSql,
+                "status=ok"
+            ),
+            1
+        )).compose(v -> processAlert(
+            "db_catalog_probe_failed",
+            snapshot.catalogProbeError() != null,
+            "[KORION] DB Alert - Catalog Probe Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "probeSql=" + catalogProbeSql,
+                "error=" + blankAsDash(snapshot.catalogProbeError())
+            ),
+            "[KORION] DB Recovered - Catalog Probe Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "probeSql=" + catalogProbeSql,
+                "status=ok"
+            ),
+            1
+        )).compose(v -> processAlert(
+            "app_healthcheck_failed",
+            appHealthCheckEnabled && !snapshot.appHealthUp(),
+            "[KORION] DB Alert - App Health Check Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "healthUrl=" + appHealthCheckUrl,
+                "error=" + blankAsDash(snapshot.appHealthError())
+            ),
+            "[KORION] DB Recovered - App Health Check Failed",
+            buildLines(
+                "database=" + snapshot.databaseName(),
+                "healthUrl=" + appHealthCheckUrl,
+                "status=ok"
+            ),
+            1
         ));
+    }
+
+    private Future<DbHealthSnapshot> enrichSnapshotWithProbes(DbHealthSnapshot snapshot) {
+        Future<String> dbProbeFuture = runSqlProbe(dbProbeEnabled, dbProbeSql);
+        Future<String> catalogProbeFuture = runSqlProbe(catalogProbeEnabled, catalogProbeSql);
+        Future<String> appHealthFuture = runAppHealthProbe();
+
+        return CompositeFuture.all(dbProbeFuture, catalogProbeFuture, appHealthFuture)
+            .map(ignored -> new DbHealthSnapshot(
+                snapshot.databaseName(),
+                snapshot.maxConnections(),
+                snapshot.totalConnections(),
+                snapshot.activeConnections(),
+                snapshot.lockWaits(),
+                snapshot.syncRepWaits(),
+                snapshot.streamingReplicas(),
+                snapshot.healthySyncReplicas(),
+                snapshot.synchronousStandbyNames(),
+                snapshot.transactionReadOnly(),
+                snapshot.inRecovery(),
+                dbProbeFuture.result(),
+                catalogProbeFuture.result(),
+                appHealthFuture.result() == null,
+                appHealthFuture.result()
+            ));
+    }
+
+    private Future<String> runSqlProbe(boolean enabled, String sql) {
+        if (!enabled || sql == null || sql.isBlank()) {
+            return Future.succeededFuture(null);
+        }
+
+        return pool.query(sql)
+            .execute()
+            .map(rows -> (String) null)
+            .recover(error -> Future.succeededFuture(safeMessage(error)));
+    }
+
+    private Future<String> runAppHealthProbe() {
+        if (!appHealthCheckEnabled || appHealthCheckUrl == null || appHealthCheckUrl.isBlank()) {
+            return Future.succeededFuture(null);
+        }
+
+        return webClient.getAbs(appHealthCheckUrl)
+            .timeout(appHealthCheckTimeoutMs)
+            .send()
+            .map(response -> response.statusCode() >= 200 && response.statusCode() < 300
+                ? null
+                : "status=" + response.statusCode())
+            .recover(error -> Future.succeededFuture(safeMessage(error)));
     }
 
     private Future<Void> processAlert(String key,
@@ -319,6 +455,14 @@ public class DbAlertMonitorService {
             return defaultValue;
         }
         return Boolean.parseBoolean(value.trim());
+    }
+
+    private static String parseStringEnv(String key, String defaultValue) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return value.trim();
     }
 
     private static int parseIntEnv(String key, int defaultValue, int min, int max) {

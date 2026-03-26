@@ -117,10 +117,22 @@ DB_ALERT_CONNECTION_RATIO_THRESHOLD=0.75
 DB_ALERT_LOCK_WAIT_THRESHOLD=3
 DB_ALERT_SYNC_REP_WAIT_THRESHOLD=1
 DB_ALERT_CONSECUTIVE_BREACHES=2
+DB_ALERT_DB_PROBE_ENABLED=true
+DB_ALERT_DB_PROBE_SQL=SELECT 1 FROM public.coin_prices LIMIT 1
+DB_ALERT_DB_CATALOG_PROBE_ENABLED=true
+DB_ALERT_DB_CATALOG_PROBE_SQL=SELECT 1 FROM pg_catalog.pg_statistic LIMIT 1
+DB_ALERT_APP_HEALTHCHECK_ENABLED=true
+DB_ALERT_APP_HEALTHCHECK_URL=http://127.0.0.1:8080/health
+DB_ALERT_APP_HEALTHCHECK_TIMEOUT_MS=3000
 ```
 
 `DB_PROXY_STANDBY_FALLBACK_ENABLED=false`가 기본값입니다.  
 write path에서 standby 자동 fallback을 열면 앱이 read-only DB에 붙어 로그인/가입/결제/출금 요청이 실패할 수 있으므로, standby는 승격 이후에만 새 primary로 붙이는 것을 권장합니다.
+
+추가 probe 권장 기준:
+- `DB_ALERT_DB_PROBE_SQL`: 장애 때 실제로 깨졌던 핵심 테이블 기준으로 둡니다. 기본값은 `coin_prices`입니다.
+- `DB_ALERT_DB_CATALOG_PROBE_SQL`: DB 카탈로그/통계 손상 조기 감지를 위해 기본값을 `pg_catalog.pg_statistic`로 둡니다.
+- `DB_ALERT_APP_HEALTHCHECK_URL`: 내부 self-check 용입니다. 앱 프로세스가 완전히 죽으면 내부 텔레그램 전송도 함께 멈추므로, 이 경우는 별도 외부 watchdog/health monitor가 추가로 필요합니다.
 
 ### JVM Options
 ```bash

@@ -11,7 +11,11 @@ public record DbHealthSnapshot(
     int healthySyncReplicas,
     String synchronousStandbyNames,
     boolean transactionReadOnly,
-    boolean inRecovery
+    boolean inRecovery,
+    String dbProbeError,
+    String catalogProbeError,
+    boolean appHealthUp,
+    String appHealthError
 ) {
 
     public double connectionUsageRatio() {
