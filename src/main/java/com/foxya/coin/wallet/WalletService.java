@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.web3j.crypto.Credentials;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -93,6 +94,8 @@ public class WalletService extends BaseService {
                     lockedBalance = lockedBalance.add(wallet.getLockedBalance() == null ? BigDecimal.ZERO : wallet.getLockedBalance());
                     walletCount += 1;
                 }
+                totalBalance = totalBalance.setScale(6, RoundingMode.HALF_UP);
+                lockedBalance = lockedBalance.setScale(6, RoundingMode.HALF_UP);
                 return CanonicalWalletSnapshot.builder()
                     .userId(userId)
                     .currencyCode(normalizedCurrencyCode)

@@ -57,6 +57,8 @@ class WalletServiceNormalizeWalletsTest {
 
         assertEquals(new BigDecimal("198.253587460317457206"), totalBalance);
         assertEquals(new BigDecimal("1.001000000000000000"), lockedBalance);
+        assertEquals(new BigDecimal("198.253587"), totalBalance.setScale(6, java.math.RoundingMode.HALF_UP));
+        assertEquals(new BigDecimal("1.001000"), lockedBalance.setScale(6, java.math.RoundingMode.HALF_UP));
     }
 
     @Test
