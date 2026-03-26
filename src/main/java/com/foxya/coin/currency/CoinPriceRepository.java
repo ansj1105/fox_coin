@@ -65,14 +65,8 @@ public class CoinPriceRepository extends BaseRepository {
             return Future.succeededFuture();
         }
 
-        List<Future> futures = new ArrayList<>();
-        prices.forEach((code, dto) -> {
-            if (code == null || code.isBlank() || dto == null || dto.getUsdPrice() == null) {
-                return;
-            }
-            futures.add(upsertCoinPrice(pool, code, dto));
-        });
-        return CompositeFuture.all(futures).mapEmpty();
+        List<Map.Entry<String, CoinPriceDto>> entries = new ArrayList<>(prices.entrySet());
+        return upsertCoinPricesSequentially(pool, entries, 0);
     }
 
     public Future<Map<String, BigDecimal>> getDailyClosePrices(SqlClient client, Set<String> currencyCodes, LocalDate closeDate) {
@@ -160,54 +154,39 @@ public class CoinPriceRepository extends BaseRepository {
         return CompositeFuture.all(futures).mapEmpty();
     }
 
+    private Future<Void> upsertCoinPricesSequentially(SqlClient client, List<Map.Entry<String, CoinPriceDto>> entries, int index) {
+        if (entries == null || index >= entries.size()) {
+            return Future.succeededFuture();
+        }
+
+        Map.Entry<String, CoinPriceDto> entry = entries.get(index);
+        if (entry == null || entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null || entry.getValue().getUsdPrice() == null) {
+            return upsertCoinPricesSequentially(client, entries, index + 1);
+        }
+
+        return upsertCoinPrice(client, entry.getKey(), entry.getValue())
+            .compose(v -> upsertCoinPricesSequentially(client, entries, index + 1));
+    }
+
     private Future<Void> upsertCoinPrice(SqlClient client, String currencyCode, CoinPriceDto dto) {
-        return existsCoinPrice(client, currencyCode)
-            .compose(exists -> exists
-                ? updateCoinPrice(client, currencyCode, dto)
-                : insertCoinPrice(client, currencyCode, dto));
-    }
-
-    private Future<Boolean> existsCoinPrice(SqlClient client, String currencyCode) {
-        String sql = QueryBuilder
-            .count("coin_prices")
-            .where("currency_code", Op.Equal, "currency_code")
-            .build();
-
-        return query(client, sql, Collections.singletonMap("currency_code", currencyCode))
-            .map(rows -> {
-                if (!rows.iterator().hasNext()) {
-                    return false;
-                }
-                Long count = getLongColumnValue(rows.iterator().next(), "count");
-                return count != null && count > 0;
-            });
-    }
-
-    private Future<Void> insertCoinPrice(SqlClient client, String currencyCode, CoinPriceDto dto) {
-        Map<String, Object> params = new HashMap<>();
-        params.put("currency_code", currencyCode);
-        params.put("usd_price", dto.getUsdPrice());
-        params.put("change_24h_percent", dto.getChange24hPercent());
-        params.put("source", dto.getSource());
-        params.put("updated_at", OffsetDateTime.now(ZoneOffset.UTC));
-
-        String sql = QueryBuilder.insert("coin_prices", params, null);
-        return query(client, sql, params).mapEmpty();
-    }
-
-    private Future<Void> updateCoinPrice(SqlClient client, String currencyCode, CoinPriceDto dto) {
-        String sql = QueryBuilder
-            .update("coin_prices", "usd_price", "change_24h_percent", "source", "updated_at")
-            .where("currency_code", Op.Equal, "currency_code")
-            .build();
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("currency_code", currencyCode);
-        params.put("usd_price", dto.getUsdPrice());
-        params.put("change_24h_percent", dto.getChange24hPercent());
-        params.put("source", dto.getSource());
-        params.put("updated_at", OffsetDateTime.now(ZoneOffset.UTC));
-        return query(client, sql, params).mapEmpty();
+        String sql = """
+            INSERT INTO coin_prices (currency_code, usd_price, change_24h_percent, source, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (currency_code) DO UPDATE
+            SET usd_price = EXCLUDED.usd_price,
+                change_24h_percent = EXCLUDED.change_24h_percent,
+                source = EXCLUDED.source,
+                updated_at = EXCLUDED.updated_at
+            """;
+        return client.preparedQuery(sql)
+            .execute(Tuple.of(
+                currencyCode,
+                dto.getUsdPrice(),
+                dto.getChange24hPercent(),
+                dto.getSource(),
+                OffsetDateTime.now(ZoneOffset.UTC)
+            ))
+            .mapEmpty();
     }
 
     private Future<Void> upsertDailyClosePrice(SqlClient client, String currencyCode, CoinPriceDto dto, LocalDate closeDate) {

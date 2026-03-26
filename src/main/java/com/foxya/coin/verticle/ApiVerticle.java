@@ -15,6 +15,7 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.auth.jwt.JWTAuthOptions;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
+import io.vertx.pgclient.PgException;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
@@ -146,8 +147,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -180,6 +183,7 @@ public class ApiVerticle extends AbstractVerticle {
     private static final long LOCK_IMPORTANT_NOTICE_DISPATCH = 10_011L;
     private static final long LOCK_DB_ALERT_MONITOR = 10_012L;
     private static final long LOCK_COIN_PRICE_REFRESH = 10_013L;
+    private static final long DEFAULT_DB_BACKOFF_MS = 60_000L;
     
     static {
         DatabindCodec.mapper()
@@ -188,6 +192,7 @@ public class ApiVerticle extends AbstractVerticle {
     }
     
     private MetricsCollector metricsCollector;
+    private final Map<String, Long> taskBackoffUntilMs = new ConcurrentHashMap<>();
     
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
@@ -864,6 +869,9 @@ public class ApiVerticle extends AbstractVerticle {
                         return emailService.processRetryJob(job)
                             .onSuccess(v -> log.debug("Email retry succeeded. type={}, email={}", job.getType(), job.getEmail()))
                             .recover(throwable -> {
+                                if (isDbPressureError(throwable)) {
+                                    return Future.failedFuture(throwable);
+                                }
                                 EmailRetryJob next = job.withIncrementedRetry();
                                 if (next.getRetryCount() >= job.getMaxRetries()) {
                                     return retryQueuePublisher.enqueueEmailDlq(job, throwable.getMessage());
@@ -949,6 +957,9 @@ public class ApiVerticle extends AbstractVerticle {
         return fcmService.processRetryJob(message.job())
             .compose(v -> retryQueuePublisher.ackFcmRetry(consumerGroup, message.messageId()))
             .recover(throwable -> {
+                if (isDbPressureError(throwable)) {
+                    return Future.failedFuture(throwable);
+                }
                 log.warn("FCM retry failed. userId={}, retryCount={}, maxRetries={}, token={}",
                     message.job().getUserId(),
                     message.job().getRetryCount(),
@@ -1054,6 +1065,9 @@ public class ApiVerticle extends AbstractVerticle {
             .compose(v -> retryQueuePublisher.incrementBulkProcessed(job.getRequestId()))
             .compose(v -> retryQueuePublisher.incrementBulkSuccess(job.getRequestId()))
             .recover(throwable -> {
+                if (isDbPressureError(throwable)) {
+                    return Future.failedFuture(throwable);
+                }
                 log.warn("Bulk-notification processing failed. requestId={}, userId={}, retryCount={}, maxRetries={}",
                     job.getRequestId(), job.getUserId(), job.getRetryCount(), job.getMaxRetries(), throwable);
 
@@ -1144,6 +1158,9 @@ public class ApiVerticle extends AbstractVerticle {
         return currencyService.refreshExchangeRates()
             .compose(v -> retryQueuePublisher.ackExchangeRateRetry(consumerGroup, message.messageId()))
             .recover(throwable -> {
+                if (isDbPressureError(throwable)) {
+                    return Future.failedFuture(throwable);
+                }
                 ExchangeRateRetryJob next = message.job().withIncrementedRetry();
                 Future<Void> nextAction = next.getRetryCount() >= message.job().getMaxRetries()
                     ? retryQueuePublisher.enqueueExchangeRateDlq(message.job(), throwable.getMessage())
@@ -1442,12 +1459,71 @@ public class ApiVerticle extends AbstractVerticle {
                                             String taskName,
                                             AtomicBoolean running,
                                             Supplier<Future<Void>> taskSupplier) {
+        if (isTaskBackoffActive(taskName)) {
+            return;
+        }
         if (!running.compareAndSet(false, true)) {
             return;
         }
         executeWithAdvisoryLock(pool, lockKey, taskName, taskSupplier)
-            .onFailure(t -> log.warn("{} failed", taskName, t))
+            .onSuccess(v -> clearTaskBackoff(taskName))
+            .onFailure(t -> {
+                if (isDbPressureError(t)) {
+                    markTaskBackoff(taskName, t);
+                    log.warn("{} suppressed by DB backoff: {}", taskName, t.getMessage());
+                    return;
+                }
+                log.warn("{} failed", taskName, t);
+            })
             .onComplete(ar -> running.set(false));
+    }
+
+    private boolean isTaskBackoffActive(String taskName) {
+        Long until = taskBackoffUntilMs.get(taskName);
+        if (until == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (until <= now) {
+            taskBackoffUntilMs.remove(taskName);
+            return false;
+        }
+        return true;
+    }
+
+    private void markTaskBackoff(String taskName, Throwable throwable) {
+        long backoffMs = Math.max(5_000L, Math.min(parseLongEnv("DB_TASK_BACKOFF_MS", DEFAULT_DB_BACKOFF_MS), 900_000L));
+        long until = System.currentTimeMillis() + backoffMs;
+        taskBackoffUntilMs.put(taskName, until);
+        log.warn("{} entering DB protection backoff for {} ms due to: {}", taskName, backoffMs, throwable.getMessage());
+    }
+
+    private void clearTaskBackoff(String taskName) {
+        taskBackoffUntilMs.remove(taskName);
+    }
+
+    private static boolean isDbPressureError(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof PgException pgException) {
+                String sqlState = pgException.getCode();
+                if ("53300".equals(sqlState) || "57P01".equals(sqlState) || "57P03".equals(sqlState) || "08006".equals(sqlState)) {
+                    return true;
+                }
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("too many clients already")
+                    || lower.contains("connection refused")
+                    || lower.contains("connection has been closed")
+                    || lower.contains("the underlying connection may have been lost")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private Future<Void> executeWithAdvisoryLock(PgPool pool,
