@@ -41,6 +41,7 @@ import com.foxya.coin.user.UserExternalIdRepository;
 import com.foxya.coin.device.DeviceRepository;
 import com.foxya.coin.wallet.WalletHandler;
 import com.foxya.coin.wallet.InternalWalletHandler;
+import com.foxya.coin.wallet.OfflinePayCollateralProxyHandler;
 import com.foxya.coin.wallet.OfflinePaySnapshotNotifier;
 import com.foxya.coin.wallet.OfflinePaySnapshotProxyHandler;
 import com.foxya.coin.wallet.VirtualWalletMappingRepository;
@@ -431,6 +432,11 @@ public class ApiVerticle extends AbstractVerticle {
             webClient,
             System.getenv("OFFLINE_PAY_BASE_URL")
         );
+        OfflinePayCollateralProxyHandler offlinePayCollateralProxyHandler = new OfflinePayCollateralProxyHandler(
+            vertx,
+            webClient,
+            System.getenv("OFFLINE_PAY_BASE_URL")
+        );
         
         // Normalized comment.
         JsonObject googleConfig = applyGoogleEnvOverrides(config().getJsonObject("google", new JsonObject()));
@@ -648,6 +654,7 @@ public class ApiVerticle extends AbstractVerticle {
         protectedRouter.route().handler(JWTAuthHandler.create(jwtAuth));
         protectedRouter.mountSubRouter("/api/v1/wallets", walletHandler.getRouter());
         protectedRouter.mountSubRouter("/api/snapshots", offlinePaySnapshotProxyHandler.getRouter());
+        protectedRouter.mountSubRouter("/api/collateral", offlinePayCollateralProxyHandler.getRouter());
 
         mainRouter.mountSubRouter("/", protectedRouter);
         
