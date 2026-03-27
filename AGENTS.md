@@ -30,6 +30,7 @@
 
 - When a new runtime env var is introduced for Foxya backend behavior, update every production container environment block that must receive it, not just `.env.example` or Java config readers.
 - In `docker-compose.prod.yml`, keep `app` and `app2` env passthrough lists in sync for backend runtime vars such as bridge credentials, external API keys, and wallet settings.
+- Foxya runtime DB endpoint must use the PgBouncer alias `foxya-runtime-db` via `APP_DB_HOST`/`APP_DB_PORT`; do not point app runtime back to `DB_HOST=postgres`.
 - If server-side `git pull` is blocked by missing GitHub credentials, sync only the touched runtime files to `/var/www/fox_coin` and redeploy from the synced tree rather than changing server git auth ad hoc.
 
 ## SSH Deploy Rule
