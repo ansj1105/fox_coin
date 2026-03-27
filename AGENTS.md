@@ -32,6 +32,17 @@
 - In `docker-compose.prod.yml`, keep `app` and `app2` env passthrough lists in sync for backend runtime vars such as bridge credentials, external API keys, and wallet settings.
 - If server-side `git pull` is blocked by missing GitHub credentials, sync only the touched runtime files to `/var/www/fox_coin` and redeploy from the synced tree rather than changing server git auth ad hoc.
 
+## SSH Deploy Rule
+
+- On `52.200.97.155`, backend repo update flow should start with `ssh ... ubuntu@52.200.97.155`, `cd /var/www/fox_coin`, then `sudo git status --short`.
+- If the user explicitly asks for `sudo git pull`, try `sudo git pull --rebase origin develop` once before falling back to rsync or manual sync.
+- In production, treat `sudo git pull` as the default pull path for `/var/www/fox_coin` and `/var/www/fox_coin_frontend`; do not rely on the non-sudo user having GitHub credentials.
+- If `/var/www/fox_coin` has a dirty worktree, stop and identify whether the changes are intentional runtime edits, previous hotfixes, or deploy leftovers before pulling.
+- Do not discard or overwrite dirty backend worktree files such as `nginx/nginx.conf` or touched Java sources without first preserving the current server state.
+- When only host nginx routing must change and the backend repo is dirty, patch the live nginx file directly, verify with `sudo nginx -t`, then reload nginx instead of forcing a repo cleanup.
+- On `52.200.97.155`, backend runtime deployment must use `docker compose -f docker-compose.prod.yml ...`; using the default `docker-compose.yml` drops the `app2` zero-downtime pair and breaks Prometheus target wiring.
+- After backend production deploys, verify both `app` and `app2` from `docker-compose.prod.yml` plus Prometheus target health before considering the rollout complete.
+
 ## Bridge Architecture Rule
 
 - Treat `foxya -> coin_manage` withdrawal integration as a cross-instance workflow, not a local method call.
