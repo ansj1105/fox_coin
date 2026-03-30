@@ -23,6 +23,9 @@ public class OfflinePayTrustCenterDto {
     private String authBindingKey;
     private String lastVerifiedAuthMethod;
     private LocalDateTime lastVerifiedAt;
+    private LocalDateTime lastSyncedAt;
+    private String syncStatus;
     private LocalDateTime updatedAt;
     private List<OfflinePayTrustCenterLogDto> proofLogs;
+    private List<OfflinePayTrustCenterLogDto> statusLogs;
 }

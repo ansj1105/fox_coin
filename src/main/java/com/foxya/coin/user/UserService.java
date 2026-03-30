@@ -967,8 +967,11 @@ public class UserService extends BaseService {
             .fingerprintAvailable(false)
             .authBindingKey("")
             .lastVerifiedAuthMethod("NONE")
+            .lastSyncedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
+            .syncStatus("PENDING")
             .updatedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
             .proofLogs(List.of())
+            .statusLogs(List.of())
             .build();
     }
 
@@ -1023,6 +1026,21 @@ public class UserService extends BaseService {
                     .createdAt(item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.now())
                     .build())
                 .toList();
+        List<OfflinePayTrustCenterLogDto> statusLogs = request == null || request.getStatusLogs() == null
+            ? List.of()
+            : request.getStatusLogs().stream()
+                .filter(item -> item != null && item.getId() != null && !item.getId().isBlank())
+                .limit(20)
+                .map(item -> OfflinePayTrustCenterLogDto.builder()
+                    .id(item.getId())
+                    .eventType(item.getEventType())
+                    .eventStatus(item.getEventStatus())
+                    .message(item.getMessage())
+                    .reasonCode(item.getReasonCode())
+                    .metadata(item.getMetadata() != null ? item.getMetadata() : new JsonObject())
+                    .createdAt(item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.now())
+                    .build())
+                .toList();
 
         return OfflinePayTrustCenterDto.builder()
             .platform(request != null && request.getPlatform() != null && !request.getPlatform().isBlank()
@@ -1039,8 +1057,13 @@ public class UserService extends BaseService {
                 ? request.getLastVerifiedAuthMethod()
                 : defaults.getLastVerifiedAuthMethod())
             .lastVerifiedAt(request != null ? request.getLastVerifiedAt() : defaults.getLastVerifiedAt())
+            .lastSyncedAt(request != null && request.getLastSyncedAt() != null ? request.getLastSyncedAt() : defaults.getLastSyncedAt())
+            .syncStatus(request != null && request.getSyncStatus() != null && !request.getSyncStatus().isBlank()
+                ? request.getSyncStatus()
+                : defaults.getSyncStatus())
             .updatedAt(LocalDateTime.now())
             .proofLogs(proofLogs)
+            .statusLogs(statusLogs)
             .build();
     }
 

@@ -4695,7 +4695,7 @@ paths:
 
   /api/v1/security/offline-pay/trust-center:
     get:
-      summary: 오프라인 페이 보안 센터 조회
+      summary: 오프라인 페이 보안 센터 조회 및 상태 이력 조회
       tags: [Security]
       security:
         - BearerAuth: []
@@ -4703,7 +4703,7 @@ paths:
         '200':
           description: 조회 성공
     put:
-      summary: 오프라인 페이 보안 센터 상태/로그 동기화
+      summary: 오프라인 페이 보안 센터 상태/로그 동기화 및 상태 이력 기록
       tags: [Security]
       security:
         - BearerAuth: []

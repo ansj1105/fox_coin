@@ -309,6 +309,9 @@ public class SecurityHandlerTest extends HandlerTestBase {
                     JsonObject updatedData = updateRes.bodyAsJsonObject().getJsonObject("data");
                     Assertions.assertEquals("android", updatedData.getString("platform"));
                     Assertions.assertTrue(updatedData.getBoolean("teeAvailable"));
+                    Assertions.assertEquals("SYNCED", updatedData.getString("syncStatus"));
+                    Assertions.assertNotNull(updatedData.getString("lastSyncedAt"));
+                    Assertions.assertTrue(updatedData.getJsonArray("statusLogs").size() >= 1);
 
                     reqGet(getUrl("/offline-pay/trust-center"))
                         .bearerTokenAuthentication(accessToken)
@@ -318,6 +321,9 @@ public class SecurityHandlerTest extends HandlerTestBase {
                             Assertions.assertEquals("FACE_ID", persistedData.getString("lastVerifiedAuthMethod"));
                             Assertions.assertNotNull(persistedData.getJsonArray("proofLogs"));
                             Assertions.assertEquals("log-1", persistedData.getJsonArray("proofLogs").getJsonObject(0).getString("id"));
+                            Assertions.assertNotNull(persistedData.getJsonArray("statusLogs"));
+                            Assertions.assertTrue(persistedData.getJsonArray("statusLogs").size() >= 1);
+                            Assertions.assertEquals("SYNCED", persistedData.getString("syncStatus"));
                             tc.completeNow();
                         })));
                 })));

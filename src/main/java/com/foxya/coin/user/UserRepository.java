@@ -26,6 +26,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 public class UserRepository extends BaseRepository {
@@ -897,6 +899,8 @@ public class UserRepository extends BaseRepository {
                 auth_binding_key,
                 last_verified_auth_method,
                 last_verified_at,
+                last_synced_at,
+                sync_status,
                 updated_at
             FROM offline_pay_trust_center_snapshots
             WHERE user_id = #{user_id}
@@ -911,6 +915,20 @@ public class UserRepository extends BaseRepository {
                 metadata_json,
                 created_at
             FROM offline_pay_proof_logs
+            WHERE user_id = #{user_id}
+            ORDER BY created_at DESC
+            LIMIT #{limit}
+            """;
+        String statusLogsSql = """
+            SELECT
+                log_id,
+                event_type,
+                event_status,
+                message,
+                reason_code,
+                metadata_json,
+                created_at
+            FROM offline_pay_trust_center_status_logs
             WHERE user_id = #{user_id}
             ORDER BY created_at DESC
             LIMIT #{limit}
@@ -932,6 +950,8 @@ public class UserRepository extends BaseRepository {
                 .authBindingKey(getStringColumnValue(row, "auth_binding_key"))
                 .lastVerifiedAuthMethod(getStringColumnValue(row, "last_verified_auth_method"))
                 .lastVerifiedAt(getLocalDateTimeColumnValue(row, "last_verified_at"))
+                .lastSyncedAt(getLocalDateTimeColumnValue(row, "last_synced_at"))
+                .syncStatus(getStringColumnValue(row, "sync_status"))
                 .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
                 .build(), rows));
 
@@ -945,23 +965,39 @@ public class UserRepository extends BaseRepository {
                 .metadata(getJsonObjectColumnValue(row, "metadata_json"))
                 .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
                 .build(), rows));
+        Future<List<OfflinePayTrustCenterLogDto>> statusLogsFuture = query(client, QueryBuilder.selectStringQuery(statusLogsSql).build(), params)
+            .map(rows -> fetchAll(row -> OfflinePayTrustCenterLogDto.builder()
+                .id(getStringColumnValue(row, "log_id"))
+                .eventType(getStringColumnValue(row, "event_type"))
+                .eventStatus(getStringColumnValue(row, "event_status"))
+                .message(getStringColumnValue(row, "message"))
+                .reasonCode(getStringColumnValue(row, "reason_code"))
+                .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                .build(), rows));
 
         return snapshotFuture.compose(snapshot ->
-            logsFuture.map(logs -> OfflinePayTrustCenterDto.builder()
-                .platform(snapshot != null ? snapshot.getPlatform() : null)
-                .deviceName(snapshot != null ? snapshot.getDeviceName() : null)
-                .teeAvailable(snapshot != null ? snapshot.getTeeAvailable() : null)
-                .keySigningActive(snapshot != null ? snapshot.getKeySigningActive() : null)
-                .deviceRegistrationId(snapshot != null ? snapshot.getDeviceRegistrationId() : null)
-                .faceAvailable(snapshot != null ? snapshot.getFaceAvailable() : null)
-                .fingerprintAvailable(snapshot != null ? snapshot.getFingerprintAvailable() : null)
-                .authBindingKey(snapshot != null ? snapshot.getAuthBindingKey() : null)
-                .lastVerifiedAuthMethod(snapshot != null ? snapshot.getLastVerifiedAuthMethod() : null)
-                .lastVerifiedAt(snapshot != null ? snapshot.getLastVerifiedAt() : null)
-                .updatedAt(snapshot != null ? snapshot.getUpdatedAt() : null)
-                .proofLogs(logs)
-                .build()
-            )
+            Future.all(logsFuture, statusLogsFuture).map(results -> {
+                List<OfflinePayTrustCenterLogDto> logs = results.resultAt(0);
+                List<OfflinePayTrustCenterLogDto> statusLogs = results.resultAt(1);
+                return OfflinePayTrustCenterDto.builder()
+                    .platform(snapshot != null ? snapshot.getPlatform() : null)
+                    .deviceName(snapshot != null ? snapshot.getDeviceName() : null)
+                    .teeAvailable(snapshot != null ? snapshot.getTeeAvailable() : null)
+                    .keySigningActive(snapshot != null ? snapshot.getKeySigningActive() : null)
+                    .deviceRegistrationId(snapshot != null ? snapshot.getDeviceRegistrationId() : null)
+                    .faceAvailable(snapshot != null ? snapshot.getFaceAvailable() : null)
+                    .fingerprintAvailable(snapshot != null ? snapshot.getFingerprintAvailable() : null)
+                    .authBindingKey(snapshot != null ? snapshot.getAuthBindingKey() : null)
+                    .lastVerifiedAuthMethod(snapshot != null ? snapshot.getLastVerifiedAuthMethod() : null)
+                    .lastVerifiedAt(snapshot != null ? snapshot.getLastVerifiedAt() : null)
+                    .lastSyncedAt(snapshot != null ? snapshot.getLastSyncedAt() : null)
+                    .syncStatus(snapshot != null ? snapshot.getSyncStatus() : null)
+                    .updatedAt(snapshot != null ? snapshot.getUpdatedAt() : null)
+                    .proofLogs(logs)
+                    .statusLogs(statusLogs)
+                    .build();
+            })
         ).onFailure(throwable -> log.error("오프라인 페이 보안 센터 조회 실패 - userId: {}", userId, throwable));
     }
 
@@ -983,6 +1019,8 @@ public class UserRepository extends BaseRepository {
                 auth_binding_key,
                 last_verified_auth_method,
                 last_verified_at,
+                last_synced_at,
+                sync_status,
                 created_at,
                 updated_at
             ) VALUES (
@@ -997,6 +1035,8 @@ public class UserRepository extends BaseRepository {
                 #{auth_binding_key},
                 #{last_verified_auth_method},
                 #{last_verified_at},
+                #{last_synced_at},
+                #{sync_status},
                 #{created_at},
                 #{updated_at}
             )
@@ -1011,8 +1051,13 @@ public class UserRepository extends BaseRepository {
                 auth_binding_key = EXCLUDED.auth_binding_key,
                 last_verified_auth_method = EXCLUDED.last_verified_auth_method,
                 last_verified_at = EXCLUDED.last_verified_at,
+                last_synced_at = EXCLUDED.last_synced_at,
+                sync_status = EXCLUDED.sync_status,
                 updated_at = EXCLUDED.updated_at
             """;
+
+        Future<OfflinePayTrustCenterDto> currentFuture = getOfflinePayTrustCenter(client, userId, 10)
+            .recover(throwable -> Future.succeededFuture(null));
 
         Map<String, Object> snapshotParams = new HashMap<>();
         snapshotParams.put("user_id", userId);
@@ -1026,24 +1071,114 @@ public class UserRepository extends BaseRepository {
         snapshotParams.put("auth_binding_key", trustCenter.getAuthBindingKey());
         snapshotParams.put("last_verified_auth_method", trustCenter.getLastVerifiedAuthMethod());
         snapshotParams.put("last_verified_at", trustCenter.getLastVerifiedAt());
+        snapshotParams.put("last_synced_at", DateUtils.now());
+        snapshotParams.put("sync_status", "SYNCED");
         snapshotParams.put("created_at", DateUtils.now());
         snapshotParams.put("updated_at", DateUtils.now());
 
-        Future<Void> snapshotUpsert = query(client, QueryBuilder.selectStringQuery(snapshotSql).build(), snapshotParams)
-            .map(rows -> (Void) null);
+        return currentFuture.compose(currentSnapshot -> {
+            Future<Void> snapshotUpsert = query(client, QueryBuilder.selectStringQuery(snapshotSql).build(), snapshotParams)
+                .map(rows -> (Void) null);
 
-        Future<Void> logsUpsert = Future.succeededFuture();
-        if (trustCenter.getProofLogs() != null && !trustCenter.getProofLogs().isEmpty()) {
-            for (OfflinePayTrustCenterLogDto logItem : trustCenter.getProofLogs()) {
-                logsUpsert = logsUpsert.compose(v -> upsertOfflinePayProofLog(client, userId, logItem));
+            Future<Void> proofLogsUpsert = Future.succeededFuture();
+            if (trustCenter.getProofLogs() != null && !trustCenter.getProofLogs().isEmpty()) {
+                for (OfflinePayTrustCenterLogDto logItem : trustCenter.getProofLogs()) {
+                    proofLogsUpsert = proofLogsUpsert.compose(v -> upsertOfflinePayProofLog(client, userId, logItem));
+                }
             }
-        }
-        final Future<Void> logsUpsertFuture = logsUpsert;
 
-        return snapshotUpsert
-            .compose(v -> logsUpsertFuture)
-            .compose(v -> getOfflinePayTrustCenter(client, userId, 10))
+            List<OfflinePayTrustCenterLogDto> generatedStatusLogs = buildTrustCenterStatusLogs(currentSnapshot, trustCenter);
+            Future<Void> statusLogsUpsert = Future.succeededFuture();
+            for (OfflinePayTrustCenterLogDto logItem : generatedStatusLogs) {
+                statusLogsUpsert = statusLogsUpsert.compose(v -> upsertOfflinePayTrustCenterStatusLog(client, userId, logItem));
+            }
+            if (trustCenter.getStatusLogs() != null && !trustCenter.getStatusLogs().isEmpty()) {
+                for (OfflinePayTrustCenterLogDto logItem : trustCenter.getStatusLogs()) {
+                    statusLogsUpsert = statusLogsUpsert.compose(v -> upsertOfflinePayTrustCenterStatusLog(client, userId, logItem));
+                }
+            }
+            final Future<Void> proofLogsUpsertFuture = proofLogsUpsert;
+            final Future<Void> statusLogsUpsertFuture = statusLogsUpsert;
+
+            return snapshotUpsert
+                .compose(v -> proofLogsUpsertFuture)
+                .compose(v -> statusLogsUpsertFuture)
+                .compose(v -> getOfflinePayTrustCenter(client, userId, 10));
+        })
             .onFailure(throwable -> log.error("오프라인 페이 보안 센터 저장 실패 - userId: {}", userId, throwable));
+    }
+
+    private List<OfflinePayTrustCenterLogDto> buildTrustCenterStatusLogs(
+        OfflinePayTrustCenterDto currentSnapshot,
+        OfflinePayTrustCenterDto nextSnapshot
+    ) {
+        List<OfflinePayTrustCenterLogDto> logs = new ArrayList<>();
+        LocalDateTime now = DateUtils.now();
+        logs.add(OfflinePayTrustCenterLogDto.builder()
+            .id(UUID.randomUUID().toString())
+            .eventType("TRUST_CENTER_SYNC")
+            .eventStatus("SYNCED")
+            .message("보안 센터 상태가 서버와 동기화되었습니다.")
+            .reasonCode("SYNC_COMPLETED")
+            .metadata(new JsonObject()
+                .put("platform", nextSnapshot.getPlatform())
+                .put("deviceRegistrationId", nextSnapshot.getDeviceRegistrationId()))
+            .createdAt(now)
+            .build());
+
+        appendTrustCenterChangeLog(logs, "TEE_STATUS", "teeAvailable",
+            currentSnapshot != null ? currentSnapshot.getTeeAvailable() : null, nextSnapshot.getTeeAvailable(), now);
+        appendTrustCenterChangeLog(logs, "KEY_SIGNING_STATUS", "keySigningActive",
+            currentSnapshot != null ? currentSnapshot.getKeySigningActive() : null, nextSnapshot.getKeySigningActive(), now);
+        appendTrustCenterChangeLog(logs, "FACE_CAPABILITY", "faceAvailable",
+            currentSnapshot != null ? currentSnapshot.getFaceAvailable() : null, nextSnapshot.getFaceAvailable(), now);
+        appendTrustCenterChangeLog(logs, "FINGERPRINT_CAPABILITY", "fingerprintAvailable",
+            currentSnapshot != null ? currentSnapshot.getFingerprintAvailable() : null, nextSnapshot.getFingerprintAvailable(), now);
+        appendTrustCenterChangeLog(logs, "AUTH_METHOD", "lastVerifiedAuthMethod",
+            currentSnapshot != null ? currentSnapshot.getLastVerifiedAuthMethod() : null, nextSnapshot.getLastVerifiedAuthMethod(), now);
+
+        if (!Objects.equals(currentSnapshot != null ? currentSnapshot.getDeviceRegistrationId() : null, nextSnapshot.getDeviceRegistrationId())) {
+            logs.add(OfflinePayTrustCenterLogDto.builder()
+                .id(UUID.randomUUID().toString())
+                .eventType("DEVICE_REGISTRATION")
+                .eventStatus(nextSnapshot.getDeviceRegistrationId() == null || nextSnapshot.getDeviceRegistrationId().isBlank() ? "DETACHED" : "ACTIVE")
+                .message(nextSnapshot.getDeviceRegistrationId() == null || nextSnapshot.getDeviceRegistrationId().isBlank()
+                    ? "보안 디바이스 등록 연결이 해제되었습니다."
+                    : "보안 디바이스 등록 상태가 갱신되었습니다.")
+                .reasonCode("DEVICE_REGISTRATION_CHANGED")
+                .metadata(new JsonObject()
+                    .put("before", currentSnapshot != null ? currentSnapshot.getDeviceRegistrationId() : null)
+                    .put("after", nextSnapshot.getDeviceRegistrationId()))
+                .createdAt(now)
+                .build());
+        }
+
+        return logs;
+    }
+
+    private void appendTrustCenterChangeLog(
+        List<OfflinePayTrustCenterLogDto> logs,
+        String eventType,
+        String field,
+        Object before,
+        Object after,
+        LocalDateTime createdAt
+    ) {
+        if (Objects.equals(before, after)) {
+            return;
+        }
+        logs.add(OfflinePayTrustCenterLogDto.builder()
+            .id(UUID.randomUUID().toString())
+            .eventType(eventType)
+            .eventStatus("UPDATED")
+            .message(field + " 상태가 변경되었습니다.")
+            .reasonCode("STATE_CHANGED")
+            .metadata(new JsonObject()
+                .put("field", field)
+                .put("before", before)
+                .put("after", after))
+            .createdAt(createdAt)
+            .build());
     }
 
     private Future<Void> upsertOfflinePayProofLog(SqlClient client, Long userId, OfflinePayTrustCenterLogDto logItem) {
@@ -1086,6 +1221,54 @@ public class UserRepository extends BaseRepository {
         params.put("message", logItem.getMessage());
         params.put("reason_code", logItem.getReasonCode());
         params.put("metadata_json", logItem.getMetadata() != null ? logItem.getMetadata().encode() : "{}");
+        params.put("created_at", logItem.getCreatedAt() != null ? logItem.getCreatedAt() : DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> (Void) null);
+    }
+
+    private Future<Void> upsertOfflinePayTrustCenterStatusLog(SqlClient client, Long userId, OfflinePayTrustCenterLogDto logItem) {
+        String sql = """
+            INSERT INTO offline_pay_trust_center_status_logs (
+                user_id,
+                log_id,
+                event_type,
+                event_status,
+                message,
+                reason_code,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{log_id},
+                #{event_type},
+                #{event_status},
+                #{message},
+                #{reason_code},
+                CAST(#{metadata_json} AS jsonb),
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id, log_id) DO UPDATE SET
+                event_type = EXCLUDED.event_type,
+                event_status = EXCLUDED.event_status,
+                message = EXCLUDED.message,
+                reason_code = EXCLUDED.reason_code,
+                metadata_json = EXCLUDED.metadata_json,
+                created_at = EXCLUDED.created_at,
+                updated_at = EXCLUDED.updated_at
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("log_id", logItem.getId());
+        params.put("event_type", logItem.getEventType());
+        params.put("event_status", logItem.getEventStatus());
+        params.put("message", logItem.getMessage());
+        params.put("reason_code", logItem.getReasonCode());
+        params.put("metadata_json", (logItem.getMetadata() != null ? logItem.getMetadata() : new JsonObject()).encode());
         params.put("created_at", logItem.getCreatedAt() != null ? logItem.getCreatedAt() : DateUtils.now());
         params.put("updated_at", DateUtils.now());
 
