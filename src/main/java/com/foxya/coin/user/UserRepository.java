@@ -893,6 +893,13 @@ public class UserRepository extends BaseRepository {
                 device_name,
                 tee_available,
                 key_signing_active,
+                key_provider,
+                hardware_backed_key,
+                user_presence_protected,
+                secure_hardware_level,
+                attestation_class,
+                attestation_verdict,
+                server_verified_trust_level,
                 device_registration_id,
                 source_device_id,
                 device_binding_key,
@@ -948,6 +955,13 @@ public class UserRepository extends BaseRepository {
                 .deviceName(getStringColumnValue(row, "device_name"))
                 .teeAvailable(getBooleanColumnValue(row, "tee_available"))
                 .keySigningActive(getBooleanColumnValue(row, "key_signing_active"))
+                .keyProvider(getStringColumnValue(row, "key_provider"))
+                .hardwareBackedKey(getBooleanColumnValue(row, "hardware_backed_key"))
+                .userPresenceProtected(getBooleanColumnValue(row, "user_presence_protected"))
+                .secureHardwareLevel(getStringColumnValue(row, "secure_hardware_level"))
+                .attestationClass(getStringColumnValue(row, "attestation_class"))
+                .attestationVerdict(getStringColumnValue(row, "attestation_verdict"))
+                .serverVerifiedTrustLevel(getStringColumnValue(row, "server_verified_trust_level"))
                 .deviceRegistrationId(getStringColumnValue(row, "device_registration_id"))
                 .sourceDeviceId(getStringColumnValue(row, "source_device_id"))
                 .deviceBindingKey(getStringColumnValue(row, "device_binding_key"))
@@ -993,6 +1007,13 @@ public class UserRepository extends BaseRepository {
                     .deviceName(snapshot != null ? snapshot.getDeviceName() : null)
                     .teeAvailable(snapshot != null ? snapshot.getTeeAvailable() : null)
                     .keySigningActive(snapshot != null ? snapshot.getKeySigningActive() : null)
+                    .keyProvider(snapshot != null ? snapshot.getKeyProvider() : null)
+                    .hardwareBackedKey(snapshot != null ? snapshot.getHardwareBackedKey() : null)
+                    .userPresenceProtected(snapshot != null ? snapshot.getUserPresenceProtected() : null)
+                    .secureHardwareLevel(snapshot != null ? snapshot.getSecureHardwareLevel() : null)
+                    .attestationClass(snapshot != null ? snapshot.getAttestationClass() : null)
+                    .attestationVerdict(snapshot != null ? snapshot.getAttestationVerdict() : null)
+                    .serverVerifiedTrustLevel(snapshot != null ? snapshot.getServerVerifiedTrustLevel() : null)
                     .deviceRegistrationId(snapshot != null ? snapshot.getDeviceRegistrationId() : null)
                     .sourceDeviceId(snapshot != null ? snapshot.getSourceDeviceId() : null)
                     .deviceBindingKey(snapshot != null ? snapshot.getDeviceBindingKey() : null)
@@ -1025,6 +1046,13 @@ public class UserRepository extends BaseRepository {
                 device_name,
                 tee_available,
                 key_signing_active,
+                key_provider,
+                hardware_backed_key,
+                user_presence_protected,
+                secure_hardware_level,
+                attestation_class,
+                attestation_verdict,
+                server_verified_trust_level,
                 device_registration_id,
                 source_device_id,
                 device_binding_key,
@@ -1045,6 +1073,13 @@ public class UserRepository extends BaseRepository {
                 #{device_name},
                 #{tee_available},
                 #{key_signing_active},
+                #{key_provider},
+                #{hardware_backed_key},
+                #{user_presence_protected},
+                #{secure_hardware_level},
+                #{attestation_class},
+                #{attestation_verdict},
+                #{server_verified_trust_level},
                 #{device_registration_id},
                 #{source_device_id},
                 #{device_binding_key},
@@ -1065,6 +1100,13 @@ public class UserRepository extends BaseRepository {
                 device_name = EXCLUDED.device_name,
                 tee_available = EXCLUDED.tee_available,
                 key_signing_active = EXCLUDED.key_signing_active,
+                key_provider = EXCLUDED.key_provider,
+                hardware_backed_key = EXCLUDED.hardware_backed_key,
+                user_presence_protected = EXCLUDED.user_presence_protected,
+                secure_hardware_level = EXCLUDED.secure_hardware_level,
+                attestation_class = EXCLUDED.attestation_class,
+                attestation_verdict = EXCLUDED.attestation_verdict,
+                server_verified_trust_level = EXCLUDED.server_verified_trust_level,
                 device_registration_id = EXCLUDED.device_registration_id,
                 source_device_id = EXCLUDED.source_device_id,
                 device_binding_key = EXCLUDED.device_binding_key,
@@ -1089,6 +1131,13 @@ public class UserRepository extends BaseRepository {
         snapshotParams.put("device_name", trustCenter.getDeviceName());
         snapshotParams.put("tee_available", trustCenter.getTeeAvailable());
         snapshotParams.put("key_signing_active", trustCenter.getKeySigningActive());
+        snapshotParams.put("key_provider", trustCenter.getKeyProvider());
+        snapshotParams.put("hardware_backed_key", trustCenter.getHardwareBackedKey());
+        snapshotParams.put("user_presence_protected", trustCenter.getUserPresenceProtected());
+        snapshotParams.put("secure_hardware_level", trustCenter.getSecureHardwareLevel());
+        snapshotParams.put("attestation_class", trustCenter.getAttestationClass());
+        snapshotParams.put("attestation_verdict", trustCenter.getAttestationVerdict());
+        snapshotParams.put("server_verified_trust_level", trustCenter.getServerVerifiedTrustLevel());
         snapshotParams.put("device_registration_id", trustCenter.getDeviceRegistrationId());
         snapshotParams.put("source_device_id", trustCenter.getSourceDeviceId());
         snapshotParams.put("device_binding_key", trustCenter.getDeviceBindingKey());
@@ -1150,6 +1199,13 @@ public class UserRepository extends BaseRepository {
             .reasonCode("SYNC_COMPLETED")
             .metadata(new JsonObject()
                 .put("platform", nextSnapshot.getPlatform())
+                .put("keyProvider", nextSnapshot.getKeyProvider())
+                .put("hardwareBackedKey", nextSnapshot.getHardwareBackedKey())
+                .put("userPresenceProtected", nextSnapshot.getUserPresenceProtected())
+                .put("secureHardwareLevel", nextSnapshot.getSecureHardwareLevel())
+                .put("attestationClass", nextSnapshot.getAttestationClass())
+                .put("attestationVerdict", nextSnapshot.getAttestationVerdict())
+                .put("serverVerifiedTrustLevel", nextSnapshot.getServerVerifiedTrustLevel())
                 .put("deviceRegistrationId", nextSnapshot.getDeviceRegistrationId())
                 .put("sourceDeviceId", nextSnapshot.getSourceDeviceId())
                 .put("deviceBindingKey", nextSnapshot.getDeviceBindingKey())
@@ -1172,6 +1228,10 @@ public class UserRepository extends BaseRepository {
             currentSnapshot != null ? currentSnapshot.getDeviceBindingKey() : null, nextSnapshot.getDeviceBindingKey(), now);
         appendTrustCenterChangeLog(logs, "APP_VERSION", "appVersion",
             currentSnapshot != null ? currentSnapshot.getAppVersion() : null, nextSnapshot.getAppVersion(), now);
+        appendTrustCenterChangeLog(logs, "ATTESTATION_VERDICT", "attestationVerdict",
+            currentSnapshot != null ? currentSnapshot.getAttestationVerdict() : null, nextSnapshot.getAttestationVerdict(), now);
+        appendTrustCenterChangeLog(logs, "TRUST_LEVEL", "serverVerifiedTrustLevel",
+            currentSnapshot != null ? currentSnapshot.getServerVerifiedTrustLevel() : null, nextSnapshot.getServerVerifiedTrustLevel(), now);
 
         if (!Objects.equals(currentSnapshot != null ? currentSnapshot.getDeviceRegistrationId() : null, nextSnapshot.getDeviceRegistrationId())) {
             logs.add(OfflinePayTrustCenterLogDto.builder()

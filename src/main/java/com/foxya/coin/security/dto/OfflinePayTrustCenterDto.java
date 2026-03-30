@@ -17,6 +17,13 @@ public class OfflinePayTrustCenterDto {
     private String deviceName;
     private Boolean teeAvailable;
     private Boolean keySigningActive;
+    private String keyProvider;
+    private Boolean hardwareBackedKey;
+    private Boolean userPresenceProtected;
+    private String secureHardwareLevel;
+    private String attestationClass;
+    private String attestationVerdict;
+    private String serverVerifiedTrustLevel;
     private String deviceRegistrationId;
     private String sourceDeviceId;
     private String deviceBindingKey;

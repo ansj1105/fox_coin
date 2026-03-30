@@ -290,6 +290,11 @@ public class SecurityHandlerTest extends HandlerTestBase {
                 .put("deviceName", "Galaxy Test")
                 .put("teeAvailable", true)
                 .put("keySigningActive", true)
+                .put("keyProvider", "AndroidKeyStore")
+                .put("hardwareBackedKey", true)
+                .put("userPresenceProtected", true)
+                .put("secureHardwareLevel", "TRUSTED_ENVIRONMENT")
+                .put("attestationClass", "ANDROID_KEYSTORE_HARDWARE")
                 .put("deviceRegistrationId", "device-reg-1")
                 .put("sourceDeviceId", "device-source-1")
                 .put("deviceBindingKey", "binding-device-1")
@@ -314,6 +319,8 @@ public class SecurityHandlerTest extends HandlerTestBase {
                     Assertions.assertEquals("android", updatedData.getString("platform"));
                     Assertions.assertTrue(updatedData.getBoolean("teeAvailable"));
                     Assertions.assertEquals("SYNCED", updatedData.getString("syncStatus"));
+                    Assertions.assertEquals("HARDWARE_BACKED_VERIFIED", updatedData.getString("attestationVerdict"));
+                    Assertions.assertEquals("SERVER_VERIFIED", updatedData.getString("serverVerifiedTrustLevel"));
                     Assertions.assertNotNull(updatedData.getString("lastSyncedAt"));
                     Assertions.assertEquals("device-source-1", updatedData.getString("sourceDeviceId"));
                     Assertions.assertEquals("binding-device-1", updatedData.getString("deviceBindingKey"));
@@ -332,6 +339,8 @@ public class SecurityHandlerTest extends HandlerTestBase {
                             Assertions.assertEquals("SYNCED", persistedData.getString("syncStatus"));
                             Assertions.assertEquals("1.2.3", persistedData.getString("appVersion"));
                             Assertions.assertEquals("device-source-1", persistedData.getString("sourceDeviceId"));
+                            Assertions.assertEquals("AndroidKeyStore", persistedData.getString("keyProvider"));
+                            Assertions.assertEquals("HARDWARE_BACKED_VERIFIED", persistedData.getString("attestationVerdict"));
                             tc.completeNow();
                         })));
                 })));

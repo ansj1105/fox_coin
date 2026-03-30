@@ -962,6 +962,13 @@ public class UserService extends BaseService {
             .deviceName("")
             .teeAvailable(false)
             .keySigningActive(false)
+            .keyProvider("")
+            .hardwareBackedKey(false)
+            .userPresenceProtected(false)
+            .secureHardwareLevel("UNKNOWN")
+            .attestationClass("UNAVAILABLE")
+            .attestationVerdict("MIRROR_ONLY")
+            .serverVerifiedTrustLevel("LOCAL_ONLY")
             .deviceRegistrationId("")
             .sourceDeviceId("")
             .deviceBindingKey("")
@@ -1053,6 +1060,13 @@ public class UserService extends BaseService {
             .deviceName(request != null && request.getDeviceName() != null ? request.getDeviceName() : defaults.getDeviceName())
             .teeAvailable(request != null && request.getTeeAvailable() != null ? request.getTeeAvailable() : defaults.getTeeAvailable())
             .keySigningActive(request != null && request.getKeySigningActive() != null ? request.getKeySigningActive() : defaults.getKeySigningActive())
+            .keyProvider(request != null && request.getKeyProvider() != null ? request.getKeyProvider() : defaults.getKeyProvider())
+            .hardwareBackedKey(request != null && request.getHardwareBackedKey() != null ? request.getHardwareBackedKey() : defaults.getHardwareBackedKey())
+            .userPresenceProtected(request != null && request.getUserPresenceProtected() != null ? request.getUserPresenceProtected() : defaults.getUserPresenceProtected())
+            .secureHardwareLevel(request != null && request.getSecureHardwareLevel() != null ? request.getSecureHardwareLevel() : defaults.getSecureHardwareLevel())
+            .attestationClass(request != null && request.getAttestationClass() != null ? request.getAttestationClass() : defaults.getAttestationClass())
+            .attestationVerdict(resolveOfflinePayAttestationVerdict(request))
+            .serverVerifiedTrustLevel(resolveOfflinePayServerTrustLevel(request))
             .deviceRegistrationId(request != null && request.getDeviceRegistrationId() != null ? request.getDeviceRegistrationId() : defaults.getDeviceRegistrationId())
             .sourceDeviceId(request != null && request.getSourceDeviceId() != null ? request.getSourceDeviceId() : defaults.getSourceDeviceId())
             .deviceBindingKey(request != null && request.getDeviceBindingKey() != null ? request.getDeviceBindingKey() : defaults.getDeviceBindingKey())
@@ -1073,6 +1087,40 @@ public class UserService extends BaseService {
             .proofLogs(proofLogs)
             .statusLogs(statusLogs)
             .build();
+    }
+
+    private String resolveOfflinePayAttestationVerdict(OfflinePayTrustCenterDto request) {
+        if (request == null) {
+            return "MIRROR_ONLY";
+        }
+        boolean keySigningActive = Boolean.TRUE.equals(request.getKeySigningActive());
+        boolean userPresenceProtected = Boolean.TRUE.equals(request.getUserPresenceProtected());
+        boolean hardwareBackedKey = Boolean.TRUE.equals(request.getHardwareBackedKey());
+        String attestationClass = request.getAttestationClass() == null ? "" : request.getAttestationClass();
+        if (!keySigningActive) {
+            return "MIRROR_ONLY";
+        }
+        if ("IOS_SECURE_ENCLAVE".equals(attestationClass) && userPresenceProtected) {
+            return "SECURE_ENCLAVE_VERIFIED";
+        }
+        if ("ANDROID_KEYSTORE_HARDWARE".equals(attestationClass) && hardwareBackedKey && userPresenceProtected) {
+            return "HARDWARE_BACKED_VERIFIED";
+        }
+        if (userPresenceProtected) {
+            return "USER_PRESENCE_ONLY";
+        }
+        return "MIRROR_ONLY";
+    }
+
+    private String resolveOfflinePayServerTrustLevel(OfflinePayTrustCenterDto request) {
+        String verdict = resolveOfflinePayAttestationVerdict(request);
+        if ("SECURE_ENCLAVE_VERIFIED".equals(verdict) || "HARDWARE_BACKED_VERIFIED".equals(verdict)) {
+            return "SERVER_VERIFIED";
+        }
+        if ("USER_PRESENCE_ONLY".equals(verdict)) {
+            return "MIRROR_VERIFIED";
+        }
+        return "LOCAL_ONLY";
     }
 
     public Future<OfflinePayNotificationCenterDto> getOfflinePayNotificationCenter(Long userId) {
