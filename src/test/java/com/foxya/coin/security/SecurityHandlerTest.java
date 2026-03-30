@@ -291,6 +291,10 @@ public class SecurityHandlerTest extends HandlerTestBase {
                 .put("teeAvailable", true)
                 .put("keySigningActive", true)
                 .put("deviceRegistrationId", "device-reg-1")
+                .put("sourceDeviceId", "device-source-1")
+                .put("deviceBindingKey", "binding-device-1")
+                .put("appVersion", "1.2.3")
+                .put("collectedAt", "2026-03-30T08:30:00")
                 .put("faceAvailable", true)
                 .put("fingerprintAvailable", true)
                 .put("authBindingKey", "binding-key-1")
@@ -311,6 +315,8 @@ public class SecurityHandlerTest extends HandlerTestBase {
                     Assertions.assertTrue(updatedData.getBoolean("teeAvailable"));
                     Assertions.assertEquals("SYNCED", updatedData.getString("syncStatus"));
                     Assertions.assertNotNull(updatedData.getString("lastSyncedAt"));
+                    Assertions.assertEquals("device-source-1", updatedData.getString("sourceDeviceId"));
+                    Assertions.assertEquals("binding-device-1", updatedData.getString("deviceBindingKey"));
                     Assertions.assertTrue(updatedData.getJsonArray("statusLogs").size() >= 1);
 
                     reqGet(getUrl("/offline-pay/trust-center"))
@@ -324,6 +330,8 @@ public class SecurityHandlerTest extends HandlerTestBase {
                             Assertions.assertNotNull(persistedData.getJsonArray("statusLogs"));
                             Assertions.assertTrue(persistedData.getJsonArray("statusLogs").size() >= 1);
                             Assertions.assertEquals("SYNCED", persistedData.getString("syncStatus"));
+                            Assertions.assertEquals("1.2.3", persistedData.getString("appVersion"));
+                            Assertions.assertEquals("device-source-1", persistedData.getString("sourceDeviceId"));
                             tc.completeNow();
                         })));
                 })));

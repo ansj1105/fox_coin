@@ -18,6 +18,10 @@ public class OfflinePayTrustCenterDto {
     private Boolean teeAvailable;
     private Boolean keySigningActive;
     private String deviceRegistrationId;
+    private String sourceDeviceId;
+    private String deviceBindingKey;
+    private String appVersion;
+    private LocalDateTime collectedAt;
     private Boolean faceAvailable;
     private Boolean fingerprintAvailable;
     private String authBindingKey;

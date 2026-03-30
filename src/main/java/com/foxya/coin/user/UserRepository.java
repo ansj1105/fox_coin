@@ -894,6 +894,10 @@ public class UserRepository extends BaseRepository {
                 tee_available,
                 key_signing_active,
                 device_registration_id,
+                source_device_id,
+                device_binding_key,
+                app_version,
+                collected_at,
                 face_available,
                 fingerprint_available,
                 auth_binding_key,
@@ -945,6 +949,10 @@ public class UserRepository extends BaseRepository {
                 .teeAvailable(getBooleanColumnValue(row, "tee_available"))
                 .keySigningActive(getBooleanColumnValue(row, "key_signing_active"))
                 .deviceRegistrationId(getStringColumnValue(row, "device_registration_id"))
+                .sourceDeviceId(getStringColumnValue(row, "source_device_id"))
+                .deviceBindingKey(getStringColumnValue(row, "device_binding_key"))
+                .appVersion(getStringColumnValue(row, "app_version"))
+                .collectedAt(getLocalDateTimeColumnValue(row, "collected_at"))
                 .faceAvailable(getBooleanColumnValue(row, "face_available"))
                 .fingerprintAvailable(getBooleanColumnValue(row, "fingerprint_available"))
                 .authBindingKey(getStringColumnValue(row, "auth_binding_key"))
@@ -986,6 +994,10 @@ public class UserRepository extends BaseRepository {
                     .teeAvailable(snapshot != null ? snapshot.getTeeAvailable() : null)
                     .keySigningActive(snapshot != null ? snapshot.getKeySigningActive() : null)
                     .deviceRegistrationId(snapshot != null ? snapshot.getDeviceRegistrationId() : null)
+                    .sourceDeviceId(snapshot != null ? snapshot.getSourceDeviceId() : null)
+                    .deviceBindingKey(snapshot != null ? snapshot.getDeviceBindingKey() : null)
+                    .appVersion(snapshot != null ? snapshot.getAppVersion() : null)
+                    .collectedAt(snapshot != null ? snapshot.getCollectedAt() : null)
                     .faceAvailable(snapshot != null ? snapshot.getFaceAvailable() : null)
                     .fingerprintAvailable(snapshot != null ? snapshot.getFingerprintAvailable() : null)
                     .authBindingKey(snapshot != null ? snapshot.getAuthBindingKey() : null)
@@ -1014,6 +1026,10 @@ public class UserRepository extends BaseRepository {
                 tee_available,
                 key_signing_active,
                 device_registration_id,
+                source_device_id,
+                device_binding_key,
+                app_version,
+                collected_at,
                 face_available,
                 fingerprint_available,
                 auth_binding_key,
@@ -1030,6 +1046,10 @@ public class UserRepository extends BaseRepository {
                 #{tee_available},
                 #{key_signing_active},
                 #{device_registration_id},
+                #{source_device_id},
+                #{device_binding_key},
+                #{app_version},
+                #{collected_at},
                 #{face_available},
                 #{fingerprint_available},
                 #{auth_binding_key},
@@ -1046,6 +1066,10 @@ public class UserRepository extends BaseRepository {
                 tee_available = EXCLUDED.tee_available,
                 key_signing_active = EXCLUDED.key_signing_active,
                 device_registration_id = EXCLUDED.device_registration_id,
+                source_device_id = EXCLUDED.source_device_id,
+                device_binding_key = EXCLUDED.device_binding_key,
+                app_version = EXCLUDED.app_version,
+                collected_at = EXCLUDED.collected_at,
                 face_available = EXCLUDED.face_available,
                 fingerprint_available = EXCLUDED.fingerprint_available,
                 auth_binding_key = EXCLUDED.auth_binding_key,
@@ -1066,6 +1090,10 @@ public class UserRepository extends BaseRepository {
         snapshotParams.put("tee_available", trustCenter.getTeeAvailable());
         snapshotParams.put("key_signing_active", trustCenter.getKeySigningActive());
         snapshotParams.put("device_registration_id", trustCenter.getDeviceRegistrationId());
+        snapshotParams.put("source_device_id", trustCenter.getSourceDeviceId());
+        snapshotParams.put("device_binding_key", trustCenter.getDeviceBindingKey());
+        snapshotParams.put("app_version", trustCenter.getAppVersion());
+        snapshotParams.put("collected_at", trustCenter.getCollectedAt());
         snapshotParams.put("face_available", trustCenter.getFaceAvailable());
         snapshotParams.put("fingerprint_available", trustCenter.getFingerprintAvailable());
         snapshotParams.put("auth_binding_key", trustCenter.getAuthBindingKey());
@@ -1122,7 +1150,11 @@ public class UserRepository extends BaseRepository {
             .reasonCode("SYNC_COMPLETED")
             .metadata(new JsonObject()
                 .put("platform", nextSnapshot.getPlatform())
-                .put("deviceRegistrationId", nextSnapshot.getDeviceRegistrationId()))
+                .put("deviceRegistrationId", nextSnapshot.getDeviceRegistrationId())
+                .put("sourceDeviceId", nextSnapshot.getSourceDeviceId())
+                .put("deviceBindingKey", nextSnapshot.getDeviceBindingKey())
+                .put("appVersion", nextSnapshot.getAppVersion())
+                .put("collectedAt", nextSnapshot.getCollectedAt() != null ? nextSnapshot.getCollectedAt().toString() : null))
             .createdAt(now)
             .build());
 
@@ -1136,6 +1168,10 @@ public class UserRepository extends BaseRepository {
             currentSnapshot != null ? currentSnapshot.getFingerprintAvailable() : null, nextSnapshot.getFingerprintAvailable(), now);
         appendTrustCenterChangeLog(logs, "AUTH_METHOD", "lastVerifiedAuthMethod",
             currentSnapshot != null ? currentSnapshot.getLastVerifiedAuthMethod() : null, nextSnapshot.getLastVerifiedAuthMethod(), now);
+        appendTrustCenterChangeLog(logs, "DEVICE_BINDING_KEY", "deviceBindingKey",
+            currentSnapshot != null ? currentSnapshot.getDeviceBindingKey() : null, nextSnapshot.getDeviceBindingKey(), now);
+        appendTrustCenterChangeLog(logs, "APP_VERSION", "appVersion",
+            currentSnapshot != null ? currentSnapshot.getAppVersion() : null, nextSnapshot.getAppVersion(), now);
 
         if (!Objects.equals(currentSnapshot != null ? currentSnapshot.getDeviceRegistrationId() : null, nextSnapshot.getDeviceRegistrationId())) {
             logs.add(OfflinePayTrustCenterLogDto.builder()
@@ -1149,6 +1185,20 @@ public class UserRepository extends BaseRepository {
                 .metadata(new JsonObject()
                     .put("before", currentSnapshot != null ? currentSnapshot.getDeviceRegistrationId() : null)
                     .put("after", nextSnapshot.getDeviceRegistrationId()))
+                .createdAt(now)
+                .build());
+        }
+
+        if (!Objects.equals(currentSnapshot != null ? currentSnapshot.getSourceDeviceId() : null, nextSnapshot.getSourceDeviceId())) {
+            logs.add(OfflinePayTrustCenterLogDto.builder()
+                .id(UUID.randomUUID().toString())
+                .eventType("SOURCE_DEVICE")
+                .eventStatus("UPDATED")
+                .message("보안 센터 상태를 수집한 기기 식별값이 갱신되었습니다.")
+                .reasonCode("SOURCE_DEVICE_CHANGED")
+                .metadata(new JsonObject()
+                    .put("before", currentSnapshot != null ? currentSnapshot.getSourceDeviceId() : null)
+                    .put("after", nextSnapshot.getSourceDeviceId()))
                 .createdAt(now)
                 .build());
         }

@@ -4,6 +4,18 @@ ALTER TABLE offline_pay_trust_center_snapshots
 ALTER TABLE offline_pay_trust_center_snapshots
     ADD COLUMN IF NOT EXISTS sync_status VARCHAR(32) NOT NULL DEFAULT 'PENDING';
 
+ALTER TABLE offline_pay_trust_center_snapshots
+    ADD COLUMN IF NOT EXISTS source_device_id VARCHAR(128) NOT NULL DEFAULT '';
+
+ALTER TABLE offline_pay_trust_center_snapshots
+    ADD COLUMN IF NOT EXISTS device_binding_key VARCHAR(128) NOT NULL DEFAULT '';
+
+ALTER TABLE offline_pay_trust_center_snapshots
+    ADD COLUMN IF NOT EXISTS app_version VARCHAR(64) NOT NULL DEFAULT '';
+
+ALTER TABLE offline_pay_trust_center_snapshots
+    ADD COLUMN IF NOT EXISTS collected_at TIMESTAMP NULL;
+
 CREATE TABLE IF NOT EXISTS offline_pay_trust_center_status_logs (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     log_id VARCHAR(64) NOT NULL,
