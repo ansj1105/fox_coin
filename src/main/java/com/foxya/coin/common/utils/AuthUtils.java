@@ -65,8 +65,19 @@ public abstract class AuthUtils {
      */
     public static Long getUserIdOf(User user) {
         try {
-            String userId = user.principal().getString(CLAIM_USER_ID);
-            return userId != null ? Long.parseLong(userId) : null;
+            JsonObject principal = user != null ? user.principal() : null;
+            if (principal == null) {
+                return null;
+            }
+
+            Object rawUserId = principal.getValue(CLAIM_USER_ID);
+            if (rawUserId instanceof Number number) {
+                return number.longValue();
+            }
+            if (rawUserId instanceof String userId && !userId.isBlank()) {
+                return Long.parseLong(userId);
+            }
+            return null;
         } catch (Exception e) {
             log.error("Failed to get user ID from token", e);
             return null;
@@ -78,7 +89,13 @@ public abstract class AuthUtils {
      */
     public static String getUserRoleOf(User user) {
         try {
-            return user.principal().getString(CLAIM_ROLE);
+            JsonObject principal = user != null ? user.principal() : null;
+            if (principal == null) {
+                return null;
+            }
+
+            Object rawRole = principal.getValue(CLAIM_ROLE);
+            return rawRole != null ? String.valueOf(rawRole) : null;
         } catch (Exception e) {
             log.error("Failed to get user role from token", e);
             return null;
@@ -90,7 +107,13 @@ public abstract class AuthUtils {
      */
     public static String getTokenTypeOf(User user) {
         try {
-            return user.principal().getString(CLAIM_TOKEN_TYPE);
+            JsonObject principal = user != null ? user.principal() : null;
+            if (principal == null) {
+                return null;
+            }
+
+            Object rawTokenType = principal.getValue(CLAIM_TOKEN_TYPE);
+            return rawTokenType != null ? String.valueOf(rawTokenType) : null;
         } catch (Exception e) {
             log.error("Failed to get token type from token", e);
             return null;
