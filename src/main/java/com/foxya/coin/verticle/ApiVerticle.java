@@ -123,6 +123,7 @@ import com.foxya.coin.currency.CoinPriceRepository;
 import com.foxya.coin.country.CountryCodeRepository;
 import com.foxya.coin.country.CountryCodeService;
 import com.foxya.coin.security.SecurityHandler;
+import com.foxya.coin.security.OfflinePayPublicShareHandler;
 import com.foxya.coin.inquiry.InquiryHandler;
 import com.foxya.coin.inquiry.InquiryRepository;
 import com.foxya.coin.inquiry.InquiryService;
@@ -536,6 +537,7 @@ public class ApiVerticle extends AbstractVerticle {
         TokenDepositHandler tokenDepositHandler = new TokenDepositHandler(vertx, tokenDepositService, jwtAuth);
         CurrencyHandler currencyHandler = new CurrencyHandler(vertx, currencyService, jwtAuth);
         SecurityHandler securityHandler = new SecurityHandler(vertx, userService, jwtAuth);
+        OfflinePayPublicShareHandler offlinePayPublicShareHandler = new OfflinePayPublicShareHandler(vertx, userService);
         InquiryHandler inquiryHandler = new InquiryHandler(vertx, inquiryService, jwtAuth);
         MissionHandler missionHandler = new MissionHandler(vertx, missionService, jwtAuth);
         AirdropHandler airdropHandler = new AirdropHandler(vertx, airdropService, jwtAuth);
@@ -642,6 +644,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/security", securityHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/public/offline-pay", offlinePayPublicShareHandler.getRouter());
         
         // Normalized comment.
         mainRouter.mountSubRouter("/api/v1/currencies", currencyHandler.getRouter());

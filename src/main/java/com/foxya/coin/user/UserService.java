@@ -29,6 +29,9 @@ import com.foxya.coin.user.dto.EmailInfoDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.security.dto.OfflinePayPinVerificationResponseDto;
 import com.foxya.coin.security.dto.OfflinePaySecurityStatusDto;
+import com.foxya.coin.security.dto.OfflinePaySettingsDto;
+import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
+import com.foxya.coin.security.dto.OfflinePaySharedDetailTokenResponseDto;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -39,6 +42,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -51,6 +55,7 @@ public class UserService extends BaseService {
     private static final int EXTERNAL_LINK_CODE_LENGTH = 8;
     private static final String DEFAULT_PROFILE_IMAGE_UPLOAD_DIR = "/tmp/fox_coin/profile-images";
     private static final int OFFLINE_PAY_PIN_MAX_ATTEMPTS = 3;
+    private static final int OFFLINE_PAY_SHARED_DETAIL_TTL_DAYS = 30;
     private static final String OFFLINE_PAY_PIN_LOCK_MESSAGE =
         "핀 입력에서 핀인증 3회실패시 계정이 잠깁니다. KORION WALLET에서 이메일 인증으로 비밀번호 변경후 이용해주세요.";
     private static final String OFFLINE_PAY_PIN_DEVICE_UNAVAILABLE_MESSAGE =
@@ -762,6 +767,65 @@ public class UserService extends BaseService {
             });
     }
 
+    public Future<OfflinePaySettingsDto> getOfflinePaySettings(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return userRepository.getOfflinePaySettings(pool, userId)
+                    .map(settings -> settings != null ? settings : defaultOfflinePaySettings());
+            });
+    }
+
+    public Future<OfflinePaySettingsDto> updateOfflinePaySettings(Long userId, OfflinePaySettingsDto request) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                OfflinePaySettingsDto merged = normalizeOfflinePaySettings(request);
+                return userRepository.upsertOfflinePaySettings(pool, userId, merged);
+            });
+    }
+
+    public Future<OfflinePaySharedDetailTokenResponseDto> createOfflinePaySharedDetail(Long userId, String itemId, JsonObject payload) {
+        if (itemId == null || itemId.isBlank()) {
+            return Future.failedFuture(new BadRequestException("itemId는 필수입니다."));
+        }
+        if (payload == null || payload.isEmpty()) {
+            return Future.failedFuture(new BadRequestException("payload는 필수입니다."));
+        }
+
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                String token = UUID.randomUUID().toString().replace("-", "");
+                LocalDateTime expiresAt = LocalDateTime.now().plusDays(OFFLINE_PAY_SHARED_DETAIL_TTL_DAYS);
+                return userRepository.createOfflinePaySharedDetail(pool, token, userId, itemId, payload, expiresAt)
+                    .map(v -> OfflinePaySharedDetailTokenResponseDto.builder()
+                        .token(token)
+                        .url(buildOfflinePaySharedDetailUrl(itemId, token))
+                        .expiresAt(expiresAt)
+                        .build());
+            });
+    }
+
+    public Future<OfflinePaySharedDetailPublicDto> getOfflinePaySharedDetail(String token) {
+        if (token == null || token.isBlank()) {
+            return Future.failedFuture(new BadRequestException("token은 필수입니다."));
+        }
+        return userRepository.getOfflinePaySharedDetail(pool, token)
+            .compose(detail -> {
+                if (detail == null || detail.getPayload() == null) {
+                    return Future.failedFuture(new NotFoundException("공유된 오프라인 결제 내역을 찾을 수 없습니다."));
+                }
+                return Future.succeededFuture(detail);
+            });
+    }
+
     private Future<OfflinePayPinVerificationResponseDto> verifyOfflinePayPinAgainstUser(User user, EmailInfoDto emailInfo, String pin) {
         if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
             return Future.succeededFuture(buildOfflinePayPinVerificationResponse(
@@ -839,6 +903,71 @@ public class UserService extends BaseService {
             .pinLocked(status.getPinLocked())
             .pinLockedAt(status.getPinLockedAt())
             .build();
+    }
+
+    private OfflinePaySettingsDto defaultOfflinePaySettings() {
+        return OfflinePaySettingsDto.builder()
+            .securityLevelHighEnabled(true)
+            .faceIdSettingEnabled(false)
+            .fingerprintSettingEnabled(false)
+            .paymentOfflineEnabled(true)
+            .paymentBleEnabled(true)
+            .paymentNfcEnabled(true)
+            .paymentApprovalMode("LOW_TOUCH")
+            .settlementAutoEnabled(true)
+            .settlementCycleMinutes(0)
+            .storeOfflineEnabled(true)
+            .storeBleEnabled(true)
+            .storeNfcEnabled(true)
+            .storeMerchantLabel("KORION Pay Store")
+            .paymentCompletedAlertEnabled(true)
+            .incomingRequestAlertEnabled(true)
+            .failedAlertEnabled(true)
+            .settlementCompletedAlertEnabled(true)
+            .updatedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
+            .build();
+    }
+
+    private OfflinePaySettingsDto normalizeOfflinePaySettings(OfflinePaySettingsDto request) {
+        OfflinePaySettingsDto defaults = defaultOfflinePaySettings();
+        int cycleMinutes = request.getSettlementCycleMinutes() == null ? defaults.getSettlementCycleMinutes() : request.getSettlementCycleMinutes();
+        if (cycleMinutes != 0 && cycleMinutes != 5 && cycleMinutes != 10 && cycleMinutes != 30) {
+            cycleMinutes = 0;
+        }
+
+        String approvalMode = "EVERY_TIME".equalsIgnoreCase(request.getPaymentApprovalMode()) ? "EVERY_TIME" : "LOW_TOUCH";
+        String merchantLabel = request.getStoreMerchantLabel() == null || request.getStoreMerchantLabel().isBlank()
+            ? defaults.getStoreMerchantLabel()
+            : request.getStoreMerchantLabel().trim();
+
+        return OfflinePaySettingsDto.builder()
+            .securityLevelHighEnabled(request.getSecurityLevelHighEnabled() != null ? request.getSecurityLevelHighEnabled() : defaults.getSecurityLevelHighEnabled())
+            .faceIdSettingEnabled(request.getFaceIdSettingEnabled() != null ? request.getFaceIdSettingEnabled() : defaults.getFaceIdSettingEnabled())
+            .fingerprintSettingEnabled(request.getFingerprintSettingEnabled() != null ? request.getFingerprintSettingEnabled() : defaults.getFingerprintSettingEnabled())
+            .paymentOfflineEnabled(request.getPaymentOfflineEnabled() != null ? request.getPaymentOfflineEnabled() : defaults.getPaymentOfflineEnabled())
+            .paymentBleEnabled(request.getPaymentBleEnabled() != null ? request.getPaymentBleEnabled() : defaults.getPaymentBleEnabled())
+            .paymentNfcEnabled(request.getPaymentNfcEnabled() != null ? request.getPaymentNfcEnabled() : defaults.getPaymentNfcEnabled())
+            .paymentApprovalMode(approvalMode)
+            .settlementAutoEnabled(request.getSettlementAutoEnabled() != null ? request.getSettlementAutoEnabled() : defaults.getSettlementAutoEnabled())
+            .settlementCycleMinutes(cycleMinutes)
+            .storeOfflineEnabled(request.getStoreOfflineEnabled() != null ? request.getStoreOfflineEnabled() : defaults.getStoreOfflineEnabled())
+            .storeBleEnabled(request.getStoreBleEnabled() != null ? request.getStoreBleEnabled() : defaults.getStoreBleEnabled())
+            .storeNfcEnabled(request.getStoreNfcEnabled() != null ? request.getStoreNfcEnabled() : defaults.getStoreNfcEnabled())
+            .storeMerchantLabel(merchantLabel)
+            .paymentCompletedAlertEnabled(request.getPaymentCompletedAlertEnabled() != null ? request.getPaymentCompletedAlertEnabled() : defaults.getPaymentCompletedAlertEnabled())
+            .incomingRequestAlertEnabled(request.getIncomingRequestAlertEnabled() != null ? request.getIncomingRequestAlertEnabled() : defaults.getIncomingRequestAlertEnabled())
+            .failedAlertEnabled(request.getFailedAlertEnabled() != null ? request.getFailedAlertEnabled() : defaults.getFailedAlertEnabled())
+            .settlementCompletedAlertEnabled(request.getSettlementCompletedAlertEnabled() != null ? request.getSettlementCompletedAlertEnabled() : defaults.getSettlementCompletedAlertEnabled())
+            .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    private String buildOfflinePaySharedDetailUrl(String itemId, String token) {
+        return frontendBaseUrl
+            + "/offline-pay/hub/detail/"
+            + itemId
+            + "?shared=1&token="
+            + token;
     }
 
     private boolean isOfflinePayPinLocked(User user) {

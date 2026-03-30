@@ -1,11 +1,14 @@
 package com.foxya.coin.user;
 
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.SqlClient;
 import io.vertx.sqlclient.Row;
 import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.common.utils.DateUtils;
+import com.foxya.coin.security.dto.OfflinePaySettingsDto;
+import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.utils.QueryBuilder;
@@ -643,5 +646,236 @@ public class UserRepository extends BaseRepository {
                 return userIds;
             })
             .onFailure(throwable -> log.error("활성 사용자 ID 조회 실패 - afterUserId: {}, limit: {}", afterUserId, limit, throwable));
+    }
+
+    public Future<OfflinePaySettingsDto> getOfflinePaySettings(SqlClient client, Long userId) {
+        String sql = """
+            SELECT
+                security_level_high_enabled,
+                face_id_setting_enabled,
+                fingerprint_setting_enabled,
+                payment_offline_enabled,
+                payment_ble_enabled,
+                payment_nfc_enabled,
+                payment_approval_mode,
+                settlement_auto_enabled,
+                settlement_cycle_minutes,
+                store_offline_enabled,
+                store_ble_enabled,
+                store_nfc_enabled,
+                store_merchant_label,
+                payment_completed_alert_enabled,
+                incoming_request_alert_enabled,
+                failed_alert_enabled,
+                settlement_completed_alert_enabled,
+                updated_at
+            FROM offline_pay_user_settings
+            WHERE user_id = #{user_id}
+            """;
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), Collections.singletonMap("user_id", userId))
+            .map(rows -> fetchOne(row -> OfflinePaySettingsDto.builder()
+                .securityLevelHighEnabled(getBooleanColumnValue(row, "security_level_high_enabled"))
+                .faceIdSettingEnabled(getBooleanColumnValue(row, "face_id_setting_enabled"))
+                .fingerprintSettingEnabled(getBooleanColumnValue(row, "fingerprint_setting_enabled"))
+                .paymentOfflineEnabled(getBooleanColumnValue(row, "payment_offline_enabled"))
+                .paymentBleEnabled(getBooleanColumnValue(row, "payment_ble_enabled"))
+                .paymentNfcEnabled(getBooleanColumnValue(row, "payment_nfc_enabled"))
+                .paymentApprovalMode(getStringColumnValue(row, "payment_approval_mode"))
+                .settlementAutoEnabled(getBooleanColumnValue(row, "settlement_auto_enabled"))
+                .settlementCycleMinutes(getIntegerColumnValue(row, "settlement_cycle_minutes"))
+                .storeOfflineEnabled(getBooleanColumnValue(row, "store_offline_enabled"))
+                .storeBleEnabled(getBooleanColumnValue(row, "store_ble_enabled"))
+                .storeNfcEnabled(getBooleanColumnValue(row, "store_nfc_enabled"))
+                .storeMerchantLabel(getStringColumnValue(row, "store_merchant_label"))
+                .paymentCompletedAlertEnabled(getBooleanColumnValue(row, "payment_completed_alert_enabled"))
+                .incomingRequestAlertEnabled(getBooleanColumnValue(row, "incoming_request_alert_enabled"))
+                .failedAlertEnabled(getBooleanColumnValue(row, "failed_alert_enabled"))
+                .settlementCompletedAlertEnabled(getBooleanColumnValue(row, "settlement_completed_alert_enabled"))
+                .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
+                .build(), rows))
+            .onFailure(throwable -> log.error("오프라인 페이 설정 조회 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<OfflinePaySettingsDto> upsertOfflinePaySettings(SqlClient client, Long userId, OfflinePaySettingsDto settings) {
+        String sql = """
+            INSERT INTO offline_pay_user_settings (
+                user_id,
+                security_level_high_enabled,
+                face_id_setting_enabled,
+                fingerprint_setting_enabled,
+                payment_offline_enabled,
+                payment_ble_enabled,
+                payment_nfc_enabled,
+                payment_approval_mode,
+                settlement_auto_enabled,
+                settlement_cycle_minutes,
+                store_offline_enabled,
+                store_ble_enabled,
+                store_nfc_enabled,
+                store_merchant_label,
+                payment_completed_alert_enabled,
+                incoming_request_alert_enabled,
+                failed_alert_enabled,
+                settlement_completed_alert_enabled,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{security_level_high_enabled},
+                #{face_id_setting_enabled},
+                #{fingerprint_setting_enabled},
+                #{payment_offline_enabled},
+                #{payment_ble_enabled},
+                #{payment_nfc_enabled},
+                #{payment_approval_mode},
+                #{settlement_auto_enabled},
+                #{settlement_cycle_minutes},
+                #{store_offline_enabled},
+                #{store_ble_enabled},
+                #{store_nfc_enabled},
+                #{store_merchant_label},
+                #{payment_completed_alert_enabled},
+                #{incoming_request_alert_enabled},
+                #{failed_alert_enabled},
+                #{settlement_completed_alert_enabled},
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+                security_level_high_enabled = EXCLUDED.security_level_high_enabled,
+                face_id_setting_enabled = EXCLUDED.face_id_setting_enabled,
+                fingerprint_setting_enabled = EXCLUDED.fingerprint_setting_enabled,
+                payment_offline_enabled = EXCLUDED.payment_offline_enabled,
+                payment_ble_enabled = EXCLUDED.payment_ble_enabled,
+                payment_nfc_enabled = EXCLUDED.payment_nfc_enabled,
+                payment_approval_mode = EXCLUDED.payment_approval_mode,
+                settlement_auto_enabled = EXCLUDED.settlement_auto_enabled,
+                settlement_cycle_minutes = EXCLUDED.settlement_cycle_minutes,
+                store_offline_enabled = EXCLUDED.store_offline_enabled,
+                store_ble_enabled = EXCLUDED.store_ble_enabled,
+                store_nfc_enabled = EXCLUDED.store_nfc_enabled,
+                store_merchant_label = EXCLUDED.store_merchant_label,
+                payment_completed_alert_enabled = EXCLUDED.payment_completed_alert_enabled,
+                incoming_request_alert_enabled = EXCLUDED.incoming_request_alert_enabled,
+                failed_alert_enabled = EXCLUDED.failed_alert_enabled,
+                settlement_completed_alert_enabled = EXCLUDED.settlement_completed_alert_enabled,
+                updated_at = EXCLUDED.updated_at
+            RETURNING
+                security_level_high_enabled,
+                face_id_setting_enabled,
+                fingerprint_setting_enabled,
+                payment_offline_enabled,
+                payment_ble_enabled,
+                payment_nfc_enabled,
+                payment_approval_mode,
+                settlement_auto_enabled,
+                settlement_cycle_minutes,
+                store_offline_enabled,
+                store_ble_enabled,
+                store_nfc_enabled,
+                store_merchant_label,
+                payment_completed_alert_enabled,
+                incoming_request_alert_enabled,
+                failed_alert_enabled,
+                settlement_completed_alert_enabled,
+                updated_at
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("security_level_high_enabled", settings.getSecurityLevelHighEnabled());
+        params.put("face_id_setting_enabled", settings.getFaceIdSettingEnabled());
+        params.put("fingerprint_setting_enabled", settings.getFingerprintSettingEnabled());
+        params.put("payment_offline_enabled", settings.getPaymentOfflineEnabled());
+        params.put("payment_ble_enabled", settings.getPaymentBleEnabled());
+        params.put("payment_nfc_enabled", settings.getPaymentNfcEnabled());
+        params.put("payment_approval_mode", settings.getPaymentApprovalMode());
+        params.put("settlement_auto_enabled", settings.getSettlementAutoEnabled());
+        params.put("settlement_cycle_minutes", settings.getSettlementCycleMinutes());
+        params.put("store_offline_enabled", settings.getStoreOfflineEnabled());
+        params.put("store_ble_enabled", settings.getStoreBleEnabled());
+        params.put("store_nfc_enabled", settings.getStoreNfcEnabled());
+        params.put("store_merchant_label", settings.getStoreMerchantLabel());
+        params.put("payment_completed_alert_enabled", settings.getPaymentCompletedAlertEnabled());
+        params.put("incoming_request_alert_enabled", settings.getIncomingRequestAlertEnabled());
+        params.put("failed_alert_enabled", settings.getFailedAlertEnabled());
+        params.put("settlement_completed_alert_enabled", settings.getSettlementCompletedAlertEnabled());
+        params.put("created_at", DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> fetchOne(row -> OfflinePaySettingsDto.builder()
+                .securityLevelHighEnabled(getBooleanColumnValue(row, "security_level_high_enabled"))
+                .faceIdSettingEnabled(getBooleanColumnValue(row, "face_id_setting_enabled"))
+                .fingerprintSettingEnabled(getBooleanColumnValue(row, "fingerprint_setting_enabled"))
+                .paymentOfflineEnabled(getBooleanColumnValue(row, "payment_offline_enabled"))
+                .paymentBleEnabled(getBooleanColumnValue(row, "payment_ble_enabled"))
+                .paymentNfcEnabled(getBooleanColumnValue(row, "payment_nfc_enabled"))
+                .paymentApprovalMode(getStringColumnValue(row, "payment_approval_mode"))
+                .settlementAutoEnabled(getBooleanColumnValue(row, "settlement_auto_enabled"))
+                .settlementCycleMinutes(getIntegerColumnValue(row, "settlement_cycle_minutes"))
+                .storeOfflineEnabled(getBooleanColumnValue(row, "store_offline_enabled"))
+                .storeBleEnabled(getBooleanColumnValue(row, "store_ble_enabled"))
+                .storeNfcEnabled(getBooleanColumnValue(row, "store_nfc_enabled"))
+                .storeMerchantLabel(getStringColumnValue(row, "store_merchant_label"))
+                .paymentCompletedAlertEnabled(getBooleanColumnValue(row, "payment_completed_alert_enabled"))
+                .incomingRequestAlertEnabled(getBooleanColumnValue(row, "incoming_request_alert_enabled"))
+                .failedAlertEnabled(getBooleanColumnValue(row, "failed_alert_enabled"))
+                .settlementCompletedAlertEnabled(getBooleanColumnValue(row, "settlement_completed_alert_enabled"))
+                .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
+                .build(), rows))
+            .onFailure(throwable -> log.error("오프라인 페이 설정 저장 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<Void> createOfflinePaySharedDetail(SqlClient client, String token, Long userId, String itemId, JsonObject payload, LocalDateTime expiresAt) {
+        String sql = """
+            INSERT INTO offline_pay_shared_details (
+                token,
+                user_id,
+                item_id,
+                payload_json,
+                expires_at,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{token},
+                #{user_id},
+                #{item_id},
+                CAST(#{payload_json} AS jsonb),
+                #{expires_at},
+                #{created_at},
+                #{updated_at}
+            )
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("token", token);
+        params.put("user_id", userId);
+        params.put("item_id", itemId);
+        params.put("payload_json", payload.encode());
+        params.put("expires_at", expiresAt);
+        params.put("created_at", DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> (Void) null)
+            .onFailure(throwable -> log.error("오프라인 페이 공유 토큰 저장 실패 - userId: {}, itemId: {}", userId, itemId, throwable));
+    }
+
+    public Future<OfflinePaySharedDetailPublicDto> getOfflinePaySharedDetail(SqlClient client, String token) {
+        String sql = """
+            SELECT token, item_id, payload_json, expires_at
+            FROM offline_pay_shared_details
+            WHERE token = #{token}
+              AND expires_at > NOW()
+            """;
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), Collections.singletonMap("token", token))
+            .map(rows -> fetchOne(row -> OfflinePaySharedDetailPublicDto.builder()
+                .token(getStringColumnValue(row, "token"))
+                .itemId(getStringColumnValue(row, "item_id"))
+                .payload(getJsonObjectColumnValue(row, "payload_json"))
+                .expiresAt(getLocalDateTimeColumnValue(row, "expires_at"))
+                .build(), rows))
+            .onFailure(throwable -> log.error("오프라인 페이 공유 토큰 조회 실패 - token: {}", token, throwable));
     }
 }

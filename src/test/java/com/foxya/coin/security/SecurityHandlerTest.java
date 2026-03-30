@@ -200,6 +200,88 @@ public class SecurityHandlerTest extends HandlerTestBase {
     }
 
     @Nested
+    @DisplayName("오프라인 페이 설정/공유 테스트")
+    class OfflinePaySettingsAndShareTest {
+
+        @Test
+        @DisplayName("설정 조회/저장 - 서버 authoritative 설정 동기화")
+        void getAndUpdateOfflinePaySettings(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            reqGet(getUrl("/offline-pay/settings"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(initialRes -> tc.verify(() -> {
+                    JsonObject initialData = initialRes.bodyAsJsonObject().getJsonObject("data");
+                    Assertions.assertNotNull(initialData);
+                    Assertions.assertTrue(initialData.getBoolean("paymentOfflineEnabled"));
+
+                    JsonObject updateBody = new JsonObject()
+                        .put("paymentOfflineEnabled", false)
+                        .put("paymentBleEnabled", false)
+                        .put("paymentNfcEnabled", false)
+                        .put("paymentApprovalMode", "EVERY_TIME")
+                        .put("settlementAutoEnabled", true)
+                        .put("settlementCycleMinutes", 10)
+                        .put("storeMerchantLabel", "Offline Merchant");
+
+                    reqPut(getUrl("/offline-pay/settings"))
+                        .bearerTokenAuthentication(accessToken)
+                        .sendJson(updateBody, tc.succeeding(updateRes -> tc.verify(() -> {
+                            JsonObject updatedData = updateRes.bodyAsJsonObject().getJsonObject("data");
+                            Assertions.assertFalse(updatedData.getBoolean("paymentOfflineEnabled"));
+                            Assertions.assertFalse(updatedData.getBoolean("paymentBleEnabled"));
+                            Assertions.assertEquals("EVERY_TIME", updatedData.getString("paymentApprovalMode"));
+                            Assertions.assertEquals(10, updatedData.getInteger("settlementCycleMinutes"));
+                            Assertions.assertEquals("Offline Merchant", updatedData.getString("storeMerchantLabel"));
+
+                            reqGet(getUrl("/offline-pay/settings"))
+                                .bearerTokenAuthentication(accessToken)
+                                .send(tc.succeeding(getRes -> tc.verify(() -> {
+                                    JsonObject persistedData = getRes.bodyAsJsonObject().getJsonObject("data");
+                                    Assertions.assertFalse(persistedData.getBoolean("paymentOfflineEnabled"));
+                                    Assertions.assertEquals("EVERY_TIME", persistedData.getString("paymentApprovalMode"));
+                                    Assertions.assertEquals("Offline Merchant", persistedData.getString("storeMerchantLabel"));
+                                    tc.completeNow();
+                                })));
+                        })));
+                })));
+        }
+
+        @Test
+        @DisplayName("공유 토큰 생성/공개 조회 - 로그인 없이 resolve 가능")
+        void createAndResolveOfflinePaySharedDetail(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+            JsonObject payload = new JsonObject()
+                .put("asset", "KORI")
+                .put("direction", "SENT")
+                .put("item", new JsonObject()
+                    .put("id", "item-1")
+                    .put("title", "Collateral top-up")
+                    .put("memo", "Offline collateral top-up request"));
+
+            reqPost(getUrl("/offline-pay/shared-details"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(new JsonObject()
+                    .put("itemId", "item-1")
+                    .put("payload", payload), tc.succeeding(createRes -> tc.verify(() -> {
+                        JsonObject createData = createRes.bodyAsJsonObject().getJsonObject("data");
+                        String token = createData.getString("token");
+                        Assertions.assertNotNull(token);
+                        Assertions.assertTrue(createData.getString("url").contains("token=" + token));
+
+                        reqGet("/api/v1/public/offline-pay/shared-details/" + token)
+                            .send(tc.succeeding(publicRes -> tc.verify(() -> {
+                                JsonObject publicData = publicRes.bodyAsJsonObject().getJsonObject("data");
+                                Assertions.assertEquals("item-1", publicData.getString("itemId"));
+                                Assertions.assertEquals(token, publicData.getString("token"));
+                                Assertions.assertEquals("KORI", publicData.getJsonObject("payload").getString("asset"));
+                                tc.completeNow();
+                            })));
+                    })));
+        }
+    }
+
+    @Nested
     @DisplayName("로그인 비밀번호 변경 테스트")
     class LoginPasswordTest {
 
@@ -275,4 +357,3 @@ public class SecurityHandlerTest extends HandlerTestBase {
         }
     }
 }
-

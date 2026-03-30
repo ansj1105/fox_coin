@@ -7,6 +7,7 @@ import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.user.UserService;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -18,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import static io.vertx.ext.web.validation.builder.Bodies.json;
 import static io.vertx.json.schema.common.dsl.Schemas.objectSchema;
 import static io.vertx.json.schema.common.dsl.Schemas.stringSchema;
+import static io.vertx.json.schema.common.dsl.Schemas.booleanSchema;
+import static io.vertx.json.schema.common.dsl.Schemas.intSchema;
 import static io.vertx.json.schema.common.dsl.Keywords.minLength;
 import static io.vertx.json.schema.common.dsl.Keywords.maxLength;
 
@@ -60,6 +63,20 @@ public class SecurityHandler extends BaseHandler {
             .handler(verifyOfflinePayPinValidation(parser))
             .handler(this::verifyOfflinePayPin);
 
+        router.get("/offline-pay/settings")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getOfflinePaySettings);
+
+        router.put("/offline-pay/settings")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(updateOfflinePaySettingsValidation(parser))
+            .handler(this::updateOfflinePaySettings);
+
+        router.post("/offline-pay/shared-details")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(createOfflinePaySharedDetailValidation(parser))
+            .handler(this::createOfflinePaySharedDetail);
+
         // 로그인 비밀번호 변경 (이메일 인증 코드 기반)
         router.post("/login-password")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -101,6 +118,43 @@ public class SecurityHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> updateOfflinePaySettingsValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .property("securityLevelHighEnabled", booleanSchema())
+                    .property("faceIdSettingEnabled", booleanSchema())
+                    .property("fingerprintSettingEnabled", booleanSchema())
+                    .property("paymentOfflineEnabled", booleanSchema())
+                    .property("paymentBleEnabled", booleanSchema())
+                    .property("paymentNfcEnabled", booleanSchema())
+                    .property("paymentApprovalMode", stringSchema())
+                    .property("settlementAutoEnabled", booleanSchema())
+                    .property("settlementCycleMinutes", intSchema())
+                    .property("storeOfflineEnabled", booleanSchema())
+                    .property("storeBleEnabled", booleanSchema())
+                    .property("storeNfcEnabled", booleanSchema())
+                    .property("storeMerchantLabel", stringSchema())
+                    .property("paymentCompletedAlertEnabled", booleanSchema())
+                    .property("incomingRequestAlertEnabled", booleanSchema())
+                    .property("failedAlertEnabled", booleanSchema())
+                    .property("settlementCompletedAlertEnabled", booleanSchema())
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> createOfflinePaySharedDetailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("itemId", stringSchema().with(minLength(1), maxLength(255)))
+                    .requiredProperty("payload", objectSchema().allowAdditionalProperties(true))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * 거래 비밀번호 설정/변경
      */
@@ -125,6 +179,30 @@ public class SecurityHandler extends BaseHandler {
         var bodyMap = Utils.getMapFromJsonObject(ctx.getBodyAsJson());
         String pin = (String) bodyMap.get("pin");
         response(ctx, userService.verifyOfflinePayPin(userId, pin));
+    }
+
+    private void getOfflinePaySettings(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getOfflinePaySettings(userId));
+    }
+
+    private void updateOfflinePaySettings(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        JsonObject body = ctx.getBodyAsJson();
+        response(ctx, userService.updateOfflinePaySettings(userId, BaseHandler.getObjectMapper().convertValue(
+            body.getMap(),
+            com.foxya.coin.security.dto.OfflinePaySettingsDto.class
+        )));
+    }
+
+    private void createOfflinePaySharedDetail(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        JsonObject body = ctx.getBodyAsJson();
+        response(ctx, userService.createOfflinePaySharedDetail(
+            userId,
+            body.getString("itemId"),
+            body.getJsonObject("payload")
+        ));
     }
 
     /**
