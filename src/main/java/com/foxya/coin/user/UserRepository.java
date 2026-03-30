@@ -9,6 +9,8 @@ import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.security.dto.OfflinePaySettingsDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
+import com.foxya.coin.security.dto.OfflinePayTrustCenterDto;
+import com.foxya.coin.security.dto.OfflinePayTrustCenterLogDto;
 import com.foxya.coin.user.dto.CreateUserDto;
 import com.foxya.coin.user.entities.User;
 import com.foxya.coin.utils.QueryBuilder;
@@ -877,5 +879,214 @@ public class UserRepository extends BaseRepository {
                 .expiresAt(getLocalDateTimeColumnValue(row, "expires_at"))
                 .build(), rows))
             .onFailure(throwable -> log.error("오프라인 페이 공유 토큰 조회 실패 - token: {}", token, throwable));
+    }
+
+    public Future<OfflinePayTrustCenterDto> getOfflinePayTrustCenter(SqlClient client, Long userId, int limit) {
+        String snapshotSql = """
+            SELECT
+                platform,
+                device_name,
+                tee_available,
+                key_signing_active,
+                device_registration_id,
+                face_available,
+                fingerprint_available,
+                auth_binding_key,
+                last_verified_auth_method,
+                last_verified_at,
+                updated_at
+            FROM offline_pay_trust_center_snapshots
+            WHERE user_id = #{user_id}
+            """;
+        String logsSql = """
+            SELECT
+                log_id,
+                event_type,
+                event_status,
+                message,
+                reason_code,
+                metadata_json,
+                created_at
+            FROM offline_pay_proof_logs
+            WHERE user_id = #{user_id}
+            ORDER BY created_at DESC
+            LIMIT #{limit}
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+
+        Future<OfflinePayTrustCenterDto> snapshotFuture = query(client, QueryBuilder.selectStringQuery(snapshotSql).build(), Collections.singletonMap("user_id", userId))
+            .map(rows -> fetchOne(row -> OfflinePayTrustCenterDto.builder()
+                .platform(getStringColumnValue(row, "platform"))
+                .deviceName(getStringColumnValue(row, "device_name"))
+                .teeAvailable(getBooleanColumnValue(row, "tee_available"))
+                .keySigningActive(getBooleanColumnValue(row, "key_signing_active"))
+                .deviceRegistrationId(getStringColumnValue(row, "device_registration_id"))
+                .faceAvailable(getBooleanColumnValue(row, "face_available"))
+                .fingerprintAvailable(getBooleanColumnValue(row, "fingerprint_available"))
+                .authBindingKey(getStringColumnValue(row, "auth_binding_key"))
+                .lastVerifiedAuthMethod(getStringColumnValue(row, "last_verified_auth_method"))
+                .lastVerifiedAt(getLocalDateTimeColumnValue(row, "last_verified_at"))
+                .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
+                .build(), rows));
+
+        Future<List<OfflinePayTrustCenterLogDto>> logsFuture = query(client, QueryBuilder.selectStringQuery(logsSql).build(), params)
+            .map(rows -> fetchAll(row -> OfflinePayTrustCenterLogDto.builder()
+                .id(getStringColumnValue(row, "log_id"))
+                .eventType(getStringColumnValue(row, "event_type"))
+                .eventStatus(getStringColumnValue(row, "event_status"))
+                .message(getStringColumnValue(row, "message"))
+                .reasonCode(getStringColumnValue(row, "reason_code"))
+                .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                .build(), rows));
+
+        return snapshotFuture.compose(snapshot ->
+            logsFuture.map(logs -> OfflinePayTrustCenterDto.builder()
+                .platform(snapshot != null ? snapshot.getPlatform() : null)
+                .deviceName(snapshot != null ? snapshot.getDeviceName() : null)
+                .teeAvailable(snapshot != null ? snapshot.getTeeAvailable() : null)
+                .keySigningActive(snapshot != null ? snapshot.getKeySigningActive() : null)
+                .deviceRegistrationId(snapshot != null ? snapshot.getDeviceRegistrationId() : null)
+                .faceAvailable(snapshot != null ? snapshot.getFaceAvailable() : null)
+                .fingerprintAvailable(snapshot != null ? snapshot.getFingerprintAvailable() : null)
+                .authBindingKey(snapshot != null ? snapshot.getAuthBindingKey() : null)
+                .lastVerifiedAuthMethod(snapshot != null ? snapshot.getLastVerifiedAuthMethod() : null)
+                .lastVerifiedAt(snapshot != null ? snapshot.getLastVerifiedAt() : null)
+                .updatedAt(snapshot != null ? snapshot.getUpdatedAt() : null)
+                .proofLogs(logs)
+                .build()
+            )
+        ).onFailure(throwable -> log.error("오프라인 페이 보안 센터 조회 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<OfflinePayTrustCenterDto> upsertOfflinePayTrustCenter(
+        SqlClient client,
+        Long userId,
+        OfflinePayTrustCenterDto trustCenter
+    ) {
+        String snapshotSql = """
+            INSERT INTO offline_pay_trust_center_snapshots (
+                user_id,
+                platform,
+                device_name,
+                tee_available,
+                key_signing_active,
+                device_registration_id,
+                face_available,
+                fingerprint_available,
+                auth_binding_key,
+                last_verified_auth_method,
+                last_verified_at,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{platform},
+                #{device_name},
+                #{tee_available},
+                #{key_signing_active},
+                #{device_registration_id},
+                #{face_available},
+                #{fingerprint_available},
+                #{auth_binding_key},
+                #{last_verified_auth_method},
+                #{last_verified_at},
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+                platform = EXCLUDED.platform,
+                device_name = EXCLUDED.device_name,
+                tee_available = EXCLUDED.tee_available,
+                key_signing_active = EXCLUDED.key_signing_active,
+                device_registration_id = EXCLUDED.device_registration_id,
+                face_available = EXCLUDED.face_available,
+                fingerprint_available = EXCLUDED.fingerprint_available,
+                auth_binding_key = EXCLUDED.auth_binding_key,
+                last_verified_auth_method = EXCLUDED.last_verified_auth_method,
+                last_verified_at = EXCLUDED.last_verified_at,
+                updated_at = EXCLUDED.updated_at
+            """;
+
+        Map<String, Object> snapshotParams = new HashMap<>();
+        snapshotParams.put("user_id", userId);
+        snapshotParams.put("platform", trustCenter.getPlatform());
+        snapshotParams.put("device_name", trustCenter.getDeviceName());
+        snapshotParams.put("tee_available", trustCenter.getTeeAvailable());
+        snapshotParams.put("key_signing_active", trustCenter.getKeySigningActive());
+        snapshotParams.put("device_registration_id", trustCenter.getDeviceRegistrationId());
+        snapshotParams.put("face_available", trustCenter.getFaceAvailable());
+        snapshotParams.put("fingerprint_available", trustCenter.getFingerprintAvailable());
+        snapshotParams.put("auth_binding_key", trustCenter.getAuthBindingKey());
+        snapshotParams.put("last_verified_auth_method", trustCenter.getLastVerifiedAuthMethod());
+        snapshotParams.put("last_verified_at", trustCenter.getLastVerifiedAt());
+        snapshotParams.put("created_at", DateUtils.now());
+        snapshotParams.put("updated_at", DateUtils.now());
+
+        Future<Void> snapshotUpsert = query(client, QueryBuilder.selectStringQuery(snapshotSql).build(), snapshotParams)
+            .map(rows -> (Void) null);
+
+        Future<Void> logsUpsert = Future.succeededFuture();
+        if (trustCenter.getProofLogs() != null && !trustCenter.getProofLogs().isEmpty()) {
+            for (OfflinePayTrustCenterLogDto logItem : trustCenter.getProofLogs()) {
+                logsUpsert = logsUpsert.compose(v -> upsertOfflinePayProofLog(client, userId, logItem));
+            }
+        }
+        final Future<Void> logsUpsertFuture = logsUpsert;
+
+        return snapshotUpsert
+            .compose(v -> logsUpsertFuture)
+            .compose(v -> getOfflinePayTrustCenter(client, userId, 10))
+            .onFailure(throwable -> log.error("오프라인 페이 보안 센터 저장 실패 - userId: {}", userId, throwable));
+    }
+
+    private Future<Void> upsertOfflinePayProofLog(SqlClient client, Long userId, OfflinePayTrustCenterLogDto logItem) {
+        String sql = """
+            INSERT INTO offline_pay_proof_logs (
+                user_id,
+                log_id,
+                event_type,
+                event_status,
+                message,
+                reason_code,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{log_id},
+                #{event_type},
+                #{event_status},
+                #{message},
+                #{reason_code},
+                CAST(#{metadata_json} AS jsonb),
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id, log_id) DO UPDATE SET
+                event_type = EXCLUDED.event_type,
+                event_status = EXCLUDED.event_status,
+                message = EXCLUDED.message,
+                reason_code = EXCLUDED.reason_code,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = EXCLUDED.updated_at
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("log_id", logItem.getId());
+        params.put("event_type", logItem.getEventType());
+        params.put("event_status", logItem.getEventStatus());
+        params.put("message", logItem.getMessage());
+        params.put("reason_code", logItem.getReasonCode());
+        params.put("metadata_json", logItem.getMetadata() != null ? logItem.getMetadata().encode() : "{}");
+        params.put("created_at", logItem.getCreatedAt() != null ? logItem.getCreatedAt() : DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> (Void) null);
     }
 }

@@ -279,6 +279,49 @@ public class SecurityHandlerTest extends HandlerTestBase {
                             })));
                     })));
         }
+
+        @Test
+        @DisplayName("보안 센터 조회/저장 - proof log와 상태를 서버 authoritative로 동기화")
+        void getAndUpdateOfflinePayTrustCenter(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject updateBody = new JsonObject()
+                .put("platform", "android")
+                .put("deviceName", "Galaxy Test")
+                .put("teeAvailable", true)
+                .put("keySigningActive", true)
+                .put("deviceRegistrationId", "device-reg-1")
+                .put("faceAvailable", true)
+                .put("fingerprintAvailable", true)
+                .put("authBindingKey", "binding-key-1")
+                .put("lastVerifiedAuthMethod", "FACE_ID")
+                .put("proofLogs", new io.vertx.core.json.JsonArray()
+                    .add(new JsonObject()
+                        .put("id", "log-1")
+                        .put("eventType", "REQUEST_SENT")
+                        .put("eventStatus", "ACKNOWLEDGED")
+                        .put("message", "sent")
+                        .put("createdAt", "2026-03-30T08:00:00")));
+
+            reqPut(getUrl("/offline-pay/trust-center"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(updateBody, tc.succeeding(updateRes -> tc.verify(() -> {
+                    JsonObject updatedData = updateRes.bodyAsJsonObject().getJsonObject("data");
+                    Assertions.assertEquals("android", updatedData.getString("platform"));
+                    Assertions.assertTrue(updatedData.getBoolean("teeAvailable"));
+
+                    reqGet(getUrl("/offline-pay/trust-center"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(getRes -> tc.verify(() -> {
+                            JsonObject persistedData = getRes.bodyAsJsonObject().getJsonObject("data");
+                            Assertions.assertEquals("Galaxy Test", persistedData.getString("deviceName"));
+                            Assertions.assertEquals("FACE_ID", persistedData.getString("lastVerifiedAuthMethod"));
+                            Assertions.assertNotNull(persistedData.getJsonArray("proofLogs"));
+                            Assertions.assertEquals("log-1", persistedData.getJsonArray("proofLogs").getJsonObject(0).getString("id"));
+                            tc.completeNow();
+                        })));
+                })));
+        }
     }
 
     @Nested

@@ -32,6 +32,8 @@ import com.foxya.coin.security.dto.OfflinePaySecurityStatusDto;
 import com.foxya.coin.security.dto.OfflinePaySettingsDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailTokenResponseDto;
+import com.foxya.coin.security.dto.OfflinePayTrustCenterDto;
+import com.foxya.coin.security.dto.OfflinePayTrustCenterLogDto;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -826,6 +829,28 @@ public class UserService extends BaseService {
             });
     }
 
+    public Future<OfflinePayTrustCenterDto> getOfflinePayTrustCenter(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return userRepository.getOfflinePayTrustCenter(pool, userId, 10)
+                    .map(trustCenter -> trustCenter != null ? normalizeOfflinePayTrustCenter(trustCenter) : defaultOfflinePayTrustCenter());
+            });
+    }
+
+    public Future<OfflinePayTrustCenterDto> updateOfflinePayTrustCenter(Long userId, OfflinePayTrustCenterDto request) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return userRepository.upsertOfflinePayTrustCenter(pool, userId, normalizeOfflinePayTrustCenter(request))
+                    .map(this::normalizeOfflinePayTrustCenter);
+            });
+    }
+
     private Future<OfflinePayPinVerificationResponseDto> verifyOfflinePayPinAgainstUser(User user, EmailInfoDto emailInfo, String pin) {
         if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
             return Future.succeededFuture(buildOfflinePayPinVerificationResponse(
@@ -928,6 +953,22 @@ public class UserService extends BaseService {
             .build();
     }
 
+    private OfflinePayTrustCenterDto defaultOfflinePayTrustCenter() {
+        return OfflinePayTrustCenterDto.builder()
+            .platform("unknown")
+            .deviceName("")
+            .teeAvailable(false)
+            .keySigningActive(false)
+            .deviceRegistrationId("")
+            .faceAvailable(false)
+            .fingerprintAvailable(false)
+            .authBindingKey("")
+            .lastVerifiedAuthMethod("NONE")
+            .updatedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
+            .proofLogs(List.of())
+            .build();
+    }
+
     private OfflinePaySettingsDto normalizeOfflinePaySettings(OfflinePaySettingsDto request) {
         OfflinePaySettingsDto defaults = defaultOfflinePaySettings();
         int cycleMinutes = request.getSettlementCycleMinutes() == null ? defaults.getSettlementCycleMinutes() : request.getSettlementCycleMinutes();
@@ -959,6 +1000,44 @@ public class UserService extends BaseService {
             .failedAlertEnabled(request.getFailedAlertEnabled() != null ? request.getFailedAlertEnabled() : defaults.getFailedAlertEnabled())
             .settlementCompletedAlertEnabled(request.getSettlementCompletedAlertEnabled() != null ? request.getSettlementCompletedAlertEnabled() : defaults.getSettlementCompletedAlertEnabled())
             .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    private OfflinePayTrustCenterDto normalizeOfflinePayTrustCenter(OfflinePayTrustCenterDto request) {
+        OfflinePayTrustCenterDto defaults = defaultOfflinePayTrustCenter();
+        List<OfflinePayTrustCenterLogDto> proofLogs = request == null || request.getProofLogs() == null
+            ? List.of()
+            : request.getProofLogs().stream()
+                .filter(item -> item != null && item.getId() != null && !item.getId().isBlank())
+                .limit(20)
+                .map(item -> OfflinePayTrustCenterLogDto.builder()
+                    .id(item.getId())
+                    .eventType(item.getEventType())
+                    .eventStatus(item.getEventStatus())
+                    .message(item.getMessage())
+                    .reasonCode(item.getReasonCode())
+                    .metadata(item.getMetadata() != null ? item.getMetadata() : new JsonObject())
+                    .createdAt(item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.now())
+                    .build())
+                .toList();
+
+        return OfflinePayTrustCenterDto.builder()
+            .platform(request != null && request.getPlatform() != null && !request.getPlatform().isBlank()
+                ? request.getPlatform()
+                : defaults.getPlatform())
+            .deviceName(request != null && request.getDeviceName() != null ? request.getDeviceName() : defaults.getDeviceName())
+            .teeAvailable(request != null && request.getTeeAvailable() != null ? request.getTeeAvailable() : defaults.getTeeAvailable())
+            .keySigningActive(request != null && request.getKeySigningActive() != null ? request.getKeySigningActive() : defaults.getKeySigningActive())
+            .deviceRegistrationId(request != null && request.getDeviceRegistrationId() != null ? request.getDeviceRegistrationId() : defaults.getDeviceRegistrationId())
+            .faceAvailable(request != null && request.getFaceAvailable() != null ? request.getFaceAvailable() : defaults.getFaceAvailable())
+            .fingerprintAvailable(request != null && request.getFingerprintAvailable() != null ? request.getFingerprintAvailable() : defaults.getFingerprintAvailable())
+            .authBindingKey(request != null && request.getAuthBindingKey() != null ? request.getAuthBindingKey() : defaults.getAuthBindingKey())
+            .lastVerifiedAuthMethod(request != null && request.getLastVerifiedAuthMethod() != null && !request.getLastVerifiedAuthMethod().isBlank()
+                ? request.getLastVerifiedAuthMethod()
+                : defaults.getLastVerifiedAuthMethod())
+            .lastVerifiedAt(request != null ? request.getLastVerifiedAt() : defaults.getLastVerifiedAt())
+            .updatedAt(LocalDateTime.now())
+            .proofLogs(proofLogs)
             .build();
     }
 

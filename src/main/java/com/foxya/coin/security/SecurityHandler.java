@@ -72,6 +72,15 @@ public class SecurityHandler extends BaseHandler {
             .handler(updateOfflinePaySettingsValidation(parser))
             .handler(this::updateOfflinePaySettings);
 
+        router.get("/offline-pay/trust-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getOfflinePayTrustCenter);
+
+        router.put("/offline-pay/trust-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(updateOfflinePayTrustCenterValidation(parser))
+            .handler(this::updateOfflinePayTrustCenter);
+
         router.post("/offline-pay/shared-details")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(createOfflinePaySharedDetailValidation(parser))
@@ -155,6 +164,36 @@ public class SecurityHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> updateOfflinePayTrustCenterValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .property("platform", stringSchema())
+                    .property("deviceName", stringSchema())
+                    .property("teeAvailable", booleanSchema())
+                    .property("keySigningActive", booleanSchema())
+                    .property("deviceRegistrationId", stringSchema())
+                    .property("faceAvailable", booleanSchema())
+                    .property("fingerprintAvailable", booleanSchema())
+                    .property("authBindingKey", stringSchema())
+                    .property("lastVerifiedAuthMethod", stringSchema())
+                    .property("lastVerifiedAt", stringSchema())
+                    .property("proofLogs", io.vertx.json.schema.common.dsl.Schemas.arraySchema().items(
+                        objectSchema()
+                            .requiredProperty("id", stringSchema())
+                            .property("eventType", stringSchema())
+                            .property("eventStatus", stringSchema())
+                            .property("message", stringSchema())
+                            .property("reasonCode", stringSchema())
+                            .property("metadata", objectSchema().allowAdditionalProperties(true))
+                            .property("createdAt", stringSchema())
+                            .allowAdditionalProperties(false)
+                    ))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * 거래 비밀번호 설정/변경
      */
@@ -193,6 +232,20 @@ public class SecurityHandler extends BaseHandler {
             body.getMap(),
             com.foxya.coin.security.dto.OfflinePaySettingsDto.class
         )));
+    }
+
+    private void getOfflinePayTrustCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getOfflinePayTrustCenter(userId));
+    }
+
+    private void updateOfflinePayTrustCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        JsonObject body = ctx.getBodyAsJson();
+        response(ctx, userService.updateOfflinePayTrustCenter(
+            userId,
+            BaseHandler.getObjectMapper().convertValue(body.getMap(), com.foxya.coin.security.dto.OfflinePayTrustCenterDto.class)
+        ));
     }
 
     private void createOfflinePaySharedDetail(RoutingContext ctx) {
