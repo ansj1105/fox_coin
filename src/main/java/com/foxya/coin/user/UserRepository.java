@@ -12,6 +12,7 @@ import com.foxya.coin.utils.QueryBuilder;
 import com.foxya.coin.utils.BaseQueryBuilder.Op;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -52,6 +53,8 @@ public class UserRepository extends BaseRepository {
         .isWarning(getIntegerColumnValue(row, "is_warning"))
         .isMiningSuspended(getIntegerColumnValue(row, "is_mining_suspended"))
         .isAccountBlocked(getIntegerColumnValue(row, "is_account_blocked"))
+        .offlinePayPinFailedAttempts(getIntegerColumnValue(row, "offline_pay_pin_failed_attempts"))
+        .offlinePayPinLockedAt(getLocalDateTimeColumnValue(row, "offline_pay_pin_locked_at"))
         .deletedAt(getLocalDateTimeColumnValue(row, "deleted_at"))
         .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
         .updatedAt(getLocalDateTimeColumnValue(row, "updated_at"))
@@ -466,18 +469,41 @@ public class UserRepository extends BaseRepository {
      */
     public Future<User> updateTransactionPassword(SqlClient client, Long userId, String transactionPasswordHash) {
         String sql = QueryBuilder
-            .update("users", "transaction_password_hash", "updated_at")
+            .update("users", "transaction_password_hash", "offline_pay_pin_failed_attempts", "offline_pay_pin_locked_at", "updated_at")
             .whereById()
             .returning("*");
 
         java.util.Map<String, Object> params = new java.util.HashMap<>();
         params.put("id", userId);
         params.put("transaction_password_hash", transactionPasswordHash);
+        params.put("offline_pay_pin_failed_attempts", 0);
+        params.put("offline_pay_pin_locked_at", null);
         params.put("updated_at", DateUtils.now());
 
         return query(client, sql, params)
             .map(rows -> fetchOne(userMapper, rows))
             .onFailure(throwable -> log.error("거래 비밀번호 업데이트 실패 - userId: {}", userId));
+    }
+
+    public Future<User> updateOfflinePayPinState(SqlClient client, Long userId, int failedAttempts, LocalDateTime lockedAt) {
+        String sql = QueryBuilder
+            .update("users", "offline_pay_pin_failed_attempts", "offline_pay_pin_locked_at", "updated_at")
+            .whereById()
+            .returning("*");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", userId);
+        params.put("offline_pay_pin_failed_attempts", failedAttempts);
+        params.put("offline_pay_pin_locked_at", lockedAt);
+        params.put("updated_at", DateUtils.now());
+
+        return query(client, sql, params)
+            .map(rows -> fetchOne(userMapper, rows))
+            .onFailure(throwable -> log.error("오프라인 페이 PIN 상태 업데이트 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<User> resetOfflinePayPinState(SqlClient client, Long userId) {
+        return updateOfflinePayPinState(client, userId, 0, null);
     }
 
     /**

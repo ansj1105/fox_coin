@@ -27,6 +27,8 @@ import com.foxya.coin.user.dto.ReferralCodeResponseDto;
 import com.foxya.coin.user.dto.UserProfileResponseDto;
 import com.foxya.coin.user.dto.EmailInfoDto;
 import com.foxya.coin.user.entities.User;
+import com.foxya.coin.security.dto.OfflinePayPinVerificationResponseDto;
+import com.foxya.coin.security.dto.OfflinePaySecurityStatusDto;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -34,6 +36,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -47,6 +50,11 @@ public class UserService extends BaseService {
     private static final int EXTERNAL_LINK_CODE_TTL_SECONDS = 300;
     private static final int EXTERNAL_LINK_CODE_LENGTH = 8;
     private static final String DEFAULT_PROFILE_IMAGE_UPLOAD_DIR = "/tmp/fox_coin/profile-images";
+    private static final int OFFLINE_PAY_PIN_MAX_ATTEMPTS = 3;
+    private static final String OFFLINE_PAY_PIN_LOCK_MESSAGE =
+        "핀 입력에서 핀인증 3회실패시 계정이 잠깁니다. KORION WALLET에서 이메일 인증으로 비밀번호 변경후 이용해주세요.";
+    private static final String OFFLINE_PAY_PIN_DEVICE_UNAVAILABLE_MESSAGE =
+        "생체인증이 지원하지 않는 기기입니다. 이메일 인증 후 KORION WALLET 설정에서 거래 비밀번호를 등록해주세요.";
     
     private final UserRepository userRepository;
     private final JWTAuth jwtAuth;
@@ -728,6 +736,113 @@ public class UserService extends BaseService {
                 String hash = BCrypt.hashpw(newPassword, BCrypt.gensalt());
                 return userRepository.updateTransactionPassword(pool, userId, hash).mapEmpty();
             });
+    }
+
+    public Future<OfflinePaySecurityStatusDto> getOfflinePaySecurityStatus(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return getEmailInfo(userId).map(emailInfo -> buildOfflinePaySecurityStatus(user, emailInfo));
+            });
+    }
+
+    public Future<OfflinePayPinVerificationResponseDto> verifyOfflinePayPin(Long userId, String pin) {
+        if (pin == null || !pin.matches("^\\d{6}$")) {
+            return Future.failedFuture(new BadRequestException("거래 비밀번호는 숫자 6자리여야 합니다."));
+        }
+
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
+                }
+                return getEmailInfo(userId).compose(emailInfo -> verifyOfflinePayPinAgainstUser(user, emailInfo, pin));
+            });
+    }
+
+    private Future<OfflinePayPinVerificationResponseDto> verifyOfflinePayPinAgainstUser(User user, EmailInfoDto emailInfo, String pin) {
+        if (user.getTransactionPasswordHash() == null || user.getTransactionPasswordHash().isBlank()) {
+            return Future.succeededFuture(buildOfflinePayPinVerificationResponse(
+                false,
+                OFFLINE_PAY_PIN_DEVICE_UNAVAILABLE_MESSAGE,
+                user,
+                emailInfo
+            ));
+        }
+
+        if (isOfflinePayPinLocked(user)) {
+            return Future.succeededFuture(buildOfflinePayPinVerificationResponse(
+                false,
+                OFFLINE_PAY_PIN_LOCK_MESSAGE,
+                user,
+                emailInfo
+            ));
+        }
+
+        if (BCrypt.checkpw(pin, user.getTransactionPasswordHash())) {
+            return userRepository.resetOfflinePayPinState(pool, user.getId())
+                .map(updatedUser -> buildOfflinePayPinVerificationResponse(
+                    true,
+                    "거래 비밀번호 인증이 완료되었습니다.",
+                    updatedUser,
+                    emailInfo
+                ));
+        }
+
+        int currentAttempts = user.getOfflinePayPinFailedAttempts() == null ? 0 : user.getOfflinePayPinFailedAttempts();
+        int nextAttempts = Math.min(OFFLINE_PAY_PIN_MAX_ATTEMPTS, currentAttempts + 1);
+        LocalDateTime lockedAt = nextAttempts >= OFFLINE_PAY_PIN_MAX_ATTEMPTS ? LocalDateTime.now() : null;
+
+        return userRepository.updateOfflinePayPinState(pool, user.getId(), nextAttempts, lockedAt)
+            .map(updatedUser -> buildOfflinePayPinVerificationResponse(
+                false,
+                lockedAt != null
+                    ? OFFLINE_PAY_PIN_LOCK_MESSAGE
+                    : String.format("거래 비밀번호 인증에 실패했습니다. 남은 횟수 %d회입니다.", OFFLINE_PAY_PIN_MAX_ATTEMPTS - nextAttempts),
+                updatedUser,
+                emailInfo
+            ));
+    }
+
+    private OfflinePaySecurityStatusDto buildOfflinePaySecurityStatus(User user, EmailInfoDto emailInfo) {
+        int failedAttempts = user.getOfflinePayPinFailedAttempts() == null ? 0 : user.getOfflinePayPinFailedAttempts();
+        boolean locked = isOfflinePayPinLocked(user);
+        int remainingAttempts = locked ? 0 : Math.max(0, OFFLINE_PAY_PIN_MAX_ATTEMPTS - failedAttempts);
+        return OfflinePaySecurityStatusDto.builder()
+            .email(emailInfo != null ? emailInfo.getEmail() : null)
+            .emailVerified(emailInfo != null && emailInfo.isVerified())
+            .transactionPasswordRegistered(user.getTransactionPasswordHash() != null && !user.getTransactionPasswordHash().isBlank())
+            .pinFailedAttempts(failedAttempts)
+            .pinRemainingAttempts(remainingAttempts)
+            .pinLocked(locked)
+            .pinLockedAt(user.getOfflinePayPinLockedAt())
+            .build();
+    }
+
+    private OfflinePayPinVerificationResponseDto buildOfflinePayPinVerificationResponse(
+        boolean verified,
+        String message,
+        User user,
+        EmailInfoDto emailInfo
+    ) {
+        OfflinePaySecurityStatusDto status = buildOfflinePaySecurityStatus(user, emailInfo);
+        return OfflinePayPinVerificationResponseDto.builder()
+            .verified(verified)
+            .message(message)
+            .email(status.getEmail())
+            .emailVerified(status.getEmailVerified())
+            .transactionPasswordRegistered(status.getTransactionPasswordRegistered())
+            .pinFailedAttempts(status.getPinFailedAttempts())
+            .pinRemainingAttempts(status.getPinRemainingAttempts())
+            .pinLocked(status.getPinLocked())
+            .pinLockedAt(status.getPinLockedAt())
+            .build();
+    }
+
+    private boolean isOfflinePayPinLocked(User user) {
+        return user.getOfflinePayPinLockedAt() != null;
     }
 
     /**

@@ -4560,6 +4560,115 @@ paths:
         '401':
           description: 인증 실패
 
+  /api/v1/security/offline-pay/status:
+    get:
+      summary: 오프라인 페이 보안 상태 조회
+      description: 오프라인 페이용 거래 비밀번호 등록 여부, 실패 횟수, 잠금 상태를 조회합니다.
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      email:
+                        type: string
+                        nullable: true
+                        format: email
+                      emailVerified:
+                        type: boolean
+                      transactionPasswordRegistered:
+                        type: boolean
+                      pinFailedAttempts:
+                        type: integer
+                      pinRemainingAttempts:
+                        type: integer
+                      pinLocked:
+                        type: boolean
+                      pinLockedAt:
+                        type: string
+                        nullable: true
+                        format: date-time
+        '401':
+          description: 인증 실패
+
+  /api/v1/security/offline-pay/pin/verify:
+    post:
+      summary: 오프라인 페이 거래 비밀번호 검증
+      description: 거래 비밀번호 6자리를 검증하고 실패 횟수 및 잠금 상태를 갱신합니다.
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pin
+              properties:
+                pin:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: '^[0-9]{6}$'
+                  example: "123456"
+      responses:
+        '200':
+          description: 검증 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      verified:
+                        type: boolean
+                      message:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                        format: email
+                      emailVerified:
+                        type: boolean
+                      transactionPasswordRegistered:
+                        type: boolean
+                      pinFailedAttempts:
+                        type: integer
+                      pinRemainingAttempts:
+                        type: integer
+                      pinLocked:
+                        type: boolean
+                      pinLockedAt:
+                        type: string
+                        nullable: true
+                        format: date-time
+        '400':
+          description: 잘못된 요청
+        '401':
+          description: 인증 실패
+
   /api/v1/security/login-password:
     post:
       summary: 로그인 비밀번호 변경

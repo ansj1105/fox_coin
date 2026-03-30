@@ -51,6 +51,15 @@ public class SecurityHandler extends BaseHandler {
             .handler(setTransactionPasswordValidation(parser))
             .handler(this::setTransactionPassword);
 
+        router.get("/offline-pay/status")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getOfflinePayStatus);
+
+        router.post("/offline-pay/pin/verify")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(verifyOfflinePayPinValidation(parser))
+            .handler(this::verifyOfflinePayPin);
+
         // 로그인 비밀번호 변경 (이메일 인증 코드 기반)
         router.post("/login-password")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
@@ -82,6 +91,16 @@ public class SecurityHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> verifyOfflinePayPinValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("pin", stringSchema().with(minLength(6), maxLength(6)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * 거래 비밀번호 설정/변경
      */
@@ -94,6 +113,18 @@ public class SecurityHandler extends BaseHandler {
 
         log.info("Setting transaction password - userId: {}", userId);
         response(ctx, userService.setTransactionPassword(userId, code, newPassword));
+    }
+
+    private void getOfflinePayStatus(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getOfflinePaySecurityStatus(userId));
+    }
+
+    private void verifyOfflinePayPin(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        var bodyMap = Utils.getMapFromJsonObject(ctx.getBodyAsJson());
+        String pin = (String) bodyMap.get("pin");
+        response(ctx, userService.verifyOfflinePayPin(userId, pin));
     }
 
     /**
@@ -110,4 +141,3 @@ public class SecurityHandler extends BaseHandler {
         response(ctx, userService.changeLoginPassword(userId, code, newPassword));
     }
 }
-

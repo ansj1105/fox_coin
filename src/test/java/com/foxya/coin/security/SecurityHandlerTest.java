@@ -98,6 +98,108 @@ public class SecurityHandlerTest extends HandlerTestBase {
     }
 
     @Nested
+    @DisplayName("오프라인 페이 거래 비밀번호 상태/검증 테스트")
+    class OfflinePayPinTest {
+
+        @Test
+        @DisplayName("상태 조회 - 기본 오프라인 페이 PIN 상태 반환")
+        void getOfflinePayStatus(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            reqGet(getUrl("/offline-pay/status"))
+                .bearerTokenAuthentication(accessToken)
+                .send(tc.succeeding(res -> tc.verify(() -> {
+                    JsonObject body = res.bodyAsJsonObject();
+                    Assertions.assertEquals("OK", body.getString("status"));
+                    JsonObject data = body.getJsonObject("data");
+                    Assertions.assertNotNull(data);
+                    Assertions.assertTrue(data.containsKey("pinFailedAttempts"));
+                    Assertions.assertTrue(data.containsKey("pinRemainingAttempts"));
+                    Assertions.assertTrue(data.containsKey("pinLocked"));
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @DisplayName("성공 - 올바른 거래 비밀번호로 오프라인 PIN 검증")
+        void verifyOfflinePayPinSuccess(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+            JsonObject passwordBody = new JsonObject()
+                .put("code", "222222")
+                .put("newPassword", "123456");
+
+            reqPost(getUrl("/transaction-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(passwordBody, tc.succeeding(res -> tc.verify(() -> {
+                    expectSuccessAndGetResponse(res, refVoid);
+
+                    reqPost(getUrl("/offline-pay/pin/verify"))
+                        .bearerTokenAuthentication(accessToken)
+                        .sendJson(new JsonObject().put("pin", "123456"), tc.succeeding(verifyRes -> tc.verify(() -> {
+                            JsonObject body = verifyRes.bodyAsJsonObject();
+                            Assertions.assertEquals("OK", body.getString("status"));
+                            JsonObject data = body.getJsonObject("data");
+                            Assertions.assertTrue(data.getBoolean("verified"));
+                            Assertions.assertFalse(data.getBoolean("pinLocked"));
+                            Assertions.assertEquals(0, data.getInteger("pinFailedAttempts"));
+                            tc.completeNow();
+                        })));
+                })));
+        }
+
+        @Test
+        @DisplayName("실패 3회 - 오프라인 PIN 잠금")
+        void verifyOfflinePayPinLocksAfterThreeFailures(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+            JsonObject passwordBody = new JsonObject()
+                .put("code", "222222")
+                .put("newPassword", "123456");
+
+            reqPost(getUrl("/transaction-password"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(passwordBody, tc.succeeding(res -> tc.verify(() -> {
+                    expectSuccessAndGetResponse(res, refVoid);
+
+                    reqPost(getUrl("/offline-pay/pin/verify"))
+                        .bearerTokenAuthentication(accessToken)
+                        .sendJson(new JsonObject().put("pin", "000000"), tc.succeeding(firstRes -> tc.verify(() -> {
+                            JsonObject firstData = firstRes.bodyAsJsonObject().getJsonObject("data");
+                            Assertions.assertFalse(firstData.getBoolean("verified"));
+                            Assertions.assertEquals(1, firstData.getInteger("pinFailedAttempts"));
+                            Assertions.assertEquals(2, firstData.getInteger("pinRemainingAttempts"));
+
+                            reqPost(getUrl("/offline-pay/pin/verify"))
+                                .bearerTokenAuthentication(accessToken)
+                                .sendJson(new JsonObject().put("pin", "000000"), tc.succeeding(secondRes -> tc.verify(() -> {
+                                    JsonObject secondData = secondRes.bodyAsJsonObject().getJsonObject("data");
+                                    Assertions.assertFalse(secondData.getBoolean("verified"));
+                                    Assertions.assertEquals(2, secondData.getInteger("pinFailedAttempts"));
+                                    Assertions.assertEquals(1, secondData.getInteger("pinRemainingAttempts"));
+
+                                    reqPost(getUrl("/offline-pay/pin/verify"))
+                                        .bearerTokenAuthentication(accessToken)
+                                        .sendJson(new JsonObject().put("pin", "000000"), tc.succeeding(thirdRes -> tc.verify(() -> {
+                                            JsonObject thirdData = thirdRes.bodyAsJsonObject().getJsonObject("data");
+                                            Assertions.assertFalse(thirdData.getBoolean("verified"));
+                                            Assertions.assertTrue(thirdData.getBoolean("pinLocked"));
+                                            Assertions.assertEquals(0, thirdData.getInteger("pinRemainingAttempts"));
+
+                                            reqGet(getUrl("/offline-pay/status"))
+                                                .bearerTokenAuthentication(accessToken)
+                                                .send(tc.succeeding(statusRes -> tc.verify(() -> {
+                                                    JsonObject statusData = statusRes.bodyAsJsonObject().getJsonObject("data");
+                                                    Assertions.assertTrue(statusData.getBoolean("pinLocked"));
+                                                    Assertions.assertEquals(3, statusData.getInteger("pinFailedAttempts"));
+                                                    tc.completeNow();
+                                                })));
+                                        })));
+                                })));
+                        })));
+                })));
+        }
+    }
+
+    @Nested
     @DisplayName("로그인 비밀번호 변경 테스트")
     class LoginPasswordTest {
 
@@ -173,5 +275,4 @@ public class SecurityHandlerTest extends HandlerTestBase {
         }
     }
 }
-
 

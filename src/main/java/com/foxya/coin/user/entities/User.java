@@ -44,6 +44,10 @@ public class User {
     private Integer isMiningSuspended;
     /** 계정차단 여부 (0=해제, 1=차단). V41/coin_system V46 */
     private Integer isAccountBlocked;
+    /** 오프라인 페이 PIN 인증 실패 횟수 */
+    private Integer offlinePayPinFailedAttempts;
+    /** 오프라인 페이 PIN 잠금 시각 */
+    private LocalDateTime offlinePayPinLockedAt;
     private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
