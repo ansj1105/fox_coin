@@ -8,6 +8,9 @@ import com.foxya.coin.common.BaseRepository;
 import com.foxya.coin.common.database.RowMapper;
 import com.foxya.coin.common.utils.DateUtils;
 import com.foxya.coin.security.dto.OfflinePaySettingsDto;
+import com.foxya.coin.security.dto.OfflinePayActivityLogDto;
+import com.foxya.coin.security.dto.OfflinePayNotificationCenterDto;
+import com.foxya.coin.security.dto.OfflinePaySettlementCenterDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
 import com.foxya.coin.security.dto.OfflinePayTrustCenterDto;
 import com.foxya.coin.security.dto.OfflinePayTrustCenterLogDto;
@@ -1088,5 +1091,212 @@ public class UserRepository extends BaseRepository {
 
         return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
             .map(rows -> (Void) null);
+    }
+
+    public Future<OfflinePayNotificationCenterDto> getOfflinePayNotificationCenter(SqlClient client, Long userId, int limit) {
+        String sql = """
+            SELECT
+                log_id,
+                notification_type,
+                delivery_status,
+                title,
+                message,
+                reason_code,
+                metadata_json,
+                created_at
+            FROM offline_pay_notification_logs
+            WHERE user_id = #{user_id}
+            ORDER BY created_at DESC
+            LIMIT #{limit}
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> {
+                List<OfflinePayActivityLogDto> logs = fetchAll(row -> OfflinePayActivityLogDto.builder()
+                    .id(getStringColumnValue(row, "log_id"))
+                    .category(getStringColumnValue(row, "notification_type"))
+                    .eventStatus(getStringColumnValue(row, "delivery_status"))
+                    .title(getStringColumnValue(row, "title"))
+                    .message(getStringColumnValue(row, "message"))
+                    .reasonCode(getStringColumnValue(row, "reason_code"))
+                    .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                    .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                    .build(), rows);
+                LocalDateTime updatedAt = logs.isEmpty() ? LocalDateTime.now() : logs.get(0).getCreatedAt();
+                return OfflinePayNotificationCenterDto.builder()
+                    .updatedAt(updatedAt)
+                    .logs(logs)
+                    .build();
+            })
+            .onFailure(throwable -> log.error("오프라인 페이 알림 센터 조회 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<OfflinePayNotificationCenterDto> upsertOfflinePayNotificationCenter(SqlClient client, Long userId, List<OfflinePayActivityLogDto> logs) {
+        Future<Void> chain = Future.succeededFuture();
+        for (OfflinePayActivityLogDto item : logs) {
+            chain = chain.compose(v -> upsertOfflinePayNotificationLog(client, userId, item));
+        }
+        return chain.compose(v -> getOfflinePayNotificationCenter(client, userId, 20))
+            .onFailure(throwable -> log.error("오프라인 페이 알림 센터 저장 실패 - userId: {}", userId, throwable));
+    }
+
+    private Future<Void> upsertOfflinePayNotificationLog(SqlClient client, Long userId, OfflinePayActivityLogDto item) {
+        String sql = """
+            INSERT INTO offline_pay_notification_logs (
+                user_id,
+                log_id,
+                notification_type,
+                delivery_status,
+                title,
+                message,
+                reason_code,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{log_id},
+                #{notification_type},
+                #{delivery_status},
+                #{title},
+                #{message},
+                #{reason_code},
+                CAST(#{metadata_json} AS jsonb),
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id, log_id) DO UPDATE SET
+                notification_type = EXCLUDED.notification_type,
+                delivery_status = EXCLUDED.delivery_status,
+                title = EXCLUDED.title,
+                message = EXCLUDED.message,
+                reason_code = EXCLUDED.reason_code,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = EXCLUDED.updated_at
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("log_id", item.getId());
+        params.put("notification_type", item.getCategory());
+        params.put("delivery_status", item.getEventStatus());
+        params.put("title", item.getTitle());
+        params.put("message", item.getMessage());
+        params.put("reason_code", item.getReasonCode());
+        params.put("metadata_json", item.getMetadata() != null ? item.getMetadata().encode() : "{}");
+        params.put("created_at", item.getCreatedAt() != null ? item.getCreatedAt() : DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params).map(rows -> (Void) null);
+    }
+
+    public Future<OfflinePaySettlementCenterDto> getOfflinePaySettlementCenter(SqlClient client, Long userId, int limit) {
+        String sql = """
+            SELECT
+                log_id,
+                settlement_status,
+                title,
+                message,
+                reason_code,
+                request_id,
+                settlement_id,
+                metadata_json,
+                created_at
+            FROM offline_pay_settlement_logs
+            WHERE user_id = #{user_id}
+            ORDER BY created_at DESC
+            LIMIT #{limit}
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("limit", limit);
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> {
+                List<OfflinePayActivityLogDto> logs = fetchAll(row -> OfflinePayActivityLogDto.builder()
+                    .id(getStringColumnValue(row, "log_id"))
+                    .category("SETTLEMENT")
+                    .eventStatus(getStringColumnValue(row, "settlement_status"))
+                    .title(getStringColumnValue(row, "title"))
+                    .message(getStringColumnValue(row, "message"))
+                    .reasonCode(getStringColumnValue(row, "reason_code"))
+                    .requestId(getStringColumnValue(row, "request_id"))
+                    .settlementId(getStringColumnValue(row, "settlement_id"))
+                    .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                    .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                    .build(), rows);
+                LocalDateTime updatedAt = logs.isEmpty() ? LocalDateTime.now() : logs.get(0).getCreatedAt();
+                return OfflinePaySettlementCenterDto.builder()
+                    .updatedAt(updatedAt)
+                    .logs(logs)
+                    .build();
+            })
+            .onFailure(throwable -> log.error("오프라인 페이 정산 센터 조회 실패 - userId: {}", userId, throwable));
+    }
+
+    public Future<OfflinePaySettlementCenterDto> upsertOfflinePaySettlementCenter(SqlClient client, Long userId, List<OfflinePayActivityLogDto> logs) {
+        Future<Void> chain = Future.succeededFuture();
+        for (OfflinePayActivityLogDto item : logs) {
+            chain = chain.compose(v -> upsertOfflinePaySettlementLog(client, userId, item));
+        }
+        return chain.compose(v -> getOfflinePaySettlementCenter(client, userId, 20))
+            .onFailure(throwable -> log.error("오프라인 페이 정산 센터 저장 실패 - userId: {}", userId, throwable));
+    }
+
+    private Future<Void> upsertOfflinePaySettlementLog(SqlClient client, Long userId, OfflinePayActivityLogDto item) {
+        String sql = """
+            INSERT INTO offline_pay_settlement_logs (
+                user_id,
+                log_id,
+                settlement_status,
+                title,
+                message,
+                reason_code,
+                request_id,
+                settlement_id,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (
+                #{user_id},
+                #{log_id},
+                #{settlement_status},
+                #{title},
+                #{message},
+                #{reason_code},
+                #{request_id},
+                #{settlement_id},
+                CAST(#{metadata_json} AS jsonb),
+                #{created_at},
+                #{updated_at}
+            )
+            ON CONFLICT (user_id, log_id) DO UPDATE SET
+                settlement_status = EXCLUDED.settlement_status,
+                title = EXCLUDED.title,
+                message = EXCLUDED.message,
+                reason_code = EXCLUDED.reason_code,
+                request_id = EXCLUDED.request_id,
+                settlement_id = EXCLUDED.settlement_id,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = EXCLUDED.updated_at
+            """;
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        params.put("log_id", item.getId());
+        params.put("settlement_status", item.getEventStatus());
+        params.put("title", item.getTitle());
+        params.put("message", item.getMessage());
+        params.put("reason_code", item.getReasonCode());
+        params.put("request_id", item.getRequestId());
+        params.put("settlement_id", item.getSettlementId());
+        params.put("metadata_json", item.getMetadata() != null ? item.getMetadata().encode() : "{}");
+        params.put("created_at", item.getCreatedAt() != null ? item.getCreatedAt() : DateUtils.now());
+        params.put("updated_at", DateUtils.now());
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params).map(rows -> (Void) null);
     }
 }

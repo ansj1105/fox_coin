@@ -81,6 +81,24 @@ public class SecurityHandler extends BaseHandler {
             .handler(updateOfflinePayTrustCenterValidation(parser))
             .handler(this::updateOfflinePayTrustCenter);
 
+        router.get("/offline-pay/notification-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getOfflinePayNotificationCenter);
+
+        router.put("/offline-pay/notification-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(updateOfflinePayActivityCenterValidation(parser))
+            .handler(this::updateOfflinePayNotificationCenter);
+
+        router.get("/offline-pay/settlement-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::getOfflinePaySettlementCenter);
+
+        router.put("/offline-pay/settlement-center")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(updateOfflinePayActivityCenterValidation(parser))
+            .handler(this::updateOfflinePaySettlementCenter);
+
         router.post("/offline-pay/shared-details")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(createOfflinePaySharedDetailValidation(parser))
@@ -194,6 +212,29 @@ public class SecurityHandler extends BaseHandler {
             .build();
     }
 
+    private Handler<RoutingContext> updateOfflinePayActivityCenterValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .property("logs", io.vertx.json.schema.common.dsl.Schemas.arraySchema().items(
+                        objectSchema()
+                            .requiredProperty("id", stringSchema())
+                            .property("category", stringSchema())
+                            .property("eventStatus", stringSchema())
+                            .property("title", stringSchema())
+                            .property("message", stringSchema())
+                            .property("reasonCode", stringSchema())
+                            .property("requestId", stringSchema())
+                            .property("settlementId", stringSchema())
+                            .property("metadata", objectSchema().allowAdditionalProperties(true))
+                            .property("createdAt", stringSchema())
+                            .allowAdditionalProperties(false)
+                    ))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
     /**
      * 거래 비밀번호 설정/변경
      */
@@ -245,6 +286,34 @@ public class SecurityHandler extends BaseHandler {
         response(ctx, userService.updateOfflinePayTrustCenter(
             userId,
             BaseHandler.getObjectMapper().convertValue(body.getMap(), com.foxya.coin.security.dto.OfflinePayTrustCenterDto.class)
+        ));
+    }
+
+    private void getOfflinePayNotificationCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getOfflinePayNotificationCenter(userId));
+    }
+
+    private void updateOfflinePayNotificationCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        JsonObject body = ctx.getBodyAsJson();
+        response(ctx, userService.updateOfflinePayNotificationCenter(
+            userId,
+            BaseHandler.getObjectMapper().convertValue(body.getMap(), com.foxya.coin.security.dto.OfflinePayNotificationCenterDto.class)
+        ));
+    }
+
+    private void getOfflinePaySettlementCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        response(ctx, userService.getOfflinePaySettlementCenter(userId));
+    }
+
+    private void updateOfflinePaySettlementCenter(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        JsonObject body = ctx.getBodyAsJson();
+        response(ctx, userService.updateOfflinePaySettlementCenter(
+            userId,
+            BaseHandler.getObjectMapper().convertValue(body.getMap(), com.foxya.coin.security.dto.OfflinePaySettlementCenterDto.class)
         ));
     }
 

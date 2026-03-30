@@ -4717,6 +4717,54 @@ paths:
         '200':
           description: 저장 성공
 
+  /api/v1/security/offline-pay/notification-center:
+    get:
+      summary: 오프라인 페이 알림 이력 조회
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+    put:
+      summary: 오프라인 페이 알림 이력 동기화
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 저장 성공
+
+  /api/v1/security/offline-pay/settlement-center:
+    get:
+      summary: 오프라인 페이 정산 이력 조회
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 조회 성공
+    put:
+      summary: 오프라인 페이 정산 이력 동기화
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 저장 성공
+
   /api/v1/security/offline-pay/shared-details:
     post:
       summary: 오프라인 페이 공유 토큰 발급

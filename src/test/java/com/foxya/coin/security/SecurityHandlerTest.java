@@ -322,6 +322,74 @@ public class SecurityHandlerTest extends HandlerTestBase {
                         })));
                 })));
         }
+
+        @Test
+        @DisplayName("알림 센터 조회/저장 - 최근 발송 결과를 서버 authoritative로 동기화")
+        void getAndUpdateOfflinePayNotificationCenter(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject updateBody = new JsonObject()
+                .put("logs", new io.vertx.core.json.JsonArray()
+                    .add(new JsonObject()
+                        .put("id", "notification-log-1")
+                        .put("category", "PAYMENT_COMPLETED")
+                        .put("eventStatus", "DELIVERED")
+                        .put("title", "결제 완료 알림")
+                        .put("message", "결제가 정상적으로 완료되었습니다.")
+                        .put("createdAt", "2026-03-30T09:00:00")));
+
+            reqPut(getUrl("/offline-pay/notification-center"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(updateBody, tc.succeeding(updateRes -> tc.verify(() -> {
+                    JsonObject updatedData = updateRes.bodyAsJsonObject().getJsonObject("data");
+                    Assertions.assertNotNull(updatedData.getJsonArray("logs"));
+                    Assertions.assertEquals("notification-log-1", updatedData.getJsonArray("logs").getJsonObject(0).getString("id"));
+
+                    reqGet(getUrl("/offline-pay/notification-center"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(getRes -> tc.verify(() -> {
+                            JsonObject persistedData = getRes.bodyAsJsonObject().getJsonObject("data");
+                            Assertions.assertEquals("PAYMENT_COMPLETED", persistedData.getJsonArray("logs").getJsonObject(0).getString("category"));
+                            tc.completeNow();
+                        })));
+                })));
+        }
+
+        @Test
+        @DisplayName("정산 센터 조회/저장 - 최근 원장 반영 결과를 서버 authoritative로 동기화")
+        void getAndUpdateOfflinePaySettlementCenter(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(2L);
+
+            JsonObject updateBody = new JsonObject()
+                .put("logs", new io.vertx.core.json.JsonArray()
+                    .add(new JsonObject()
+                        .put("id", "settlement-log-1")
+                        .put("category", "SETTLEMENT")
+                        .put("eventStatus", "COMPLETED")
+                        .put("title", "정산 완료")
+                        .put("message", "내부 원장 반영이 완료되었습니다.")
+                        .put("requestId", "request-1")
+                        .put("settlementId", "settlement-1")
+                        .put("createdAt", "2026-03-30T09:10:00")));
+
+            reqPut(getUrl("/offline-pay/settlement-center"))
+                .bearerTokenAuthentication(accessToken)
+                .sendJson(updateBody, tc.succeeding(updateRes -> tc.verify(() -> {
+                    JsonObject updatedData = updateRes.bodyAsJsonObject().getJsonObject("data");
+                    Assertions.assertNotNull(updatedData.getJsonArray("logs"));
+                    Assertions.assertEquals("settlement-log-1", updatedData.getJsonArray("logs").getJsonObject(0).getString("id"));
+
+                    reqGet(getUrl("/offline-pay/settlement-center"))
+                        .bearerTokenAuthentication(accessToken)
+                        .send(tc.succeeding(getRes -> tc.verify(() -> {
+                            JsonObject persistedData = getRes.bodyAsJsonObject().getJsonObject("data");
+                            JsonObject logItem = persistedData.getJsonArray("logs").getJsonObject(0);
+                            Assertions.assertEquals("COMPLETED", logItem.getString("eventStatus"));
+                            Assertions.assertEquals("settlement-1", logItem.getString("settlementId"));
+                            tc.completeNow();
+                        })));
+                })));
+        }
     }
 
     @Nested

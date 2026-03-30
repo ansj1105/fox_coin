@@ -30,6 +30,9 @@ import com.foxya.coin.user.entities.User;
 import com.foxya.coin.security.dto.OfflinePayPinVerificationResponseDto;
 import com.foxya.coin.security.dto.OfflinePaySecurityStatusDto;
 import com.foxya.coin.security.dto.OfflinePaySettingsDto;
+import com.foxya.coin.security.dto.OfflinePayNotificationCenterDto;
+import com.foxya.coin.security.dto.OfflinePaySettlementCenterDto;
+import com.foxya.coin.security.dto.OfflinePayActivityLogDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailTokenResponseDto;
 import com.foxya.coin.security.dto.OfflinePayTrustCenterDto;
@@ -1039,6 +1042,60 @@ public class UserService extends BaseService {
             .updatedAt(LocalDateTime.now())
             .proofLogs(proofLogs)
             .build();
+    }
+
+    public Future<OfflinePayNotificationCenterDto> getOfflinePayNotificationCenter(Long userId) {
+        return pool.withTransaction(client ->
+            userRepository.getOfflinePayNotificationCenter(client, userId, 20)
+                .map(center -> center != null ? center : OfflinePayNotificationCenterDto.builder()
+                    .updatedAt(LocalDateTime.now())
+                    .logs(List.of())
+                    .build())
+        );
+    }
+
+    public Future<OfflinePayNotificationCenterDto> updateOfflinePayNotificationCenter(Long userId, OfflinePayNotificationCenterDto request) {
+        return pool.withTransaction(client ->
+            userRepository.upsertOfflinePayNotificationCenter(client, userId, normalizeOfflinePayActivityCenter(request != null ? request.getLogs() : null))
+        );
+    }
+
+    public Future<OfflinePaySettlementCenterDto> getOfflinePaySettlementCenter(Long userId) {
+        return pool.withTransaction(client ->
+            userRepository.getOfflinePaySettlementCenter(client, userId, 20)
+                .map(center -> center != null ? center : OfflinePaySettlementCenterDto.builder()
+                    .updatedAt(LocalDateTime.now())
+                    .logs(List.of())
+                    .build())
+        );
+    }
+
+    public Future<OfflinePaySettlementCenterDto> updateOfflinePaySettlementCenter(Long userId, OfflinePaySettlementCenterDto request) {
+        return pool.withTransaction(client ->
+            userRepository.upsertOfflinePaySettlementCenter(client, userId, normalizeOfflinePayActivityCenter(request != null ? request.getLogs() : null))
+        );
+    }
+
+    private List<OfflinePayActivityLogDto> normalizeOfflinePayActivityCenter(List<OfflinePayActivityLogDto> logs) {
+        if (logs == null) {
+            return List.of();
+        }
+        return logs.stream()
+            .filter(item -> item != null && item.getId() != null && !item.getId().isBlank())
+            .limit(30)
+            .map(item -> OfflinePayActivityLogDto.builder()
+                .id(item.getId())
+                .category(item.getCategory())
+                .eventStatus(item.getEventStatus())
+                .title(item.getTitle())
+                .message(item.getMessage())
+                .reasonCode(item.getReasonCode())
+                .requestId(item.getRequestId())
+                .settlementId(item.getSettlementId())
+                .metadata(item.getMetadata() != null ? item.getMetadata() : new JsonObject())
+                .createdAt(item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.now())
+                .build())
+            .toList();
     }
 
     private String buildOfflinePaySharedDetailUrl(String itemId, String token) {
