@@ -295,7 +295,7 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(11)
-        @DisplayName("성공 - INTERNAL/TRON KORI 지갑이 함께 있으면 totalBalance는 INTERNAL 기준으로 반환")
+        @DisplayName("성공 - INTERNAL/TRON KORI 지갑이 함께 있으면 totalBalance는 전체 KORI 합산으로 반환")
         void successGetMiningInfoSumsAllKoriWallets(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
             String insertTronKoriCurrencySql = """
@@ -330,13 +330,61 @@ public class MiningHandlerTest extends HandlerTestBase {
                     .send())
                 .onComplete(tc.succeeding(res -> tc.verify(() -> {
                     MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
-                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1000.000000000000000000"));
+                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1234.567000000000000000"));
                     tc.completeNow();
                 })));
         }
 
         @Test
-        @Order(12)
+        @Order(13)
+        @DisplayName("성공 - pending mining session 이 있어도 info 조회는 정산을 수행하지 않음")
+        void successGetMiningInfoDoesNotSettlePendingSession(VertxTestContext tc) {
+            String accessToken = getAccessTokenOfUser(1L);
+            String insertPendingSessionSql = """
+                INSERT INTO mining_sessions (user_id, started_at, ends_at, rate_per_hour, last_settled_at, credited_amount, created_at)
+                VALUES (
+                    1,
+                    NOW() - INTERVAL '2 hours',
+                    NOW() - INTERVAL '1 hour',
+                    0.300000000000000000,
+                    NOW() - INTERVAL '2 hours',
+                    0.000000000000000000,
+                    NOW() - INTERVAL '2 hours'
+                )
+                """;
+            String selectSnapshotSql = """
+                SELECT
+                    (SELECT mining_amount FROM daily_mining WHERE user_id = 1 AND mining_date = CURRENT_DATE AND deleted_at IS NULL LIMIT 1) AS mining_amount,
+                    (SELECT balance FROM user_wallets uw
+                        INNER JOIN currency c ON uw.currency_id = c.id
+                      WHERE uw.user_id = 1
+                        AND c.code = 'KORI'
+                        AND c.chain = 'INTERNAL'
+                        AND uw.deleted_at IS NULL
+                      LIMIT 1) AS balance
+                """;
+
+            sqlClient.query(insertPendingSessionSql)
+                .execute()
+                .compose(rows -> reqGet(getUrl("/info"))
+                    .bearerTokenAuthentication(accessToken)
+                    .send())
+                .compose(res -> {
+                    MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
+                    assertThat(response.getTodayMiningAmount()).isEqualByComparingTo(new BigDecimal("0.500000000000000000"));
+                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1000.000000000000000000"));
+                    return sqlClient.query(selectSnapshotSql).execute();
+                })
+                .onComplete(tc.succeeding(rows -> tc.verify(() -> {
+                    var row = rows.iterator().next();
+                    assertThat(row.getBigDecimal("mining_amount")).isEqualByComparingTo(new BigDecimal("0.500000000000000000"));
+                    assertThat(row.getBigDecimal("balance")).isEqualByComparingTo(new BigDecimal("1000.000000000000000000"));
+                    tc.completeNow();
+                })));
+        }
+
+        @Test
+        @Order(14)
         @DisplayName("친구 초대 시 채굴 효율 연동 - validDirectReferralCount >= 1 이면 inviteBonusMultiplier >= 1.03")
         void inviteBonusLinkedToMiningEfficiency(VertxTestContext tc) {
             // referrer_user(5): 시드에서 피추천인이 있을 수 있음. validDirectReferralCount >= 1 이면 배율 >= 1.03
@@ -356,7 +404,7 @@ public class MiningHandlerTest extends HandlerTestBase {
         }
 
         @Test
-        @Order(13)
+        @Order(15)
         @DisplayName("실패 - 인증 없이 조회")
         void failNoAuth(VertxTestContext tc) {
             reqGet(getUrl("/info"))

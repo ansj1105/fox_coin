@@ -183,14 +183,17 @@ public class ReferralService extends BaseService {
      */
     public Future<BigDecimal> getInviteMiningBonusMultiplier(Long referrerUserId) {
         return referralRepository.getValidDirectReferralCount(pool, referrerUserId)
-            .map(count -> {
-                for (int i = INVITE_TIER_THRESHOLDS.length - 1; i >= 0; i--) {
-                    if (count >= INVITE_TIER_THRESHOLDS[i]) {
-                        return BigDecimal.valueOf(INVITE_BONUS_MULTIPLIERS[i]);
-                    }
-                }
-                return BigDecimal.ONE;
-            });
+            .map(this::resolveInviteMiningBonusMultiplier);
+    }
+
+    public BigDecimal resolveInviteMiningBonusMultiplier(Integer validDirectReferralCount) {
+        int safeCount = validDirectReferralCount != null ? validDirectReferralCount : 0;
+        for (int i = INVITE_TIER_THRESHOLDS.length - 1; i >= 0; i--) {
+            if (safeCount >= INVITE_TIER_THRESHOLDS[i]) {
+                return BigDecimal.valueOf(INVITE_BONUS_MULTIPLIERS[i]);
+            }
+        }
+        return BigDecimal.ONE;
     }
 
     private boolean canBypassReferralReregisterLimit(SubscriptionStatusResponseDto subscriptionStatus) {

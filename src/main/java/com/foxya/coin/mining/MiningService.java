@@ -3,7 +3,6 @@ package com.foxya.coin.mining;
 import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
-import com.foxya.coin.bonus.entities.UserBonus;
 import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.currency.CurrencyRepository;
@@ -247,141 +246,122 @@ public class MiningService extends BaseService {
     public Future<MiningInfoResponseDto> getMiningInfo(Long userId) {
         LocalDate today = LocalDate.now();
         
-        return settleActiveMiningSession(userId)
-            .compose(v -> {
-                // Normalized comment.
-                Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
-                Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today)
-                    .recover(throwable -> {
-                        log.error("Failed to read daily mining snapshot for mining info. userId={}, date={}", userId, today, throwable);
-                        return Future.succeededFuture(null);
-                    });
-                // 보너스 효율: 초대 효율 + 미션 효율 합산. (미션 효율은 BonusService 기준, 초대는 invite multiplier)
-                // Future<Integer> bonusEfficiencyFuture = bonusService.getBonusEfficiency(userId).map(response -> response.getTotalEfficiency());
-                Future<UserBonus> adWatchBonusFuture = bonusRepository.getUserBonus(pool, userId, "AD_WATCH")
-                    .recover(throwable -> {
-                        log.error("Failed to read ad watch bonus for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(null);
-                    });
-                // Normalized comment.
-                Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
-                    .map(wallets -> WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(wallets, "KORI"))
-                    .recover(throwable -> {
-                        log.error("Failed to read wallet balance for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(BigDecimal.ZERO);
-                    });
-                Future<BigDecimal> inviteBonusFuture = referralService.getInviteMiningBonusMultiplier(userId)
-                    .recover(throwable -> {
-                        log.error("Failed to read invite bonus for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(BigDecimal.ONE);
-                    });
-                Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
-                Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId)
-                    .recover(throwable -> {
-                        log.error("Failed to read valid direct referral count for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(0);
-                    });
-                Future<SubscriptionStatusResponseDto> subscriptionStatusFuture = subscriptionService.getSubscriptionStatus(userId)
-                    .recover(throwable -> {
-                        log.error("Failed to read subscription status for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(null);
-                    });
-                // Normalized comment.
-                Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today)
-                    .recover(throwable -> {
-                        log.error("Failed to count sessions started today for mining info. userId={}, date={}", userId, today, throwable);
-                        return Future.succeededFuture(0);
-                    });
-                Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId)
-                    .recover(throwable -> {
-                        log.error("Failed to read active mining session for mining info. userId={}", userId, throwable);
-                        return Future.succeededFuture(null);
-                    });
-                
-                return Future.all(List.of(
-                    userFuture,
-                    dailyMiningFuture,
-                    adWatchBonusFuture,
-                    totalBalanceFuture,
-                    inviteBonusFuture,
-                    missionEfficiencyFuture,
-                    validDirectCountFuture,
-                    subscriptionStatusFuture,
-                    sessionsStartedTodayFuture,
-                    activeSessionFuture
-                ))
-                    .compose(compositeFuture -> {
-                        com.foxya.coin.user.entities.User user = userFuture.result();
-                        if (user == null) {
-                            return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
-                        }
-                        DailyMining dailyMining = dailyMiningFuture.result();
-                        BigDecimal inviteMultiplier = inviteBonusFuture.result();
-                        Integer inviteEfficiency = inviteMultiplier != null
-                            ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
-                            : 0;
-                        Integer missionEfficiency = missionEfficiencyFuture.result() != null ? missionEfficiencyFuture.result() : 0;
-                        SubscriptionStatusResponseDto subscriptionStatus = subscriptionStatusFuture.result();
-                        int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
-                        Integer bonusEfficiency = inviteEfficiency + missionEfficiency + vipBonusEfficiency;
-                        BigDecimal totalBalance = totalBalanceFuture.result();
-                        int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
-                        MiningSession activeSession = activeSessionFuture.result();
-                        Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
-                        BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
-                        int[] levelExpCumulative = {5, 15, 35, 70, 130, 220, 350, 520};
-                        BigDecimal nextLevelRequired = currentLevel >= 9
-                            ? BigDecimal.valueOf(520)
-                            : BigDecimal.valueOf(levelExpCumulative[currentLevel - 1]);
-                        
-                        return miningRepository.getMiningLevelByLevel(pool, currentLevel)
-                            .map(miningLevel -> {
-                                BigDecimal dailyMaxMining = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
-                                LocalDateTime now = LocalDateTime.now();
-                                LocalDateTime nextMidnight = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
-                                Duration remaining = Duration.between(now, nextMidnight);
-                                long hours = remaining.toHours();
-                                long minutes = remaining.toMinutes() % 60;
-                                long seconds = remaining.getSeconds() % 60;
-                                String remainingTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
-                                int dailyMaxVideos = miningLevel != null && miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
-                                    ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
-                                // Normalized comment.
-                                String miningUntil = (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now))
-                                    ? activeSession.getEndsAt().toString()
-                                    : null;
-                                BigDecimal ratePerHour = (activeSession != null && activeSession.getRatePerHour() != null)
-                                    ? activeSession.getRatePerHour()
-                                    : BigDecimal.ZERO;
-                                BigDecimal inviteBonusMultiplier = inviteBonusFuture.result();
-                                Integer validDirectReferralCount = validDirectCountFuture.result();
-                                return MiningInfoResponseDto.builder()
-                                    .todayMiningAmount(todayMiningAmount)
-                                    .totalBalance(totalBalance)
-                                    .bonusEfficiency(bonusEfficiency != null ? bonusEfficiency : 0)
-                                    .inviteEfficiency(inviteEfficiency)
-                                    .missionEfficiency(missionEfficiency)
-                                    .remainingTime(remainingTime)
-                                    .isActive(true)
-                                    .dailyMaxMining(dailyMaxMining)
-                                    .currentLevel(currentLevel)
-                                    .nextLevelRequired(nextLevelRequired)
-                                    .adWatchCount(sessionsToday)
-                                    .maxAdWatchCount(dailyMaxVideos)
-                                    .miningUntil(miningUntil)
-                                    .ratePerHour(ratePerHour)
-                                    .inviteBonusMultiplier(inviteBonusMultiplier != null ? inviteBonusMultiplier : BigDecimal.ONE)
-                                    .validDirectReferralCount(validDirectReferralCount != null ? validDirectReferralCount : 0)
-                                    .warning(toRestrictionFlag(user.getIsWarning()))
-                                    .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
-                                    .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
-                                    .subscribed(isSubscribed(subscriptionStatus))
-                                    .adFree(isAdFree(subscriptionStatus))
-                                    .autoBoostMining(isAutoBoostMining(subscriptionStatus))
-                                    .vipMiningEfficiencyBonusPercent(vipBonusEfficiency)
-                                    .fullMiningHistoryAccess(hasFullMiningHistoryAccess(subscriptionStatus))
-                                    .build();
-                            });
+        // Keep /info read-only. Pending session settlement is handled by the write paths
+        // and the background batch to avoid turning a frequently-polled read endpoint
+        // into a balance-mutating request.
+        Future<com.foxya.coin.user.entities.User> userFuture = userRepository.getUserById(pool, userId);
+        Future<DailyMining> dailyMiningFuture = miningRepository.getDailyMining(pool, userId, today)
+            .recover(throwable -> {
+                log.error("Failed to read daily mining snapshot for mining info. userId={}, date={}", userId, today, throwable);
+                return Future.succeededFuture(null);
+            });
+        Future<BigDecimal> totalBalanceFuture = walletRepository.getWalletsByUserId(pool, userId)
+            .map(wallets -> WalletClientViewUtils.sumLogicalBalanceByCurrencyCode(wallets, "KORI"))
+            .recover(throwable -> {
+                log.error("Failed to read wallet balance for mining info. userId={}", userId, throwable);
+                return Future.succeededFuture(BigDecimal.ZERO);
+            });
+        Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
+        Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId)
+            .recover(throwable -> {
+                log.error("Failed to read valid direct referral count for mining info. userId={}", userId, throwable);
+                return Future.succeededFuture(0);
+            });
+        Future<SubscriptionStatusResponseDto> subscriptionStatusFuture = subscriptionService.getSubscriptionStatus(userId)
+            .recover(throwable -> {
+                log.error("Failed to read subscription status for mining info. userId={}", userId, throwable);
+                return Future.succeededFuture(null);
+            });
+        Future<Integer> sessionsStartedTodayFuture = miningRepository.countSessionsStartedToday(pool, userId, today)
+            .recover(throwable -> {
+                log.error("Failed to count sessions started today for mining info. userId={}, date={}", userId, today, throwable);
+                return Future.succeededFuture(0);
+            });
+        Future<MiningSession> activeSessionFuture = miningRepository.getActiveMiningSession(pool, userId)
+            .recover(throwable -> {
+                log.error("Failed to read active mining session for mining info. userId={}", userId, throwable);
+                return Future.succeededFuture(null);
+            });
+
+        return Future.all(List.of(
+            userFuture,
+            dailyMiningFuture,
+            totalBalanceFuture,
+            missionEfficiencyFuture,
+            validDirectCountFuture,
+            subscriptionStatusFuture,
+            sessionsStartedTodayFuture,
+            activeSessionFuture
+        ))
+            .compose(compositeFuture -> {
+                com.foxya.coin.user.entities.User user = userFuture.result();
+                if (user == null) {
+                    return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
+                }
+                DailyMining dailyMining = dailyMiningFuture.result();
+                Integer validDirectReferralCount = validDirectCountFuture.result();
+                BigDecimal inviteMultiplier = referralService.resolveInviteMiningBonusMultiplier(validDirectReferralCount);
+                Integer inviteEfficiency = inviteMultiplier != null
+                    ? inviteMultiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
+                    : 0;
+                Integer missionEfficiency = missionEfficiencyFuture.result() != null ? missionEfficiencyFuture.result() : 0;
+                SubscriptionStatusResponseDto subscriptionStatus = subscriptionStatusFuture.result();
+                int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
+                Integer bonusEfficiency = inviteEfficiency + missionEfficiency + vipBonusEfficiency;
+                BigDecimal totalBalance = totalBalanceFuture.result();
+                int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
+                MiningSession activeSession = activeSessionFuture.result();
+                Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
+                BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
+                int[] levelExpCumulative = {5, 15, 35, 70, 130, 220, 350, 520};
+                BigDecimal nextLevelRequired = currentLevel >= 9
+                    ? BigDecimal.valueOf(520)
+                    : BigDecimal.valueOf(levelExpCumulative[currentLevel - 1]);
+
+                return miningRepository.getMiningLevelByLevel(pool, currentLevel)
+                    .map(miningLevel -> {
+                        BigDecimal dailyMaxMining = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
+                        LocalDateTime now = LocalDateTime.now();
+                        LocalDateTime nextMidnight = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
+                        Duration remaining = Duration.between(now, nextMidnight);
+                        long hours = remaining.toHours();
+                        long minutes = remaining.toMinutes() % 60;
+                        long seconds = remaining.getSeconds() % 60;
+                        String remainingTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
+                        int dailyMaxVideos = miningLevel != null && miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
+                            ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                        String miningUntil = (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now))
+                            ? activeSession.getEndsAt().toString()
+                            : null;
+                        BigDecimal ratePerHour = (activeSession != null && activeSession.getRatePerHour() != null)
+                            ? activeSession.getRatePerHour()
+                            : BigDecimal.ZERO;
+                        return MiningInfoResponseDto.builder()
+                            .todayMiningAmount(todayMiningAmount)
+                            .totalBalance(totalBalance)
+                            .bonusEfficiency(bonusEfficiency != null ? bonusEfficiency : 0)
+                            .inviteEfficiency(inviteEfficiency)
+                            .missionEfficiency(missionEfficiency)
+                            .remainingTime(remainingTime)
+                            .isActive(true)
+                            .dailyMaxMining(dailyMaxMining)
+                            .currentLevel(currentLevel)
+                            .nextLevelRequired(nextLevelRequired)
+                            .adWatchCount(sessionsToday)
+                            .maxAdWatchCount(dailyMaxVideos)
+                            .miningUntil(miningUntil)
+                            .ratePerHour(ratePerHour)
+                            .inviteBonusMultiplier(inviteMultiplier != null ? inviteMultiplier : BigDecimal.ONE)
+                            .validDirectReferralCount(validDirectReferralCount != null ? validDirectReferralCount : 0)
+                            .warning(toRestrictionFlag(user.getIsWarning()))
+                            .miningSuspended(toRestrictionFlag(user.getIsMiningSuspended()))
+                            .accountBlocked(toRestrictionFlag(user.getIsAccountBlocked()))
+                            .subscribed(isSubscribed(subscriptionStatus))
+                            .adFree(isAdFree(subscriptionStatus))
+                            .autoBoostMining(isAutoBoostMining(subscriptionStatus))
+                            .vipMiningEfficiencyBonusPercent(vipBonusEfficiency)
+                            .fullMiningHistoryAccess(hasFullMiningHistoryAccess(subscriptionStatus))
+                            .build();
                     });
             });
     }
