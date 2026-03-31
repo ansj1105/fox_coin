@@ -27,6 +27,8 @@ public class Wallet {
     @JsonIgnore
     private String privateKey;
     private BigDecimal balance;
+    private BigDecimal internalBalance;
+    private BigDecimal availableBalance;
     private BigDecimal lockedBalance;
     private Boolean verified;
     private String status;

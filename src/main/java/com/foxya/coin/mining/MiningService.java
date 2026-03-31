@@ -26,6 +26,7 @@ import com.foxya.coin.transfer.entities.InternalTransfer;
 import com.foxya.coin.user.UserRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletClientViewUtils;
+import com.foxya.coin.wallet.OfflinePayCollateralReserveClient;
 import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -62,6 +63,7 @@ public class MiningService extends BaseService {
     private final LevelService levelService;
     private final NotificationService notificationService;
     private final SubscriptionService subscriptionService;
+    private final OfflinePayCollateralReserveClient offlinePayCollateralReserveClient;
     private static final int MAX_AD_WATCH_COUNT = 5;
     /** Normalized comment. */
     private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
@@ -74,7 +76,8 @@ public class MiningService extends BaseService {
                          BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
                          ReferralService referralService, TransferRepository transferRepository, CurrencyRepository currencyRepository,
                          EmailVerificationRepository emailVerificationRepository, LevelService levelService,
-                         NotificationService notificationService, SubscriptionService subscriptionService) {
+                         NotificationService notificationService, SubscriptionService subscriptionService,
+                         OfflinePayCollateralReserveClient offlinePayCollateralReserveClient) {
         super(pool);
         this.miningRepository = miningRepository;
         this.userRepository = userRepository;
@@ -88,6 +91,7 @@ public class MiningService extends BaseService {
         this.levelService = levelService;
         this.notificationService = notificationService;
         this.subscriptionService = subscriptionService;
+        this.offlinePayCollateralReserveClient = offlinePayCollateralReserveClient;
     }
     
     public Future<DailyLimitResponseDto> getDailyLimit(Long userId) {
@@ -261,6 +265,9 @@ public class MiningService extends BaseService {
                 log.error("Failed to read wallet balance for mining info. userId={}", userId, throwable);
                 return Future.succeededFuture(BigDecimal.ZERO);
             });
+        Future<BigDecimal> collateralLockedFuture = offlinePayCollateralReserveClient == null
+            ? Future.succeededFuture(BigDecimal.ZERO)
+            : offlinePayCollateralReserveClient.getLockedAmount(userId, "KORI");
         Future<Integer> missionEfficiencyFuture = Future.succeededFuture(0);
         Future<Integer> validDirectCountFuture = referralService.getValidDirectReferralCount(userId)
             .recover(throwable -> {
@@ -287,6 +294,7 @@ public class MiningService extends BaseService {
             userFuture,
             dailyMiningFuture,
             totalBalanceFuture,
+            collateralLockedFuture,
             missionEfficiencyFuture,
             validDirectCountFuture,
             subscriptionStatusFuture,
@@ -308,7 +316,9 @@ public class MiningService extends BaseService {
                 SubscriptionStatusResponseDto subscriptionStatus = subscriptionStatusFuture.result();
                 int vipBonusEfficiency = resolveVipBonusEfficiency(subscriptionStatus);
                 Integer bonusEfficiency = inviteEfficiency + missionEfficiency + vipBonusEfficiency;
-                BigDecimal totalBalance = totalBalanceFuture.result();
+                BigDecimal totalBalance = totalBalanceFuture.result()
+                    .subtract(collateralLockedFuture.result() == null ? BigDecimal.ZERO : collateralLockedFuture.result())
+                    .max(BigDecimal.ZERO);
                 int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
                 MiningSession activeSession = activeSessionFuture.result();
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;

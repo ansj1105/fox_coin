@@ -36,6 +36,7 @@ public class WalletService extends BaseService {
     private final RedisAPI redisApi;
     private final VirtualWalletMappingRepository virtualWalletMappingRepository;
     private final AppConfigRepository appConfigRepository;
+    private final OfflinePayCollateralReserveClient offlinePayCollateralReserveClient;
 
     private static final String WALLET_RECOVERY_NONCE_PREFIX = "wallet:nonce:";
     private static final int WALLET_RECOVERY_TTL_SECONDS = 600;
@@ -53,7 +54,8 @@ public class WalletService extends BaseService {
         String tronServiceUrl,
         RedisAPI redisApi,
         VirtualWalletMappingRepository virtualWalletMappingRepository,
-        com.foxya.coin.app.AppConfigRepository appConfigRepository
+        com.foxya.coin.app.AppConfigRepository appConfigRepository,
+        OfflinePayCollateralReserveClient offlinePayCollateralReserveClient
     ) {
         super(pool);
         this.walletRepository = walletRepository;
@@ -63,6 +65,7 @@ public class WalletService extends BaseService {
         this.redisApi = redisApi;
         this.virtualWalletMappingRepository = virtualWalletMappingRepository;
         this.appConfigRepository = appConfigRepository;
+        this.offlinePayCollateralReserveClient = offlinePayCollateralReserveClient;
     }
     
     /**
@@ -72,7 +75,8 @@ public class WalletService extends BaseService {
     public Future<List<Wallet>> getUserWallets(Long userId) {
         return ensureSharedTronWallets(userId)
             .compose(v -> walletRepository.getWalletsByUserId(pool, userId))
-            .map(WalletClientViewUtils::normalizeWalletsForClient);
+            .map(WalletClientViewUtils::normalizeWalletsForClient)
+            .compose(wallets -> applyOfflineCollateralReserve(userId, "KORI", wallets));
     }
 
     public Future<CanonicalWalletSnapshot> getCanonicalWalletSnapshot(Long userId, String currencyCode) {
@@ -80,8 +84,8 @@ public class WalletService extends BaseService {
             ? "KORI"
             : currencyCode.trim().toUpperCase();
         return walletRepository.getWalletsByUserId(pool, userId)
-            .map(wallets -> {
-                BigDecimal totalBalance = BigDecimal.ZERO;
+            .compose(wallets -> {
+                BigDecimal rawTotalBalance = BigDecimal.ZERO;
                 BigDecimal lockedBalance = BigDecimal.ZERO;
                 int walletCount = 0;
                 for (Wallet wallet : wallets) {
@@ -90,21 +94,36 @@ public class WalletService extends BaseService {
                         || !normalizedCurrencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
                         continue;
                     }
-                    totalBalance = totalBalance.add(wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance());
+                    rawTotalBalance = rawTotalBalance.add(wallet.getBalance() == null ? BigDecimal.ZERO : wallet.getBalance());
                     lockedBalance = lockedBalance.add(wallet.getLockedBalance() == null ? BigDecimal.ZERO : wallet.getLockedBalance());
                     walletCount += 1;
                 }
-                totalBalance = totalBalance.setScale(6, RoundingMode.HALF_UP);
-                lockedBalance = lockedBalance.setScale(6, RoundingMode.HALF_UP);
-                return CanonicalWalletSnapshot.builder()
-                    .userId(userId)
-                    .currencyCode(normalizedCurrencyCode)
-                    .totalBalance(totalBalance)
-                    .lockedBalance(lockedBalance)
-                    .walletCount(walletCount)
-                    .canonicalBasis("FOX_CLIENT_VISIBLE_TOTAL_KORI")
-                    .build();
+                final BigDecimal normalizedRawTotalBalance = rawTotalBalance;
+                final int normalizedWalletCount = walletCount;
+                BigDecimal normalizedLockedBalance = lockedBalance.setScale(6, RoundingMode.HALF_UP);
+                return resolveOfflineCollateralLockedAmount(userId, normalizedCurrencyCode)
+                    .map(collateralLockedAmount -> CanonicalWalletSnapshot.builder()
+                        .userId(userId)
+                        .currencyCode(normalizedCurrencyCode)
+                        .totalBalance(normalizedRawTotalBalance.subtract(collateralLockedAmount).max(BigDecimal.ZERO).setScale(6, RoundingMode.HALF_UP))
+                        .lockedBalance(normalizedLockedBalance)
+                        .walletCount(normalizedWalletCount)
+                        .canonicalBasis("FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL")
+                        .build());
             });
+    }
+
+    private Future<List<Wallet>> applyOfflineCollateralReserve(Long userId, String currencyCode, List<Wallet> wallets) {
+        return resolveOfflineCollateralLockedAmount(userId, currencyCode)
+            .map(lockedAmount -> WalletClientViewUtils.applyCollateralReserveToClientWallets(wallets, currencyCode, lockedAmount));
+    }
+
+    private Future<BigDecimal> resolveOfflineCollateralLockedAmount(Long userId, String currencyCode) {
+        if (!"KORI".equalsIgnoreCase(currencyCode) || offlinePayCollateralReserveClient == null) {
+            return Future.succeededFuture(BigDecimal.ZERO);
+        }
+        return offlinePayCollateralReserveClient.getLockedAmount(userId, currencyCode)
+            .map(amount -> amount == null ? BigDecimal.ZERO : amount.max(BigDecimal.ZERO));
     }
     
     /**

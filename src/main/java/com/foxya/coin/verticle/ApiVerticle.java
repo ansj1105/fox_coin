@@ -44,6 +44,7 @@ import com.foxya.coin.wallet.InternalWalletHandler;
 import com.foxya.coin.wallet.OfflinePayCollateralProxyHandler;
 import com.foxya.coin.wallet.OfflinePaySnapshotNotifier;
 import com.foxya.coin.wallet.OfflinePaySnapshotProxyHandler;
+import com.foxya.coin.wallet.OfflinePayCollateralReserveClient;
 import com.foxya.coin.wallet.VirtualWalletMappingRepository;
 import com.foxya.coin.wallet.WalletRepository;
 import com.foxya.coin.wallet.WalletService;
@@ -326,7 +327,12 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject blockchainConfig = config().getJsonObject("blockchain", new JsonObject());
         JsonObject tronConfig = blockchainConfig.getJsonObject("tron", new JsonObject());
         String tronServiceUrl = tronConfig.getString("serviceUrl", "");
-        
+        OfflinePayCollateralReserveClient offlinePayCollateralReserveClient = new OfflinePayCollateralReserveClient(
+            webClient,
+            System.getenv("OFFLINE_PAY_BASE_URL"),
+            System.getenv("OFFLINE_PAY_INTERNAL_API_KEY")
+        );
+
         WalletService walletService = new WalletService(
             pool,
             walletRepository,
@@ -335,7 +341,8 @@ public class ApiVerticle extends AbstractVerticle {
             tronServiceUrl,
             redisApi,
             virtualWalletMappingRepository,
-            appConfigRepository
+            appConfigRepository,
+            offlinePayCollateralReserveClient
         );
         TransferService transferService;
         ReferralService referralService;
@@ -405,7 +412,7 @@ public class ApiVerticle extends AbstractVerticle {
         miningService = new MiningService(
             pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
             referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
-            notificationService, subscriptionService);
+            notificationService, subscriptionService, offlinePayCollateralReserveClient);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");

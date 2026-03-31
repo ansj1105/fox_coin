@@ -92,6 +92,48 @@ public final class WalletClientViewUtils {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    public static List<Wallet> applyCollateralReserveToClientWallets(List<Wallet> wallets, String currencyCode, BigDecimal lockedAmount) {
+        if (wallets == null || wallets.isEmpty() || currencyCode == null || currencyCode.isBlank()) {
+            return wallets;
+        }
+
+        BigDecimal reserveAmount = normalizeBalance(lockedAmount);
+        List<Wallet> adjusted = new ArrayList<>(wallets.size());
+        for (Wallet wallet : wallets) {
+            if (wallet == null) {
+                continue;
+            }
+
+            if (!currencyCode.equalsIgnoreCase(wallet.getCurrencyCode())) {
+                adjusted.add(wallet);
+                continue;
+            }
+
+            BigDecimal rawBalance = normalizeBalance(wallet.getBalance());
+            BigDecimal availableBalance = rawBalance.subtract(reserveAmount).max(BigDecimal.ZERO);
+            adjusted.add(Wallet.builder()
+                .id(wallet.getId())
+                .userId(wallet.getUserId())
+                .currencyId(wallet.getCurrencyId())
+                .currencyCode(wallet.getCurrencyCode())
+                .currencyName(wallet.getCurrencyName())
+                .currencySymbol(wallet.getCurrencySymbol())
+                .network(wallet.getNetwork())
+                .address(wallet.getAddress())
+                .privateKey(wallet.getPrivateKey())
+                .balance(availableBalance)
+                .internalBalance(rawBalance)
+                .availableBalance(availableBalance)
+                .lockedBalance(wallet.getLockedBalance())
+                .verified(wallet.getVerified())
+                .status(wallet.getStatus())
+                .createdAt(wallet.getCreatedAt())
+                .updatedAt(wallet.getUpdatedAt())
+                .build());
+        }
+        return adjusted;
+    }
+
     private static BigDecimal sumNullableBalances(BigDecimal first, BigDecimal second) {
         BigDecimal normalizedFirst = first != null ? first : BigDecimal.ZERO;
         BigDecimal normalizedSecond = second != null ? second : BigDecimal.ZERO;
