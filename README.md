@@ -63,6 +63,17 @@ gradle wrapper --gradle-version 8.5
 ./gradlew run
 ```
 
+## Production Deploy Note
+
+- Production compose runtime uses `foxya-runtime-db` as the app DB host.
+- That hostname is provided by the `pgbouncer` service alias in `docker-compose.prod.yml`.
+- During rolling updates, do not restart `app` or `app2` by themselves. Keep `db-proxy` and `pgbouncer` in the target set:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --no-deps db-proxy pgbouncer app app2
+docker exec foxya-api getent hosts foxya-runtime-db
+```
+
 ##  사용 예시
 
 ### Entity (Lombok 사용)

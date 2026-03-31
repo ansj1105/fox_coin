@@ -275,7 +275,7 @@ else
 fi
 
 $COMPOSE -f docker-compose.prod.yml build app
-$COMPOSE -f docker-compose.prod.yml up -d --no-deps db-proxy app app2
+$COMPOSE -f docker-compose.prod.yml up -d --no-deps db-proxy pgbouncer app app2
 EOF
 }
 

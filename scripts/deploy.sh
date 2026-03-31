@@ -45,6 +45,38 @@ load_env_file() {
     fi
 }
 
+compose_cmd() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose -f "${COMPOSE_FILE}" "$@"
+    else
+        docker-compose -f "${COMPOSE_FILE}" "$@"
+    fi
+}
+
+ensure_runtime_db_alias() {
+    local service="${1:-app}"
+    local container_name=""
+
+    case "${service}" in
+        app)
+            container_name="foxya-api"
+            ;;
+        app2)
+            container_name="foxya-api-2"
+            ;;
+        *)
+            log_error "알 수 없는 서비스: ${service}"
+            exit 1
+            ;;
+    esac
+
+    if ! docker exec "${container_name}" getent hosts foxya-runtime-db >/dev/null 2>&1; then
+        log_error "${container_name} 에서 foxya-runtime-db 를 해석하지 못합니다. pgbouncer/db-proxy 상태를 확인하세요."
+        compose_cmd ps pgbouncer db-proxy "${service}" || true
+        exit 1
+    fi
+}
+
 db_admin_mode() {
     echo "${DB_ADMIN_MODE:-container}"
 }
@@ -63,7 +95,7 @@ db_admin_port() {
 
 pg_dump_cmd() {
     if [ "$(db_admin_mode)" = "container" ]; then
-        docker-compose -f "${COMPOSE_FILE}" exec -T "$(db_admin_service)" \
+        compose_cmd exec -T "$(db_admin_service)" \
             pg_dump -U "${DB_USER}" "${DB_NAME}"
         return
     fi
@@ -158,11 +190,11 @@ deploy() {
     
     # Docker 이미지 빌드
     log_info "Docker 이미지 빌드 중..."
-    docker-compose -f ${COMPOSE_FILE} build --no-cache app
-    
+    compose_cmd build --no-cache app
+
     # 서비스 시작/재시작
     log_info "서비스 시작 중..."
-    docker-compose -f ${COMPOSE_FILE} up -d
+    compose_cmd up -d
     
     # 헬스체크
     log_info "헬스체크 대기 중... (60초)"
@@ -171,7 +203,7 @@ deploy() {
     for i in {1..10}; do
         if curl -sf http://localhost:8080/health > /dev/null; then
             log_success "배포 완료! 서비스가 정상 작동 중입니다."
-            docker-compose -f ${COMPOSE_FILE} ps
+            compose_cmd ps
             exit 0
         fi
         log_info "헬스체크 대기 중... ($i/10)"
@@ -179,7 +211,7 @@ deploy() {
     done
     
     log_error "헬스체크 실패! 로그를 확인하세요."
-    docker-compose -f ${COMPOSE_FILE} logs --tail=50 app
+    compose_cmd logs --tail=50 app
     exit 1
 }
 
@@ -200,12 +232,17 @@ update() {
     
     # 이미지 한 번 빌드 (app, app2 동일 이미지 사용)
     log_info "이미지 빌드 중..."
-    docker-compose -f ${COMPOSE_FILE} build app
-    
+    compose_cmd build app
+
+    # 런타임 DB 별칭은 pgbouncer가 제공하므로 update 시 같이 보장한다.
+    log_info "db-proxy / pgbouncer 상태 보장 중..."
+    compose_cmd up -d --no-deps db-proxy pgbouncer
+
     # 1) app (foxya-api) 먼저 교체
     log_info "app( foxya-api ) 재시작 중..."
-    docker-compose -f ${COMPOSE_FILE} up -d --no-deps app
+    compose_cmd up -d --no-deps app
     sleep 15
+    ensure_runtime_db_alias app
     if ! curl -sf http://localhost:8080/health > /dev/null; then
         log_error "app 헬스체크 실패. 롤백 고려: ./scripts/deploy.sh rollback"
         exit 1
@@ -214,8 +251,9 @@ update() {
     
     # 2) app2 (foxya-api-2) 교체
     log_info "app2( foxya-api-2 ) 재시작 중..."
-    docker-compose -f ${COMPOSE_FILE} up -d --no-deps app2
+    compose_cmd up -d --no-deps app2
     sleep 10
+    ensure_runtime_db_alias app2
     if curl -sf http://localhost:8080/health > /dev/null 2>&1 || curl -sf http://localhost/health > /dev/null 2>&1; then
         log_success "업데이트 완료! (두 컨테이너 모두 새 이미지)"
     else

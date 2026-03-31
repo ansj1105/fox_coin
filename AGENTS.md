@@ -43,6 +43,8 @@
 - When only host nginx routing must change and the backend repo is dirty, patch the live nginx file directly, verify with `sudo nginx -t`, then reload nginx instead of forcing a repo cleanup.
 - On `52.200.97.155`, backend runtime deployment must use `docker compose -f docker-compose.prod.yml ...`; using the default `docker-compose.yml` drops the `app2` zero-downtime pair and breaks Prometheus target wiring.
 - After backend production deploys, verify both `app` and `app2` from `docker-compose.prod.yml` plus Prometheus target health before considering the rollout complete.
+- Never redeploy `app`/`app2` alone on production. `foxya-runtime-db` is a network alias exported by `pgbouncer`, so zero-downtime updates must include `db-proxy` and `pgbouncer` in the `docker compose -f docker-compose.prod.yml up -d --no-deps ...` target set.
+- After any production backend restart, verify runtime DB alias resolution inside the app container with `docker exec foxya-api getent hosts foxya-runtime-db` before declaring the rollout healthy. A missing alias can surface first as Google/Kakao/Apple login failures rather than an obvious DB error on the health endpoint.
 
 ## Bridge Architecture Rule
 
