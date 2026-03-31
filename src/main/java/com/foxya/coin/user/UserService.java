@@ -757,7 +757,12 @@ public class UserService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
                 }
-                return getEmailInfo(userId).map(emailInfo -> buildOfflinePaySecurityStatus(user, emailInfo));
+                return getEmailInfo(userId).compose(emailInfo ->
+                    userRepository.getOfflinePaySettings(pool, userId).compose(settings ->
+                        userRepository.getOfflinePayTrustCenter(pool, userId, 10)
+                            .map(trustCenter -> buildOfflinePaySecurityStatus(user, emailInfo, settings, trustCenter))
+                    )
+                );
             });
     }
 
@@ -900,10 +905,18 @@ public class UserService extends BaseService {
             ));
     }
 
-    private OfflinePaySecurityStatusDto buildOfflinePaySecurityStatus(User user, EmailInfoDto emailInfo) {
+    private OfflinePaySecurityStatusDto buildOfflinePaySecurityStatus(
+        User user,
+        EmailInfoDto emailInfo,
+        OfflinePaySettingsDto settings,
+        OfflinePayTrustCenterDto trustCenter
+    ) {
         int failedAttempts = user.getOfflinePayPinFailedAttempts() == null ? 0 : user.getOfflinePayPinFailedAttempts();
         boolean locked = isOfflinePayPinLocked(user);
         int remainingAttempts = locked ? 0 : Math.max(0, OFFLINE_PAY_PIN_MAX_ATTEMPTS - failedAttempts);
+        OfflinePaySettingsDto resolvedSettings = settings != null ? settings : defaultOfflinePaySettings();
+        OfflinePayTrustCenterDto resolvedTrustCenter = trustCenter != null ? normalizeOfflinePayTrustCenter(trustCenter) : defaultOfflinePayTrustCenter();
+        boolean authVerified = resolvedTrustCenter.getAuthBindingKey() != null && !resolvedTrustCenter.getAuthBindingKey().isBlank();
         return OfflinePaySecurityStatusDto.builder()
             .email(emailInfo != null ? emailInfo.getEmail() : null)
             .emailVerified(emailInfo != null && emailInfo.isVerified())
@@ -912,6 +925,12 @@ public class UserService extends BaseService {
             .pinRemainingAttempts(remainingAttempts)
             .pinLocked(locked)
             .pinLockedAt(user.getOfflinePayPinLockedAt())
+            .faceRegistered(Boolean.TRUE.equals(resolvedSettings.getFaceIdSettingEnabled()))
+            .fingerprintRegistered(Boolean.TRUE.equals(resolvedSettings.getFingerprintSettingEnabled()))
+            .authVerified(authVerified)
+            .authBindingKey(resolvedTrustCenter.getAuthBindingKey())
+            .lastVerifiedAuthMethod(resolvedTrustCenter.getLastVerifiedAuthMethod())
+            .lastVerifiedAt(resolvedTrustCenter.getLastVerifiedAt())
             .build();
     }
 
@@ -921,7 +940,12 @@ public class UserService extends BaseService {
         User user,
         EmailInfoDto emailInfo
     ) {
-        OfflinePaySecurityStatusDto status = buildOfflinePaySecurityStatus(user, emailInfo);
+        OfflinePaySecurityStatusDto status = buildOfflinePaySecurityStatus(
+            user,
+            emailInfo,
+            defaultOfflinePaySettings(),
+            defaultOfflinePayTrustCenter()
+        );
         return OfflinePayPinVerificationResponseDto.builder()
             .verified(verified)
             .message(message)

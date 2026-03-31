@@ -19,4 +19,10 @@ public class OfflinePaySecurityStatusDto {
     private Integer pinRemainingAttempts;
     private Boolean pinLocked;
     private LocalDateTime pinLockedAt;
+    private Boolean faceRegistered;
+    private Boolean fingerprintRegistered;
+    private Boolean authVerified;
+    private String authBindingKey;
+    private String lastVerifiedAuthMethod;
+    private LocalDateTime lastVerifiedAt;
 }
