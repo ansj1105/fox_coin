@@ -68,6 +68,18 @@ compose_cmd() {
     fi
 }
 
+ensure_clean_git_worktree() {
+    local dirty_output=""
+
+    dirty_output="$(git status --short)"
+    if [ -n "${dirty_output}" ]; then
+        log_error "서버 작업트리에 미반영 변경이 있어 자동 pull 을 중단합니다."
+        echo "${dirty_output}"
+        log_error "의도된 hotfix 인지 확인 후 커밋/스태시/수동 동기화로 정리한 뒤 다시 배포하세요."
+        exit 1
+    fi
+}
+
 ensure_runtime_db_alias() {
     local service="${1:-app}"
     local container_name=""
@@ -195,6 +207,7 @@ deploy() {
     # 최신 코드 가져오기
     if [ -d ".git" ]; then
         log_info "최신 코드 가져오는 중..."
+        ensure_clean_git_worktree
         git fetch origin
         git checkout ${BRANCH}
         git pull origin ${BRANCH}
@@ -237,6 +250,7 @@ update() {
     cd "${DEPLOY_DIR}"
     
     # 최신 코드 가져오기
+    ensure_clean_git_worktree
     git fetch origin
     git checkout ${BRANCH}
     git pull origin ${BRANCH}
