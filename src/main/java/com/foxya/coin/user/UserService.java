@@ -99,7 +99,9 @@ public class UserService extends BaseService {
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
         this.jwtConfig = jwtConfig;
-        this.frontendBaseUrl = frontendConfig != null ? frontendConfig.getString("baseUrl", "http://localhost") : "http://localhost";
+        this.frontendBaseUrl = normalizeFrontendBaseUrl(
+            frontendConfig != null ? frontendConfig.getString("baseUrl", "https://korion.io.kr") : "https://korion.io.kr"
+        );
         this.emailVerificationRepository = emailVerificationRepository;
         this.emailService = emailService;
         this.redisApi = redisApi;
@@ -1183,6 +1185,14 @@ public class UserService extends BaseService {
             + itemId
             + "?shared=1&token="
             + token;
+    }
+
+    private String normalizeFrontendBaseUrl(String baseUrl) {
+        String resolved = baseUrl == null || baseUrl.isBlank() ? "https://korion.io.kr" : baseUrl.trim();
+        while (resolved.endsWith("/")) {
+            resolved = resolved.substring(0, resolved.length() - 1);
+        }
+        return resolved;
     }
 
     private boolean isOfflinePayPinLocked(User user) {
