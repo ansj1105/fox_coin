@@ -38,11 +38,26 @@ BRANCH="${BRANCH:-develop}"
 COMPOSE_FILE="docker-compose.prod.yml"
 
 load_env_file() {
-    if [ -f ".env" ]; then
-        set -a
-        . ./.env
-        set +a
+    if [ ! -f ".env" ]; then
+        return
     fi
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|\#*)
+                continue
+                ;;
+        esac
+
+        key="${line%%=*}"
+        value="${line#*=}"
+
+        if [ -z "$key" ] || [ "$key" = "$line" ]; then
+            continue
+        fi
+
+        export "$key=$value"
+    done < ./.env
 }
 
 compose_cmd() {

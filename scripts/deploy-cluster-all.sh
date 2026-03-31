@@ -50,12 +50,26 @@ require_cmd() {
 }
 
 load_local_env() {
-    if [[ -f "$ROOT_DIR/.env" ]]; then
-        set -a
-        # shellcheck disable=SC1091
-        source "$ROOT_DIR/.env"
-        set +a
+    if [[ ! -f "$ROOT_DIR/.env" ]]; then
+        return
     fi
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            ''|\#*)
+                continue
+                ;;
+        esac
+
+        local key="${line%%=*}"
+        local value="${line#*=}"
+
+        if [[ -z "$key" || "$key" == "$line" ]]; then
+            continue
+        fi
+
+        export "$key=$value"
+    done < "$ROOT_DIR/.env"
 }
 
 ssh_run() {

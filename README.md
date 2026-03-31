@@ -67,6 +67,7 @@ gradle wrapper --gradle-version 8.5
 
 - Production compose runtime uses `foxya-runtime-db` as the app DB host.
 - That hostname is provided by the `pgbouncer` service alias in `docker-compose.prod.yml`.
+- Deploy scripts must parse `.env` as literal `KEY=VALUE` pairs; do not `source .env` because values like `JAVA_OPTS=-Xmx1024m -Xms512m ...` will break the shell.
 - During rolling updates, do not restart `app` or `app2` by themselves. Keep `db-proxy` and `pgbouncer` in the target set:
 
 ```bash

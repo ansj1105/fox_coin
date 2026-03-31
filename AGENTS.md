@@ -45,6 +45,7 @@
 - After backend production deploys, verify both `app` and `app2` from `docker-compose.prod.yml` plus Prometheus target health before considering the rollout complete.
 - Never redeploy `app`/`app2` alone on production. `foxya-runtime-db` is a network alias exported by `pgbouncer`, so zero-downtime updates must include `db-proxy` and `pgbouncer` in the `docker compose -f docker-compose.prod.yml up -d --no-deps ...` target set.
 - After any production backend restart, verify runtime DB alias resolution inside the app container with `docker exec foxya-api getent hosts foxya-runtime-db` before declaring the rollout healthy. A missing alias can surface first as Google/Kakao/Apple login failures rather than an obvious DB error on the health endpoint.
+- Do not `source .env` in deploy scripts. Parse `KEY=VALUE` lines literally and export them so values like `JAVA_OPTS=-Xmx1024m -Xms512m ...` do not break shell execution during production rollout.
 
 ## Bridge Architecture Rule
 
