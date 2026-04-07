@@ -1227,6 +1227,8 @@ public class UserService extends BaseService {
         }
         return logs.stream()
             .filter(item -> item != null && item.getId() != null && !item.getId().isBlank())
+            // OPS 전용 로그는 사용자 센터에 저장하지 않음 (dead letter, circuit open 등)
+            .filter(item -> !"OPS".equals(item.getAudience()))
             .limit(30)
             .map(item -> OfflinePayActivityLogDto.builder()
                 .id(item.getId())
