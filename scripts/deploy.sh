@@ -68,6 +68,28 @@ compose_cmd() {
     fi
 }
 
+service_container_name() {
+    local service="${1:-}"
+
+    case "${service}" in
+        app)
+            echo "foxya-api"
+            ;;
+        app2)
+            echo "foxya-api-2"
+            ;;
+        pgbouncer)
+            echo "foxya-pgbouncer"
+            ;;
+        db-proxy)
+            echo "foxya-db-proxy"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
 ensure_clean_git_worktree() {
     local dirty_output=""
 
@@ -82,26 +104,61 @@ ensure_clean_git_worktree() {
 
 ensure_runtime_db_alias() {
     local service="${1:-app}"
-    local container_name=""
+    local container_name
+    container_name="$(service_container_name "${service}")"
 
-    case "${service}" in
-        app)
-            container_name="foxya-api"
-            ;;
-        app2)
-            container_name="foxya-api-2"
-            ;;
-        *)
-            log_error "알 수 없는 서비스: ${service}"
-            exit 1
-            ;;
-    esac
+    if [ -z "${container_name}" ]; then
+        log_error "알 수 없는 서비스: ${service}"
+        exit 1
+    fi
 
     if ! docker exec "${container_name}" getent hosts foxya-runtime-db >/dev/null 2>&1; then
         log_error "${container_name} 에서 foxya-runtime-db 를 해석하지 못합니다. pgbouncer/db-proxy 상태를 확인하세요."
         compose_cmd ps pgbouncer db-proxy "${service}" || true
         exit 1
     fi
+}
+
+ensure_service_running() {
+    local service="${1:-}"
+    local retries="${2:-12}"
+    local delay_sec="${3:-2}"
+    local attempt=1
+    local container_name
+    local status=""
+
+    container_name="$(service_container_name "${service}")"
+    if [ -z "${container_name}" ]; then
+        log_error "알 수 없는 서비스: ${service}"
+        exit 1
+    fi
+
+    while [ "${attempt}" -le "${retries}" ]; do
+        status="$(docker inspect -f '{{.State.Status}}' "${container_name}" 2>/dev/null || true)"
+        if [ "${status}" = "running" ]; then
+            return 0
+        fi
+        log_warning "${service} 상태=${status:-missing}. 재시도 중... (${attempt}/${retries})"
+        sleep "${delay_sec}"
+        attempt=$((attempt + 1))
+    done
+
+    log_error "${service} 컨테이너가 running 상태가 아닙니다. 현재 상태=${status:-missing}"
+    compose_cmd ps "${service}" || true
+    compose_cmd logs --tail=80 "${service}" || true
+    exit 1
+}
+
+ensure_runtime_db_stack_ready() {
+    log_info "db-proxy / pgbouncer 상태 보장 중..."
+    compose_cmd up -d --no-deps db-proxy pgbouncer
+    ensure_service_running db-proxy
+    ensure_service_running pgbouncer
+}
+
+verify_runtime_db_aliases() {
+    ensure_runtime_db_alias app
+    ensure_runtime_db_alias app2
 }
 
 db_admin_mode() {
@@ -220,6 +277,8 @@ deploy() {
     log_info "Docker 이미지 빌드 중..."
     compose_cmd build --no-cache app
 
+    ensure_runtime_db_stack_ready
+
     # 서비스 시작/재시작
     log_info "서비스 시작 중..."
     compose_cmd up -d
@@ -230,6 +289,7 @@ deploy() {
     
     for i in {1..10}; do
         if curl -sf http://localhost:8080/health > /dev/null; then
+            verify_runtime_db_aliases
             log_success "배포 완료! 서비스가 정상 작동 중입니다."
             compose_cmd ps
             exit 0
@@ -264,8 +324,7 @@ update() {
     compose_cmd build app
 
     # 런타임 DB 별칭은 pgbouncer가 제공하므로 update 시 같이 보장한다.
-    log_info "db-proxy / pgbouncer 상태 보장 중..."
-    compose_cmd up -d --no-deps db-proxy pgbouncer
+    ensure_runtime_db_stack_ready
 
     # 1) app (foxya-api) 먼저 교체
     log_info "app( foxya-api ) 재시작 중..."
@@ -283,6 +342,7 @@ update() {
     compose_cmd up -d --no-deps app2
     sleep 10
     ensure_runtime_db_alias app2
+    verify_runtime_db_aliases
     if curl -sf http://localhost:8080/health > /dev/null 2>&1 || curl -sf http://localhost/health > /dev/null 2>&1; then
         log_success "업데이트 완료! (두 컨테이너 모두 새 이미지)"
     else
@@ -343,11 +403,14 @@ rollback() {
         exit 1
     fi
     
+    ensure_runtime_db_stack_ready
+
     # 롤백 실행 (두 컨테이너 모두 이전 이미지로)
     docker tag foxya-coin-api:${ROLLBACK_TAG} foxya-coin-api:latest
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app
     sleep 10
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app2
+    verify_runtime_db_aliases
     
     log_success "롤백 완료! (app, app2 모두 이전 이미지)"
 }
@@ -361,7 +424,12 @@ status() {
     echo ""
     log_info "헬스체크:"
     curl -s http://localhost:8080/health | jq . 2>/dev/null || curl -s http://localhost:8080/health
-    
+
+    echo ""
+    log_info "런타임 DB alias:"
+    docker exec foxya-api getent hosts foxya-runtime-db || true
+    docker exec foxya-api-2 getent hosts foxya-runtime-db || true
+
     echo ""
     log_info "리소스 사용량:"
     docker stats --no-stream $(docker-compose -f ${COMPOSE_FILE} ps -q) 2>/dev/null || true
