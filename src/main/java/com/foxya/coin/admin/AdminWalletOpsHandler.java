@@ -484,6 +484,9 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 .put("targetLiabilityBalance", metadata.getString("targetLiabilityBalance"))
                 .put("deltaAmount", metadata.getString("deltaAmount"))
                 .put("adjusted", "true".equalsIgnoreCase(metadata.getString("adjusted", "false")))
+                .put("accountingSide", metadata.getString("accountingSide", "SENDER"))
+                .put("receiverSettlementMode", metadata.getString("receiverSettlementMode", "EXTERNAL_HISTORY_SYNC"))
+                .put("settlementModel", metadata.getString("settlementModel", "SENDER_LEDGER_PLUS_RECEIVER_HISTORY"))
                 .put("reason", firstNonBlank(metadata.getString("reason"), metadata.getString("note")))
                 .put("error", metadata.getString("error"))
                 .put("createdAt", log.getString("createdAt")));
