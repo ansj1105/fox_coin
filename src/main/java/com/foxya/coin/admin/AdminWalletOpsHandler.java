@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -63,6 +64,10 @@ public class AdminWalletOpsHandler extends BaseHandler {
             .handler(JWTAuthHandler.create(jwtAuth))
             .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
             .handler(this::getOverview);
+        router.get("/offline-pay/reconciliation-logs")
+            .handler(JWTAuthHandler.create(jwtAuth))
+            .handler(AuthUtils.hasRole(UserRole.ADMIN, UserRole.SUPER_ADMIN))
+            .handler(this::getOfflinePayReconciliationLogs);
         return router;
     }
 
@@ -141,6 +146,49 @@ public class AdminWalletOpsHandler extends BaseHandler {
                 signerFuture.result(),
                 walletBalanceSummaryFuture.result()
             )));
+    }
+
+    private void getOfflinePayReconciliationLogs(RoutingContext ctx) {
+        int limit;
+        try {
+            limit = parsePositiveInt(ctx.queryParams().get("limit"), 30, 100, "limit");
+        } catch (BadRequestException error) {
+            ctx.fail(400, error);
+            return;
+        }
+
+        Future<JsonObject> reconciledFuture = fetchKorionAuditLogs("offline_pay.user_balance.reconciled", limit);
+        Future<JsonObject> skippedFuture = fetchKorionAuditLogs("offline_pay.user_balance.reconcile.skipped", limit);
+        Future<JsonObject> failedFuture = fetchKorionAuditLogs("offline_pay.user_balance.reconcile.failed", limit);
+
+        response(ctx, Future.all(List.of(reconciledFuture, skippedFuture, failedFuture))
+            .map(ignored -> {
+                JsonArray items = new JsonArray();
+                appendReconciliationLogs(items, reconciledFuture.result());
+                appendReconciliationLogs(items, skippedFuture.result());
+                appendReconciliationLogs(items, failedFuture.result());
+
+                List<JsonObject> sorted = new ArrayList<>();
+                for (int i = 0; i < items.size(); i++) {
+                    JsonObject item = items.getJsonObject(i);
+                    if (item != null) {
+                        sorted.add(item);
+                    }
+                }
+                sorted.sort((left, right) -> {
+                    String leftCreatedAt = left.getString("createdAt", "");
+                    String rightCreatedAt = right.getString("createdAt", "");
+                    return rightCreatedAt.compareTo(leftCreatedAt);
+                });
+                if (sorted.size() > limit) {
+                    sorted = new ArrayList<>(sorted.subList(0, limit));
+                }
+
+                JsonArray warnings = collectWarnings(reconciledFuture.result(), skippedFuture.result(), failedFuture.result());
+                return new JsonObject()
+                    .put("items", new JsonArray(sorted))
+                    .put("warnings", warnings);
+            }));
     }
 
     private Query parseQuery(RoutingContext ctx) {
@@ -345,6 +393,18 @@ public class AdminWalletOpsHandler extends BaseHandler {
         );
     }
 
+    private Future<JsonObject> fetchKorionAuditLogs(String action, int limit) {
+        return getJson(
+            normalizeUrl(korionSystemApiBaseUrl, "/api/system/audit-logs"),
+            new JsonObject()
+                .put("entityType", "system")
+                .put("action", action)
+                .put("limit", limit),
+            korionSystemAdminApiKey,
+            "X-Api-Key"
+        );
+    }
+
     private Future<JsonObject> fetchKorionEventConsumers() {
         return getJson(
             normalizeUrl(korionSystemApiBaseUrl, "/api/system/event-consumers"),
@@ -394,6 +454,42 @@ public class AdminWalletOpsHandler extends BaseHandler {
         return Future.succeededFuture(body);
     }
 
+    private void appendReconciliationLogs(JsonArray target, JsonObject body) {
+        if (body == null) {
+            return;
+        }
+        JsonArray logs = body.getJsonArray("logs", new JsonArray());
+        for (int i = 0; i < logs.size(); i++) {
+            JsonObject log = logs.getJsonObject(i);
+            if (log == null) {
+                continue;
+            }
+            JsonObject metadata = log.getJsonObject("metadata", new JsonObject());
+            String action = log.getString("action", "");
+            String status = switch (action) {
+                case "offline_pay.user_balance.reconciled" -> "ADJUSTED";
+                case "offline_pay.user_balance.reconcile.failed" -> "FAILED";
+                default -> "SKIPPED";
+            };
+            target.add(new JsonObject()
+                .put("auditId", log.getString("auditId"))
+                .put("entityId", log.getString("entityId"))
+                .put("userId", firstNonBlank(metadata.getString("userId"), stripReconciliationPrefix(log.getString("entityId"))))
+                .put("status", status)
+                .put("action", action)
+                .put("actorType", log.getString("actorType"))
+                .put("actorId", log.getString("actorId"))
+                .put("canonicalBasis", metadata.getString("canonicalBasis"))
+                .put("previousLiabilityBalance", metadata.getString("previousLiabilityBalance"))
+                .put("targetLiabilityBalance", metadata.getString("targetLiabilityBalance"))
+                .put("deltaAmount", metadata.getString("deltaAmount"))
+                .put("adjusted", "true".equalsIgnoreCase(metadata.getString("adjusted", "false")))
+                .put("reason", firstNonBlank(metadata.getString("reason"), metadata.getString("note")))
+                .put("error", metadata.getString("error"))
+                .put("createdAt", log.getString("createdAt")));
+        }
+    }
+
     private JsonObject monitoringSafeObject(JsonObject body, String fieldName) {
         if (body == null) {
             return new JsonObject();
@@ -429,6 +525,20 @@ public class AdminWalletOpsHandler extends BaseHandler {
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = path.startsWith("/") ? path : "/" + path;
         return normalizedBase + normalizedPath;
+    }
+
+    private String stripReconciliationPrefix(String entityId) {
+        if (entityId == null || entityId.isBlank()) {
+            return null;
+        }
+        return entityId.startsWith("offline-pay-reconciliation:") ? entityId.substring("offline-pay-reconciliation:".length()) : entityId;
+    }
+
+    private String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        return fallback;
     }
 
     private BigDecimal parseDecimal(String value) {
