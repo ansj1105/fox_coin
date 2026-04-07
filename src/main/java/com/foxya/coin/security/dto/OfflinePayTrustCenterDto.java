@@ -39,4 +39,10 @@ public class OfflinePayTrustCenterDto {
     private LocalDateTime updatedAt;
     private List<OfflinePayTrustCenterLogDto> proofLogs;
     private List<OfflinePayTrustCenterLogDto> statusLogs;
+    // Derived contract fields — not stored in DB, computed on build
+    private Boolean trustContractMet;
+    private String contractRequirements;
+    // Snapshot refresh hint — set at response time, not stored
+    private LocalDateTime snapshotRefreshedAt;
+    private Long staleAfterMs;
 }

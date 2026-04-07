@@ -480,6 +480,7 @@ public class TransferService extends BaseService {
     public Future<InternalTransfer> recordOfflinePaySettlementHistory(
             Long userId,
             String settlementId,
+            String transferRef,
             String batchId,
             String collateralId,
             String proofId,
@@ -492,7 +493,9 @@ public class TransferService extends BaseService {
         String normalizedHistoryType =
             TransactionType.OFFLINE_PAY_CONFLICT.getValue().equalsIgnoreCase(historyType)
                 ? TransactionType.OFFLINE_PAY_CONFLICT.getValue()
-                : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
+                : TransactionType.OFFLINE_PAY_RECEIVE.getValue().equalsIgnoreCase(historyType)
+                    ? TransactionType.OFFLINE_PAY_RECEIVE.getValue()
+                    : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
 
         return currencyRepository.getCurrencyByCodeAndChain(pool, assetCode != null && !assetCode.isBlank() ? assetCode : "KORI", INTERNAL_CHAIN)
             .compose(currency -> {
@@ -520,7 +523,7 @@ public class TransferService extends BaseService {
                                                     return Future.failedFuture(new BadRequestException("Invalid request."));
                                                 }
                                                 InternalTransfer transfer = InternalTransfer.builder()
-                                                    .transferId(settlementId)
+                                                    .transferId(transferRef)
                                                     .senderId(hotWalletUserId)
                                                     .senderWalletId(senderWallet.getId())
                                                     .receiverId(userId)
@@ -537,7 +540,7 @@ public class TransferService extends BaseService {
                                                     .build();
                                                 return transferRepository.createInternalTransfer(client, transfer);
                                             })
-                                            .compose(createdTransfer -> transferRepository.completeInternalTransfer(client, settlementId))
+                                            .compose(createdTransfer -> transferRepository.completeInternalTransfer(client, transferRef))
                                     )));
                     });
             });

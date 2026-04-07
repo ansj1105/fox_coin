@@ -60,10 +60,16 @@ public class InternalOfflinePayHandler extends BaseHandler {
             ctx.fail(new BadRequestException("userId, settlementId, historyType, amount required"));
             return;
         }
+        // transferRef: unique transfer ID. Defaults to settlementId (sender). Receiver uses settlementId + ":R".
+        String transferRef = body.getString("transferRef");
+        if (transferRef == null || transferRef.isBlank()) {
+            transferRef = settlementId;
+        }
 
         response(ctx, transferService.recordOfflinePaySettlementHistory(
             userId,
             settlementId,
+            transferRef,
             body.getString("batchId"),
             body.getString("collateralId"),
             body.getString("proofId"),

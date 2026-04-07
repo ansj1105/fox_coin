@@ -846,7 +846,43 @@ public class UserService extends BaseService {
                     return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
                 }
                 return userRepository.getOfflinePayTrustCenter(pool, userId, 10)
-                    .map(trustCenter -> trustCenter != null ? normalizeOfflinePayTrustCenter(trustCenter) : defaultOfflinePayTrustCenter());
+                    .map(trustCenter -> {
+                        OfflinePayTrustCenterDto resolved = trustCenter != null
+                            ? normalizeOfflinePayTrustCenter(trustCenter)
+                            : defaultOfflinePayTrustCenter();
+                        return OfflinePayTrustCenterDto.builder()
+                            .platform(resolved.getPlatform())
+                            .deviceName(resolved.getDeviceName())
+                            .teeAvailable(resolved.getTeeAvailable())
+                            .keySigningActive(resolved.getKeySigningActive())
+                            .keyProvider(resolved.getKeyProvider())
+                            .hardwareBackedKey(resolved.getHardwareBackedKey())
+                            .userPresenceProtected(resolved.getUserPresenceProtected())
+                            .secureHardwareLevel(resolved.getSecureHardwareLevel())
+                            .attestationClass(resolved.getAttestationClass())
+                            .attestationVerdict(resolved.getAttestationVerdict())
+                            .serverVerifiedTrustLevel(resolved.getServerVerifiedTrustLevel())
+                            .deviceRegistrationId(resolved.getDeviceRegistrationId())
+                            .sourceDeviceId(resolved.getSourceDeviceId())
+                            .deviceBindingKey(resolved.getDeviceBindingKey())
+                            .appVersion(resolved.getAppVersion())
+                            .collectedAt(resolved.getCollectedAt())
+                            .faceAvailable(resolved.getFaceAvailable())
+                            .fingerprintAvailable(resolved.getFingerprintAvailable())
+                            .authBindingKey(resolved.getAuthBindingKey())
+                            .lastVerifiedAuthMethod(resolved.getLastVerifiedAuthMethod())
+                            .lastVerifiedAt(resolved.getLastVerifiedAt())
+                            .lastSyncedAt(resolved.getLastSyncedAt())
+                            .syncStatus(resolved.getSyncStatus())
+                            .updatedAt(resolved.getUpdatedAt())
+                            .proofLogs(resolved.getProofLogs())
+                            .statusLogs(resolved.getStatusLogs())
+                            .trustContractMet(resolved.getTrustContractMet())
+                            .contractRequirements(resolved.getContractRequirements())
+                            .snapshotRefreshedAt(LocalDateTime.now())
+                            .staleAfterMs(300_000L) // 5분: trust center는 collateral보다 덜 자주 변경
+                            .build();
+                    });
             });
     }
 
@@ -1009,6 +1045,8 @@ public class UserService extends BaseService {
             .updatedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
             .proofLogs(List.of())
             .statusLogs(List.of())
+            .trustContractMet(false)
+            .contractRequirements("HARDWARE_BACKED_VERIFIED")
             .build();
     }
 
@@ -1112,6 +1150,8 @@ public class UserService extends BaseService {
             .updatedAt(LocalDateTime.now())
             .proofLogs(proofLogs)
             .statusLogs(statusLogs)
+            .trustContractMet("SERVER_VERIFIED".equals(resolveOfflinePayServerTrustLevel(request)))
+            .contractRequirements("HARDWARE_BACKED_VERIFIED")
             .build();
     }
 
@@ -1199,6 +1239,8 @@ public class UserService extends BaseService {
                 .settlementId(item.getSettlementId())
                 .metadata(item.getMetadata() != null ? item.getMetadata() : new JsonObject())
                 .createdAt(item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.now())
+                .audience(item.getAudience())
+                .logSource(item.getLogSource())
                 .build())
             .toList();
     }

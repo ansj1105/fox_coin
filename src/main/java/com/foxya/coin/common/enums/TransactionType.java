@@ -15,7 +15,8 @@ public enum TransactionType {
     SWAP("SWAP", "스왑"),
     EXCHANGE("EXCHANGE", "포인트 환전"),
     OFFLINE_PAY_SETTLEMENT("OFFLINE_PAY_SETTLEMENT", "오프라인 정산"),
-    OFFLINE_PAY_CONFLICT("OFFLINE_PAY_CONFLICT", "오프라인 충돌");
+    OFFLINE_PAY_CONFLICT("OFFLINE_PAY_CONFLICT", "오프라인 충돌"),
+    OFFLINE_PAY_RECEIVE("OFFLINE_PAY_RECEIVE", "오프라인 수취");
     
     private final String value;
     private final String description;

@@ -1029,6 +1029,8 @@ public class UserRepository extends BaseRepository {
                     .updatedAt(snapshot != null ? snapshot.getUpdatedAt() : null)
                     .proofLogs(logs)
                     .statusLogs(statusLogs)
+                    .trustContractMet(snapshot != null && "SERVER_VERIFIED".equals(snapshot.getServerVerifiedTrustLevel()))
+                    .contractRequirements("HARDWARE_BACKED_VERIFIED")
                     .build();
             })
         ).onFailure(throwable -> log.error("오프라인 페이 보안 센터 조회 실패 - userId: {}", userId, throwable));
@@ -1409,16 +1411,21 @@ public class UserRepository extends BaseRepository {
 
         return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
             .map(rows -> {
-                List<OfflinePayActivityLogDto> logs = fetchAll(row -> OfflinePayActivityLogDto.builder()
-                    .id(getStringColumnValue(row, "log_id"))
-                    .category(getStringColumnValue(row, "notification_type"))
-                    .eventStatus(getStringColumnValue(row, "delivery_status"))
-                    .title(getStringColumnValue(row, "title"))
-                    .message(getStringColumnValue(row, "message"))
-                    .reasonCode(getStringColumnValue(row, "reason_code"))
-                    .metadata(getJsonObjectColumnValue(row, "metadata_json"))
-                    .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
-                    .build(), rows);
+                List<OfflinePayActivityLogDto> logs = fetchAll(row -> {
+                    String notifType = getStringColumnValue(row, "notification_type");
+                    return OfflinePayActivityLogDto.builder()
+                        .id(getStringColumnValue(row, "log_id"))
+                        .category(notifType)
+                        .eventStatus(getStringColumnValue(row, "delivery_status"))
+                        .title(getStringColumnValue(row, "title"))
+                        .message(getStringColumnValue(row, "message"))
+                        .reasonCode(getStringColumnValue(row, "reason_code"))
+                        .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                        .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                        .audience("USER")
+                        .logSource(resolveNotificationLogSource(notifType))
+                        .build();
+                }, rows);
                 LocalDateTime updatedAt = logs.isEmpty() ? LocalDateTime.now() : logs.get(0).getCreatedAt();
                 return OfflinePayNotificationCenterDto.builder()
                     .updatedAt(updatedAt)
@@ -1510,18 +1517,24 @@ public class UserRepository extends BaseRepository {
 
         return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
             .map(rows -> {
-                List<OfflinePayActivityLogDto> logs = fetchAll(row -> OfflinePayActivityLogDto.builder()
-                    .id(getStringColumnValue(row, "log_id"))
-                    .category("SETTLEMENT")
-                    .eventStatus(getStringColumnValue(row, "settlement_status"))
-                    .title(getStringColumnValue(row, "title"))
-                    .message(getStringColumnValue(row, "message"))
-                    .reasonCode(getStringColumnValue(row, "reason_code"))
-                    .requestId(getStringColumnValue(row, "request_id"))
-                    .settlementId(getStringColumnValue(row, "settlement_id"))
-                    .metadata(getJsonObjectColumnValue(row, "metadata_json"))
-                    .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
-                    .build(), rows);
+                List<OfflinePayActivityLogDto> logs = fetchAll(row -> {
+                    String status = getStringColumnValue(row, "settlement_status");
+                    String audience = resolveSettlementLogAudience(status);
+                    return OfflinePayActivityLogDto.builder()
+                        .id(getStringColumnValue(row, "log_id"))
+                        .category("SETTLEMENT")
+                        .eventStatus(status)
+                        .title(getStringColumnValue(row, "title"))
+                        .message(getStringColumnValue(row, "message"))
+                        .reasonCode(getStringColumnValue(row, "reason_code"))
+                        .requestId(getStringColumnValue(row, "request_id"))
+                        .settlementId(getStringColumnValue(row, "settlement_id"))
+                        .metadata(getJsonObjectColumnValue(row, "metadata_json"))
+                        .createdAt(getLocalDateTimeColumnValue(row, "created_at"))
+                        .audience(audience)
+                        .logSource("SETTLEMENT_FLOW")
+                        .build();
+                }, rows);
                 LocalDateTime updatedAt = logs.isEmpty() ? LocalDateTime.now() : logs.get(0).getCreatedAt();
                 return OfflinePaySettlementCenterDto.builder()
                     .updatedAt(updatedAt)
@@ -1591,5 +1604,37 @@ public class UserRepository extends BaseRepository {
         params.put("created_at", item.getCreatedAt() != null ? item.getCreatedAt() : DateUtils.now());
         params.put("updated_at", DateUtils.now());
         return query(client, QueryBuilder.selectStringQuery(sql).build(), params).map(rows -> (Void) null);
+    }
+
+    private static String resolveSettlementLogAudience(String eventStatus) {
+        if (eventStatus == null) {
+            return "USER";
+        }
+        return switch (eventStatus.toUpperCase()) {
+            case "COMPLETED" -> "BOTH";
+            case "FAILED" -> "BOTH";
+            case "PENDING" -> "USER";
+            default -> "USER";
+        };
+    }
+
+    private static String resolveNotificationLogSource(String notificationType) {
+        if (notificationType == null) {
+            return "SYSTEM";
+        }
+        String upper = notificationType.toUpperCase();
+        if (upper.contains("SETTLEMENT") || upper.contains("SAGA")) {
+            return "SETTLEMENT_FLOW";
+        }
+        if (upper.contains("COLLATERAL")) {
+            return "COLLATERAL_FLOW";
+        }
+        if (upper.contains("TRUST") || upper.contains("SECURITY")) {
+            return "TRUST_FLOW";
+        }
+        if (upper.contains("RECONCILIATION")) {
+            return "RECONCILIATION_FLOW";
+        }
+        return "SYSTEM";
     }
 }
