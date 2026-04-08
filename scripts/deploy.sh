@@ -90,6 +90,77 @@ service_container_name() {
     esac
 }
 
+expected_runtime_containers() {
+    cat <<EOF
+foxya-api
+foxya-api-2
+foxya-db-proxy
+foxya-pgbouncer
+foxya-postgres
+foxya-redis
+foxya-nginx
+foxya-prometheus
+foxya-grafana
+foxya-tron-service
+foxya-tron-service-2
+foxya-tron-worker
+EOF
+}
+
+list_conflicting_runtime_containers() {
+    local expected
+    expected="$(expected_runtime_containers)"
+
+    docker ps -a --format '{{.Names}}|{{.Label "com.docker.compose.project.config_files"}}' | \
+    while IFS='|' read -r name config_files; do
+        case "${name}" in
+            foxya* )
+                if printf '%s\n' "${expected}" | grep -Fx "${name}" >/dev/null 2>&1; then
+                    if [[ "${config_files}" != *"${COMPOSE_FILE}"* ]]; then
+                        printf '%s|%s\n' "${name}" "${config_files:-unmanaged}"
+                    fi
+                    continue
+                fi
+                printf '%s|%s\n' "${name}" "${config_files:-unexpected}"
+                ;;
+        esac
+    done
+}
+
+reconcile_runtime_stack_conflicts() {
+    local default_compose="docker-compose.yml"
+
+    if [ -f "${default_compose}" ] && [ "${default_compose}" != "${COMPOSE_FILE}" ]; then
+        log_info "default compose 잔존 스택 정리 중..."
+        if docker compose version >/dev/null 2>&1; then
+            docker compose -f "${default_compose}" down --remove-orphans >/dev/null 2>&1 || true
+        else
+            docker-compose -f "${default_compose}" down --remove-orphans >/dev/null 2>&1 || true
+        fi
+    fi
+
+    mapfile -t conflicts < <(list_conflicting_runtime_containers)
+    if [ "${#conflicts[@]}" -eq 0 ]; then
+        return
+    fi
+
+    log_warning "prod compose와 충돌하는 foxya 컨테이너를 정리합니다..."
+    local entry
+    for entry in "${conflicts[@]}"; do
+        local name="${entry%%|*}"
+        local source="${entry#*|}"
+        log_warning "conflict=${name} source=${source}"
+        docker rm -f "${name}" >/dev/null 2>&1 || true
+    done
+
+    mapfile -t conflicts < <(list_conflicting_runtime_containers)
+    if [ "${#conflicts[@]}" -gt 0 ]; then
+        log_error "충돌 컨테이너 정리에 실패했습니다."
+        printf '%s\n' "${conflicts[@]}"
+        exit 1
+    fi
+}
+
 ensure_clean_git_worktree() {
     local dirty_output=""
 
@@ -150,6 +221,7 @@ ensure_service_running() {
 }
 
 ensure_runtime_db_stack_ready() {
+    reconcile_runtime_stack_conflicts
     log_info "db-proxy / pgbouncer 상태 보장 중..."
     compose_cmd up -d --no-deps db-proxy pgbouncer
     ensure_service_running db-proxy

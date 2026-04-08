@@ -94,6 +94,43 @@ resolve_monitored_container_id() {
     printf '%s' "${container_id}"
 }
 
+expected_runtime_containers() {
+    cat <<EOF
+foxya-api
+foxya-api-2
+foxya-db-proxy
+foxya-pgbouncer
+foxya-postgres
+foxya-redis
+foxya-nginx
+foxya-prometheus
+foxya-grafana
+foxya-tron-service
+foxya-tron-service-2
+foxya-tron-worker
+EOF
+}
+
+list_conflicting_runtime_containers() {
+    local expected
+    expected="$(expected_runtime_containers)"
+
+    docker ps -a --format '{{.Names}}|{{.Label "com.docker.compose.project.config_files"}}' | \
+    while IFS='|' read -r name config_files; do
+        case "${name}" in
+            foxya* )
+                if printf '%s\n' "${expected}" | grep -Fx "${name}" >/dev/null 2>&1; then
+                    if [[ "${config_files}" != *"${COMPOSE_FILE}"* ]]; then
+                        printf 'runtime-conflict:%s\n' "${name}"
+                    fi
+                    continue
+                fi
+                printf 'runtime-conflict:%s\n' "${name}"
+                ;;
+        esac
+    done
+}
+
 telegram_send() {
     local title="${1:-}"
     local body="${2:-}"
@@ -137,6 +174,30 @@ inspect_container_issue() {
     fi
 }
 
+inspect_runtime_invariants() {
+    local issues=()
+
+    if docker ps -q --filter "name=^foxya-db-proxy$" | grep -q .; then
+        if ! docker exec foxya-db-proxy getent hosts postgres >/dev/null 2>&1; then
+            issues+=("db-proxy=backend-unresolved")
+        fi
+    fi
+
+    if docker ps -q --filter "name=^foxya-api$" | grep -q .; then
+        if ! docker exec foxya-api getent hosts foxya-runtime-db >/dev/null 2>&1; then
+            issues+=("app=runtime-db-alias")
+        fi
+    fi
+
+    if docker ps -q --filter "name=^foxya-api-2$" | grep -q .; then
+        if ! docker exec foxya-api-2 getent hosts foxya-runtime-db >/dev/null 2>&1; then
+            issues+=("app2=runtime-db-alias")
+        fi
+    fi
+
+    printf '%s\n' "${issues[@]}" | sed '/^$/d'
+}
+
 collect_issues() {
     local issues=()
     local service
@@ -160,6 +221,14 @@ collect_issues() {
             issues+=("${issue}")
         fi
     done
+
+    while IFS= read -r issue; do
+        [ -n "${issue}" ] && issues+=("${issue}")
+    done < <(inspect_runtime_invariants)
+
+    while IFS= read -r issue; do
+        [ -n "${issue}" ] && issues+=("${issue}")
+    done < <(list_conflicting_runtime_containers)
 
     printf '%s\n' "${issues[@]}" | sed '/^$/d' | sort
 }
