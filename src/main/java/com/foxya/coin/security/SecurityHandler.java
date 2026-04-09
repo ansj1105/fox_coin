@@ -275,7 +275,8 @@ public class SecurityHandler extends BaseHandler {
 
     private void getOfflinePayStatus(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
-        response(ctx, userService.getOfflinePaySecurityStatus(userId));
+        String deviceId = ctx.request().getHeader("X-Device-Id");
+        response(ctx, userService.getOfflinePaySecurityStatus(userId, deviceId));
     }
 
     private void verifyOfflinePayPin(RoutingContext ctx) {

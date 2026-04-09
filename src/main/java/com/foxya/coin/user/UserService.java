@@ -751,7 +751,7 @@ public class UserService extends BaseService {
             });
     }
 
-    public Future<OfflinePaySecurityStatusDto> getOfflinePaySecurityStatus(Long userId) {
+    public Future<OfflinePaySecurityStatusDto> getOfflinePaySecurityStatus(Long userId, String currentDeviceId) {
         return userRepository.getUserById(pool, userId)
             .compose(user -> {
                 if (user == null) {
@@ -760,7 +760,7 @@ public class UserService extends BaseService {
                 return getEmailInfo(userId).compose(emailInfo ->
                     userRepository.getOfflinePaySettings(pool, userId).compose(settings ->
                         userRepository.getOfflinePayTrustCenter(pool, userId, 10)
-                            .map(trustCenter -> buildOfflinePaySecurityStatus(user, emailInfo, settings, trustCenter))
+                            .map(trustCenter -> buildOfflinePaySecurityStatus(user, emailInfo, settings, trustCenter, currentDeviceId))
                     )
                 );
             });
@@ -945,14 +945,20 @@ public class UserService extends BaseService {
         User user,
         EmailInfoDto emailInfo,
         OfflinePaySettingsDto settings,
-        OfflinePayTrustCenterDto trustCenter
+        OfflinePayTrustCenterDto trustCenter,
+        String currentDeviceId
     ) {
         int failedAttempts = user.getOfflinePayPinFailedAttempts() == null ? 0 : user.getOfflinePayPinFailedAttempts();
         boolean locked = isOfflinePayPinLocked(user);
         int remainingAttempts = locked ? 0 : Math.max(0, OFFLINE_PAY_PIN_MAX_ATTEMPTS - failedAttempts);
         OfflinePaySettingsDto resolvedSettings = settings != null ? settings : defaultOfflinePaySettings();
         OfflinePayTrustCenterDto resolvedTrustCenter = trustCenter != null ? normalizeOfflinePayTrustCenter(trustCenter) : defaultOfflinePayTrustCenter();
-        boolean authVerified = resolvedTrustCenter.getAuthBindingKey() != null && !resolvedTrustCenter.getAuthBindingKey().isBlank();
+        boolean deviceScopedTrustMatched = currentDeviceId != null
+            && !currentDeviceId.isBlank()
+            && currentDeviceId.equals(resolvedTrustCenter.getSourceDeviceId());
+        boolean authVerified = deviceScopedTrustMatched
+            && resolvedTrustCenter.getAuthBindingKey() != null
+            && !resolvedTrustCenter.getAuthBindingKey().isBlank();
         return OfflinePaySecurityStatusDto.builder()
             .email(emailInfo != null ? emailInfo.getEmail() : null)
             .emailVerified(emailInfo != null && emailInfo.isVerified())
@@ -961,12 +967,12 @@ public class UserService extends BaseService {
             .pinRemainingAttempts(remainingAttempts)
             .pinLocked(locked)
             .pinLockedAt(user.getOfflinePayPinLockedAt())
-            .faceRegistered(Boolean.TRUE.equals(resolvedSettings.getFaceIdSettingEnabled()))
-            .fingerprintRegistered(Boolean.TRUE.equals(resolvedSettings.getFingerprintSettingEnabled()))
+            .faceRegistered(deviceScopedTrustMatched && Boolean.TRUE.equals(resolvedSettings.getFaceIdSettingEnabled()))
+            .fingerprintRegistered(deviceScopedTrustMatched && Boolean.TRUE.equals(resolvedSettings.getFingerprintSettingEnabled()))
             .authVerified(authVerified)
-            .authBindingKey(resolvedTrustCenter.getAuthBindingKey())
-            .lastVerifiedAuthMethod(resolvedTrustCenter.getLastVerifiedAuthMethod())
-            .lastVerifiedAt(resolvedTrustCenter.getLastVerifiedAt())
+            .authBindingKey(deviceScopedTrustMatched ? resolvedTrustCenter.getAuthBindingKey() : "")
+            .lastVerifiedAuthMethod(deviceScopedTrustMatched ? resolvedTrustCenter.getLastVerifiedAuthMethod() : "NONE")
+            .lastVerifiedAt(deviceScopedTrustMatched ? resolvedTrustCenter.getLastVerifiedAt() : null)
             .build();
     }
 
@@ -980,7 +986,8 @@ public class UserService extends BaseService {
             user,
             emailInfo,
             defaultOfflinePaySettings(),
-            defaultOfflinePayTrustCenter()
+            defaultOfflinePayTrustCenter(),
+            null
         );
         return OfflinePayPinVerificationResponseDto.builder()
             .verified(verified)
