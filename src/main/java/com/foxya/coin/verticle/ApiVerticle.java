@@ -124,6 +124,7 @@ import com.foxya.coin.currency.CoinPriceRepository;
 import com.foxya.coin.country.CountryCodeRepository;
 import com.foxya.coin.country.CountryCodeService;
 import com.foxya.coin.security.SecurityHandler;
+import com.foxya.coin.security.OfflinePayAttestationService;
 import com.foxya.coin.security.OfflinePayPublicShareHandler;
 import com.foxya.coin.inquiry.InquiryHandler;
 import com.foxya.coin.inquiry.InquiryRepository;
@@ -306,6 +307,7 @@ public class ApiVerticle extends AbstractVerticle {
         );
         SubscriptionService subscriptionService = new SubscriptionService(
             pool, subscriptionRepository);
+        OfflinePayAttestationService offlinePayAttestationService = new OfflinePayAttestationService(jwtAuth);
         
         // Normalized comment.
         UserService userService = new UserService(
@@ -320,7 +322,8 @@ public class ApiVerticle extends AbstractVerticle {
             userExternalIdRepository,
             subscriptionService,
             profileImageUploadDir,
-            profileImageModerationService
+            profileImageModerationService,
+            offlinePayAttestationService
         );
         
         // Normalized comment.

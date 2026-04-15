@@ -4717,6 +4717,27 @@ paths:
         '200':
           description: 저장 성공
 
+  /api/v1/security/offline-pay/trust-center/attestation-challenge:
+    get:
+      summary: 오프라인 페이 보안 센터 attestation challenge 발급
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: platform
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: sourceDeviceId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 발급 성공
+
   /api/v1/security/offline-pay/notification-center:
     get:
       summary: 오프라인 페이 알림 이력 조회

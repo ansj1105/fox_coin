@@ -1,6 +1,7 @@
 package com.foxya.coin.user;
 
 import com.foxya.coin.auth.EmailVerificationRepository;
+import com.foxya.coin.security.OfflinePayAttestationService;
 import com.foxya.coin.common.exceptions.BadRequestException;
 import com.foxya.coin.common.utils.EmailService;
 import com.foxya.coin.subscription.SubscriptionService;
@@ -207,7 +208,8 @@ class UserServiceProfileImageTest {
             userExternalIdRepository,
             subscriptionService,
             tempDir.resolve("profile-storage").toString(),
-            new ProfileImageModerationService(null, false, null)
+            new ProfileImageModerationService(null, false, null),
+            new OfflinePayAttestationService(jwtAuth)
         );
     }
 

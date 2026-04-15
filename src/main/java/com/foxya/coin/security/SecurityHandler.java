@@ -76,6 +76,10 @@ public class SecurityHandler extends BaseHandler {
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(this::getOfflinePayTrustCenter);
 
+        router.get("/offline-pay/trust-center/attestation-challenge")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(this::issueOfflinePayAttestationChallenge);
+
         router.put("/offline-pay/trust-center")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(updateOfflinePayTrustCenterValidation(parser))
@@ -209,6 +213,15 @@ public class SecurityHandler extends BaseHandler {
                     .property("lastVerifiedAt", stringSchema())
                     .property("lastSyncedAt", stringSchema())
                     .property("syncStatus", stringSchema())
+                    .property("attestationEvidence", objectSchema()
+                        .property("platform", stringSchema())
+                        .property("challengeToken", stringSchema())
+                        .property("challengeExpiresAt", stringSchema())
+                        .property("androidCertificateChain", io.vertx.json.schema.common.dsl.Schemas.arraySchema().items(stringSchema()))
+                        .property("iosAppAttestKeyId", stringSchema())
+                        .property("iosAppAttestAssertion", stringSchema())
+                        .property("iosAppAttestClientData", stringSchema())
+                        .allowAdditionalProperties(false))
                     .property("proofLogs", io.vertx.json.schema.common.dsl.Schemas.arraySchema().items(
                         objectSchema()
                             .requiredProperty("id", stringSchema())
@@ -303,6 +316,13 @@ public class SecurityHandler extends BaseHandler {
     private void getOfflinePayTrustCenter(RoutingContext ctx) {
         Long userId = AuthUtils.getUserIdOf(ctx.user());
         response(ctx, userService.getOfflinePayTrustCenter(userId));
+    }
+
+    private void issueOfflinePayAttestationChallenge(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+        String platform = ctx.request().getParam("platform");
+        String sourceDeviceId = ctx.request().getParam("sourceDeviceId");
+        response(ctx, userService.issueOfflinePayAttestationChallenge(userId, platform, sourceDeviceId));
     }
 
     private void updateOfflinePayTrustCenter(RoutingContext ctx) {

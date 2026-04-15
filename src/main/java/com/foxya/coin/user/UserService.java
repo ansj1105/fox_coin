@@ -33,10 +33,13 @@ import com.foxya.coin.security.dto.OfflinePaySettingsDto;
 import com.foxya.coin.security.dto.OfflinePayNotificationCenterDto;
 import com.foxya.coin.security.dto.OfflinePaySettlementCenterDto;
 import com.foxya.coin.security.dto.OfflinePayActivityLogDto;
+import com.foxya.coin.security.dto.OfflinePayAttestationChallengeDto;
+import com.foxya.coin.security.dto.OfflinePayAttestationVerificationResultDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailPublicDto;
 import com.foxya.coin.security.dto.OfflinePaySharedDetailTokenResponseDto;
 import com.foxya.coin.security.dto.OfflinePayTrustCenterDto;
 import com.foxya.coin.security.dto.OfflinePayTrustCenterLogDto;
+import com.foxya.coin.security.OfflinePayAttestationService;
 import lombok.extern.slf4j.Slf4j;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -82,6 +85,7 @@ public class UserService extends BaseService {
     private final SubscriptionService subscriptionService;
     private final ProfileImageProcessor profileImageProcessor;
     private final ProfileImageModerationService profileImageModerationService;
+    private final OfflinePayAttestationService offlinePayAttestationService;
     
     public UserService(PgPool pool,
                        UserRepository userRepository,
@@ -94,7 +98,8 @@ public class UserService extends BaseService {
                        UserExternalIdRepository userExternalIdRepository,
                        SubscriptionService subscriptionService,
                        String profileImageUploadDir,
-                       ProfileImageModerationService profileImageModerationService) {
+                       ProfileImageModerationService profileImageModerationService,
+                       OfflinePayAttestationService offlinePayAttestationService) {
         super(pool);
         this.userRepository = userRepository;
         this.jwtAuth = jwtAuth;
@@ -113,6 +118,7 @@ public class UserService extends BaseService {
                 : DEFAULT_PROFILE_IMAGE_UPLOAD_DIR
         );
         this.profileImageModerationService = profileImageModerationService;
+        this.offlinePayAttestationService = offlinePayAttestationService;
     }
     
     public Future<User> createUser(CreateUserDto dto) {
@@ -877,6 +883,10 @@ public class UserService extends BaseService {
                             .updatedAt(resolved.getUpdatedAt())
                             .proofLogs(resolved.getProofLogs())
                             .statusLogs(resolved.getStatusLogs())
+                            .serverAttestationStatus(resolved.getServerAttestationStatus())
+                            .serverAttestationVerificationMode(resolved.getServerAttestationVerificationMode())
+                            .serverAttestationFailureReason(resolved.getServerAttestationFailureReason())
+                            .serverAttestationVerifiedAt(resolved.getServerAttestationVerifiedAt())
                             .trustContractMet(resolved.getTrustContractMet())
                             .contractRequirements(resolved.getContractRequirements())
                             .snapshotRefreshedAt(LocalDateTime.now())
@@ -892,9 +902,20 @@ public class UserService extends BaseService {
                 if (user == null) {
                     return Future.failedFuture(new NotFoundException("사용자를 찾을 수 없습니다."));
                 }
-                return userRepository.upsertOfflinePayTrustCenter(pool, userId, normalizeOfflinePayTrustCenter(request))
-                    .map(this::normalizeOfflinePayTrustCenter);
+                return offlinePayAttestationService.verify(userId, request != null ? request.getPlatform() : null, request != null ? request.getSourceDeviceId() : null, request != null ? request.getAttestationEvidence() : null)
+                    .compose(attestationResult -> userRepository.upsertOfflinePayTrustCenter(pool, userId, normalizeOfflinePayTrustCenter(request, attestationResult))
+                        .map(saved -> normalizeOfflinePayTrustCenter(saved, attestationResult)));
             });
+    }
+
+    public Future<OfflinePayAttestationChallengeDto> issueOfflinePayAttestationChallenge(Long userId, String platform, String sourceDeviceId) {
+        if (platform == null || platform.isBlank()) {
+            return Future.failedFuture(new BadRequestException("platform is required"));
+        }
+        if (sourceDeviceId == null || sourceDeviceId.isBlank()) {
+            return Future.failedFuture(new BadRequestException("sourceDeviceId is required"));
+        }
+        return Future.succeededFuture(offlinePayAttestationService.issueChallenge(userId, platform.trim(), sourceDeviceId.trim()));
     }
 
     private Future<OfflinePayPinVerificationResponseDto> verifyOfflinePayPinAgainstUser(User user, EmailInfoDto emailInfo, String pin) {
@@ -1052,6 +1073,9 @@ public class UserService extends BaseService {
             .updatedAt(LocalDateTime.of(1970, 1, 1, 0, 0))
             .proofLogs(List.of())
             .statusLogs(List.of())
+            .serverAttestationStatus("SKIPPED")
+            .serverAttestationVerificationMode("NONE")
+            .serverAttestationFailureReason("ATTESTATION_NOT_PROVIDED")
             .trustContractMet(false)
             .contractRequirements("HARDWARE_BACKED_VERIFIED")
             .build();
@@ -1092,6 +1116,13 @@ public class UserService extends BaseService {
     }
 
     private OfflinePayTrustCenterDto normalizeOfflinePayTrustCenter(OfflinePayTrustCenterDto request) {
+        return normalizeOfflinePayTrustCenter(request, null);
+    }
+
+    private OfflinePayTrustCenterDto normalizeOfflinePayTrustCenter(
+        OfflinePayTrustCenterDto request,
+        OfflinePayAttestationVerificationResultDto attestationResult
+    ) {
         OfflinePayTrustCenterDto defaults = defaultOfflinePayTrustCenter();
         List<OfflinePayTrustCenterLogDto> proofLogs = request == null || request.getProofLogs() == null
             ? List.of()
@@ -1124,6 +1155,17 @@ public class UserService extends BaseService {
                     .build())
                 .toList();
 
+        List<OfflinePayTrustCenterLogDto> mergedStatusLogs = appendAttestationStatusLog(statusLogs, attestationResult);
+        String resolvedAttestationVerdict = attestationResult != null && attestationResult.getAttestationVerdictOverride() != null
+            ? attestationResult.getAttestationVerdictOverride()
+            : resolveOfflinePayAttestationVerdict(request);
+        String resolvedServerTrustLevel = attestationResult != null && attestationResult.getServerVerifiedTrustLevelOverride() != null
+            ? attestationResult.getServerVerifiedTrustLevelOverride()
+            : resolveOfflinePayServerTrustLevel(request);
+        String resolvedAttestationClass = attestationResult != null && attestationResult.getAttestationClassOverride() != null
+            ? attestationResult.getAttestationClassOverride()
+            : (request != null && request.getAttestationClass() != null ? request.getAttestationClass() : defaults.getAttestationClass());
+
         return OfflinePayTrustCenterDto.builder()
             .platform(request != null && request.getPlatform() != null && !request.getPlatform().isBlank()
                 ? request.getPlatform()
@@ -1135,9 +1177,9 @@ public class UserService extends BaseService {
             .hardwareBackedKey(request != null && request.getHardwareBackedKey() != null ? request.getHardwareBackedKey() : defaults.getHardwareBackedKey())
             .userPresenceProtected(request != null && request.getUserPresenceProtected() != null ? request.getUserPresenceProtected() : defaults.getUserPresenceProtected())
             .secureHardwareLevel(request != null && request.getSecureHardwareLevel() != null ? request.getSecureHardwareLevel() : defaults.getSecureHardwareLevel())
-            .attestationClass(request != null && request.getAttestationClass() != null ? request.getAttestationClass() : defaults.getAttestationClass())
-            .attestationVerdict(resolveOfflinePayAttestationVerdict(request))
-            .serverVerifiedTrustLevel(resolveOfflinePayServerTrustLevel(request))
+            .attestationClass(resolvedAttestationClass)
+            .attestationVerdict(resolvedAttestationVerdict)
+            .serverVerifiedTrustLevel(resolvedServerTrustLevel)
             .deviceRegistrationId(request != null && request.getDeviceRegistrationId() != null ? request.getDeviceRegistrationId() : defaults.getDeviceRegistrationId())
             .sourceDeviceId(request != null && request.getSourceDeviceId() != null ? request.getSourceDeviceId() : defaults.getSourceDeviceId())
             .deviceBindingKey(request != null && request.getDeviceBindingKey() != null ? request.getDeviceBindingKey() : defaults.getDeviceBindingKey())
@@ -1156,10 +1198,39 @@ public class UserService extends BaseService {
                 : defaults.getSyncStatus())
             .updatedAt(LocalDateTime.now())
             .proofLogs(proofLogs)
-            .statusLogs(statusLogs)
-            .trustContractMet("SERVER_VERIFIED".equals(resolveOfflinePayServerTrustLevel(request)))
+            .statusLogs(mergedStatusLogs)
+            .serverAttestationStatus(attestationResult != null ? attestationResult.getStatus() : defaults.getServerAttestationStatus())
+            .serverAttestationVerificationMode(attestationResult != null ? attestationResult.getVerificationMode() : defaults.getServerAttestationVerificationMode())
+            .serverAttestationFailureReason(attestationResult != null ? attestationResult.getFailureReason() : defaults.getServerAttestationFailureReason())
+            .serverAttestationVerifiedAt(attestationResult != null ? attestationResult.getVerifiedAt() : null)
+            .trustContractMet("SERVER_VERIFIED".equals(resolvedServerTrustLevel))
             .contractRequirements("HARDWARE_BACKED_VERIFIED")
             .build();
+    }
+
+    private List<OfflinePayTrustCenterLogDto> appendAttestationStatusLog(
+        List<OfflinePayTrustCenterLogDto> statusLogs,
+        OfflinePayAttestationVerificationResultDto attestationResult
+    ) {
+        if (attestationResult == null) {
+            return statusLogs;
+        }
+        OfflinePayTrustCenterLogDto logItem = OfflinePayTrustCenterLogDto.builder()
+            .id("attestation:" + UUID.randomUUID())
+            .eventType("ATTESTATION_" + attestationResult.getStatus())
+            .eventStatus(attestationResult.getStatus())
+            .message(attestationResult.getStatus() + " / " + (attestationResult.getVerificationMode() != null ? attestationResult.getVerificationMode() : "NONE"))
+            .reasonCode(attestationResult.getFailureReason())
+            .metadata(new JsonObject()
+                .put("verificationMode", attestationResult.getVerificationMode())
+                .put("failureReason", attestationResult.getFailureReason())
+                .put("verifiedAt", attestationResult.getVerifiedAt() != null ? attestationResult.getVerifiedAt().toString() : null)
+            )
+            .createdAt(LocalDateTime.now())
+            .build();
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of(logItem), statusLogs.stream())
+            .limit(20)
+            .toList();
     }
 
     private String resolveOfflinePayAttestationVerdict(OfflinePayTrustCenterDto request) {

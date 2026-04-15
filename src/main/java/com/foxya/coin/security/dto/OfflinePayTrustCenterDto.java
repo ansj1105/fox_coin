@@ -39,6 +39,11 @@ public class OfflinePayTrustCenterDto {
     private LocalDateTime updatedAt;
     private List<OfflinePayTrustCenterLogDto> proofLogs;
     private List<OfflinePayTrustCenterLogDto> statusLogs;
+    private OfflinePayAttestationEvidenceDto attestationEvidence;
+    private String serverAttestationStatus;
+    private String serverAttestationVerificationMode;
+    private String serverAttestationFailureReason;
+    private LocalDateTime serverAttestationVerifiedAt;
     // Derived contract fields — not stored in DB, computed on build
     private Boolean trustContractMet;
     private String contractRequirements;

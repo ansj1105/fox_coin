@@ -26,6 +26,7 @@ val postgresqlVersion = "42.7.1"
 val assertjVersion = "3.25.1"
 val lombokVersion = "1.18.30"
 val mockitoVersion = "5.8.0"
+val bouncyCastleVersion = "1.78.1"
 
 val mainVerticleName = "com.foxya.coin.MainVerticle"
 val launcherClassName = "io.vertx.core.Launcher"
@@ -107,6 +108,8 @@ dependencies {
 
     // FCM (Firebase Cloud Messaging) ?紐꾨뻻 ???뵝
     implementation("com.google.firebase:firebase-admin:9.2.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:$bouncyCastleVersion")
+    implementation("org.bouncycastle:bcpkix-jdk18on:$bouncyCastleVersion")
     
     // Lombok
     compileOnly("org.projectlombok:lombok:$lombokVersion")
