@@ -289,6 +289,11 @@ public class MiningService extends BaseService {
                 log.error("Failed to read active mining session for mining info. userId={}", userId, throwable);
                 return Future.succeededFuture(null);
             });
+        Future<MiningSession> settlementPendingSessionFuture = miningRepository.getSettlementPendingMiningSession(pool, userId)
+            .recover(throwable -> {
+                log.error("Failed to read settlement pending session for mining info. userId={}", userId, throwable);
+                return Future.succeededFuture(null);
+            });
 
         return Future.all(List.of(
             userFuture,
@@ -299,7 +304,8 @@ public class MiningService extends BaseService {
             validDirectCountFuture,
             subscriptionStatusFuture,
             sessionsStartedTodayFuture,
-            activeSessionFuture
+            activeSessionFuture,
+            settlementPendingSessionFuture
         ))
             .compose(compositeFuture -> {
                 com.foxya.coin.user.entities.User user = userFuture.result();
@@ -321,6 +327,7 @@ public class MiningService extends BaseService {
                     .max(BigDecimal.ZERO);
                 int sessionsToday = sessionsStartedTodayFuture.result() != null ? sessionsStartedTodayFuture.result() : 0;
                 MiningSession activeSession = activeSessionFuture.result();
+                MiningSession settlementPendingSession = settlementPendingSessionFuture.result();
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
                 BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
                 int[] levelExpCumulative = {5, 15, 35, 70, 130, 220, 350, 520};
@@ -331,6 +338,14 @@ public class MiningService extends BaseService {
                 return miningRepository.getMiningLevelByLevel(pool, currentLevel)
                     .map(miningLevel -> {
                         BigDecimal dailyMaxMining = miningLevel != null ? miningLevel.getDailyMaxMining() : BigDecimal.ZERO;
+                        BigDecimal projectedPendingAmount = calculatePendingDisplayAmount(
+                            settlementPendingSession,
+                            LocalDateTime.now(),
+                            todayMiningAmount,
+                            dailyMaxMining
+                        );
+                        BigDecimal displayTodayMiningAmount = todayMiningAmount.add(projectedPendingAmount);
+                        BigDecimal displayTotalBalance = totalBalance.add(projectedPendingAmount);
                         LocalDateTime now = LocalDateTime.now();
                         LocalDateTime nextMidnight = LocalDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT);
                         Duration remaining = Duration.between(now, nextMidnight);
@@ -347,8 +362,8 @@ public class MiningService extends BaseService {
                             ? activeSession.getRatePerHour()
                             : BigDecimal.ZERO;
                         return MiningInfoResponseDto.builder()
-                            .todayMiningAmount(todayMiningAmount)
-                            .totalBalance(totalBalance)
+                            .todayMiningAmount(displayTodayMiningAmount)
+                            .totalBalance(displayTotalBalance)
                             .bonusEfficiency(bonusEfficiency != null ? bonusEfficiency : 0)
                             .inviteEfficiency(inviteEfficiency)
                             .missionEfficiency(missionEfficiency)
@@ -374,6 +389,40 @@ public class MiningService extends BaseService {
                             .build();
                     });
             });
+    }
+
+    private BigDecimal calculatePendingDisplayAmount(
+        MiningSession settlementPendingSession,
+        LocalDateTime now,
+        BigDecimal todayMiningAmount,
+        BigDecimal dailyMaxMining
+    ) {
+        if (settlementPendingSession == null
+            || settlementPendingSession.getRatePerHour() == null
+            || settlementPendingSession.getLastSettledAt() == null
+            || settlementPendingSession.getEndsAt() == null) {
+            return BigDecimal.ZERO;
+        }
+
+        LocalDateTime settleEnd = now.isBefore(settlementPendingSession.getEndsAt())
+            ? now
+            : settlementPendingSession.getEndsAt();
+        long elapsedSeconds = Duration.between(settlementPendingSession.getLastSettledAt(), settleEnd).getSeconds();
+        if (elapsedSeconds <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal rawPendingAmount = settlementPendingSession.getRatePerHour()
+            .multiply(BigDecimal.valueOf(elapsedSeconds))
+            .divide(BigDecimal.valueOf(3600), 18, RoundingMode.DOWN);
+        if (rawPendingAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal safeTodayMiningAmount = todayMiningAmount != null ? todayMiningAmount : BigDecimal.ZERO;
+        BigDecimal safeDailyMaxMining = dailyMaxMining != null ? dailyMaxMining : BigDecimal.ZERO;
+        BigDecimal headroom = safeDailyMaxMining.subtract(safeTodayMiningAmount).max(BigDecimal.ZERO);
+        return rawPendingAmount.min(headroom);
     }
     
     /**

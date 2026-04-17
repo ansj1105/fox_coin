@@ -337,7 +337,7 @@ public class MiningHandlerTest extends HandlerTestBase {
 
         @Test
         @Order(13)
-        @DisplayName("성공 - pending mining session 이 있어도 info 조회는 정산을 수행하지 않음")
+        @DisplayName("성공 - pending mining session 이 있으면 info 조회는 미정산 채굴량을 표시하되 DB 정산은 수행하지 않음")
         void successGetMiningInfoDoesNotSettlePendingSession(VertxTestContext tc) {
             String accessToken = getAccessTokenOfUser(1L);
             String insertPendingSessionSql = """
@@ -371,8 +371,8 @@ public class MiningHandlerTest extends HandlerTestBase {
                     .send())
                 .compose(res -> {
                     MiningInfoResponseDto response = expectSuccessAndGetResponse(res, refMiningInfo);
-                    assertThat(response.getTodayMiningAmount()).isEqualByComparingTo(new BigDecimal("0.500000000000000000"));
-                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1000.000000000000000000"));
+                    assertThat(response.getTodayMiningAmount()).isEqualByComparingTo(new BigDecimal("0.800000000000000000"));
+                    assertThat(response.getTotalBalance()).isEqualByComparingTo(new BigDecimal("1000.300000000000000000"));
                     return sqlClient.query(selectSnapshotSql).execute();
                 })
                 .onComplete(tc.succeeding(rows -> tc.verify(() -> {
