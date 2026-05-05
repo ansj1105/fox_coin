@@ -44,6 +44,7 @@ class InternalOfflinePayHandlerTest {
         when(transferService.recordOfflinePaySettlementHistory(
             77L,
             "settlement-1",
+            "settlement-1",
             "batch-1",
             "collateral-1",
             "proof-1",
@@ -76,6 +77,7 @@ class InternalOfflinePayHandlerTest {
                     assertThat(payload.getJsonObject("data").getString("message")).isEqualTo("history recorded");
                     verify(transferService).recordOfflinePaySettlementHistory(
                         77L,
+                        "settlement-1",
                         "settlement-1",
                         "batch-1",
                         "collateral-1",

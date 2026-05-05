@@ -495,7 +495,10 @@ public class TransferService extends BaseService {
                 ? TransactionType.OFFLINE_PAY_CONFLICT.getValue()
                 : TransactionType.OFFLINE_PAY_RECEIVE.getValue().equalsIgnoreCase(historyType)
                     ? TransactionType.OFFLINE_PAY_RECEIVE.getValue()
-                    : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
+                    : TransactionType.OFFLINE_PAY_COMPENSATION.getValue().equalsIgnoreCase(historyType)
+                        ? TransactionType.OFFLINE_PAY_COMPENSATION.getValue()
+                        : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
+        boolean compensation = TransactionType.OFFLINE_PAY_COMPENSATION.getValue().equals(normalizedHistoryType);
 
         return currencyRepository.getCurrencyByCodeAndChain(pool, assetCode != null && !assetCode.isBlank() ? assetCode : "KORI", INTERNAL_CHAIN)
             .compose(currency -> {
@@ -508,15 +511,19 @@ public class TransferService extends BaseService {
                             return Future.failedFuture(new BadRequestException("Invalid request."));
                         }
                         return getOrCreateInternalWallet(hotWalletUserId, currency, false)
-                            .compose(senderWallet ->
+                            .compose(hotWallet ->
                                 getOrCreateInternalWallet(userId, currency, true)
-                                    .compose(receiverWallet -> pool.withTransaction(client ->
-                                        transferRepository.deductBalance(client, senderWallet.getId(), amount)
+                                    .compose(userWallet -> pool.withTransaction(client -> {
+                                        Wallet debitWallet = compensation ? userWallet : hotWallet;
+                                        Wallet creditWallet = compensation ? hotWallet : userWallet;
+                                        Long senderId = compensation ? userId : hotWalletUserId;
+                                        Long receiverId = compensation ? hotWalletUserId : userId;
+                                        return transferRepository.deductBalance(client, debitWallet.getId(), amount)
                                             .compose(updatedSenderWallet -> {
                                                 if (updatedSenderWallet == null) {
                                                     return Future.failedFuture(new BadRequestException("Invalid request."));
                                                 }
-                                                return transferRepository.addBalance(client, receiverWallet.getId(), amount);
+                                                return transferRepository.addBalance(client, creditWallet.getId(), amount);
                                             })
                                             .compose(updatedReceiverWallet -> {
                                                 if (updatedReceiverWallet == null) {
@@ -524,10 +531,10 @@ public class TransferService extends BaseService {
                                                 }
                                                 InternalTransfer transfer = InternalTransfer.builder()
                                                     .transferId(transferRef)
-                                                    .senderId(hotWalletUserId)
-                                                    .senderWalletId(senderWallet.getId())
-                                                    .receiverId(userId)
-                                                    .receiverWalletId(receiverWallet.getId())
+                                                    .senderId(senderId)
+                                                    .senderWalletId(debitWallet.getId())
+                                                    .receiverId(receiverId)
+                                                    .receiverWalletId(creditWallet.getId())
                                                     .currencyId(currency.getId())
                                                     .amount(amount)
                                                     .fee(BigDecimal.ZERO)
@@ -540,8 +547,8 @@ public class TransferService extends BaseService {
                                                     .build();
                                                 return transferRepository.createInternalTransfer(client, transfer);
                                             })
-                                            .compose(createdTransfer -> transferRepository.completeInternalTransfer(client, transferRef))
-                                    )));
+                                            .compose(createdTransfer -> transferRepository.completeInternalTransfer(client, transferRef));
+                                    })));
                     });
             });
     }
