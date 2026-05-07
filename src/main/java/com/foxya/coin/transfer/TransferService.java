@@ -499,6 +499,7 @@ public class TransferService extends BaseService {
                         ? TransactionType.OFFLINE_PAY_COMPENSATION.getValue()
                         : TransactionType.OFFLINE_PAY_SETTLEMENT.getValue();
         boolean compensation = TransactionType.OFFLINE_PAY_COMPENSATION.getValue().equals(normalizedHistoryType);
+        boolean senderSettlement = TransactionType.OFFLINE_PAY_SETTLEMENT.getValue().equals(normalizedHistoryType);
 
         return currencyRepository.getCurrencyByCodeAndChain(pool, assetCode != null && !assetCode.isBlank() ? assetCode : "KORI", INTERNAL_CHAIN)
             .compose(currency -> {
@@ -510,14 +511,14 @@ public class TransferService extends BaseService {
                         if (hotWalletUserId == null) {
                             return Future.failedFuture(new BadRequestException("Invalid request."));
                         }
-                        return getOrCreateInternalWallet(hotWalletUserId, currency, false)
+                        return getOrCreateInternalWallet(hotWalletUserId, currency, true)
                             .compose(hotWallet ->
                                 getOrCreateInternalWallet(userId, currency, true)
                                     .compose(userWallet -> pool.withTransaction(client -> {
-                                        Wallet debitWallet = compensation ? userWallet : hotWallet;
-                                        Wallet creditWallet = compensation ? hotWallet : userWallet;
-                                        Long senderId = compensation ? userId : hotWalletUserId;
-                                        Long receiverId = compensation ? hotWalletUserId : userId;
+                                        Wallet debitWallet = compensation || senderSettlement ? userWallet : hotWallet;
+                                        Wallet creditWallet = compensation || senderSettlement ? hotWallet : userWallet;
+                                        Long senderId = compensation || senderSettlement ? userId : hotWalletUserId;
+                                        Long receiverId = compensation || senderSettlement ? hotWalletUserId : userId;
                                         return transferRepository.deductBalance(client, debitWallet.getId(), amount)
                                             .compose(updatedSenderWallet -> {
                                                 if (updatedSenderWallet == null) {

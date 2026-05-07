@@ -29,6 +29,52 @@ public class DbAlertMonitorService {
           (current_setting('transaction_read_only') = 'on') AS transaction_read_only,
           pg_is_in_recovery() AS in_recovery
         """;
+    private static final String HOT_WALLET_CONFIG_SQL = """
+        WITH hot_wallet_config AS (
+          SELECT NULLIF(TRIM(config_value), '') AS raw_user_id
+          FROM app_config
+          WHERE config_key = 'hot_wallet_user_id'
+        ),
+        parsed AS (
+          SELECT raw_user_id,
+                 CASE WHEN raw_user_id ~ '^[0-9]+$' THEN raw_user_id::bigint ELSE NULL END AS user_id
+          FROM hot_wallet_config
+        ),
+        internal_kori AS (
+          SELECT id
+          FROM currency
+          WHERE code = 'KORI'
+            AND chain = 'INTERNAL'
+            AND is_active = true
+          LIMIT 1
+        )
+        SELECT CASE
+          WHEN NOT EXISTS (SELECT 1 FROM hot_wallet_config)
+            THEN 'app_config.hot_wallet_user_id is missing'
+          WHEN EXISTS (SELECT 1 FROM hot_wallet_config WHERE raw_user_id IS NULL)
+            THEN 'app_config.hot_wallet_user_id is blank'
+          WHEN EXISTS (SELECT 1 FROM parsed WHERE user_id IS NULL)
+            THEN 'app_config.hot_wallet_user_id is not numeric'
+          WHEN NOT EXISTS (
+            SELECT 1
+            FROM users u
+            JOIN parsed p ON p.user_id = u.id
+            WHERE u.deleted_at IS NULL
+          )
+            THEN 'hot_wallet_user_id user does not exist'
+          WHEN NOT EXISTS (
+            SELECT 1
+            FROM users u
+            JOIN parsed p ON p.user_id = u.id
+            WHERE u.deleted_at IS NULL
+              AND UPPER(COALESCE(u.status, '')) = 'ACTIVE'
+          )
+            THEN 'hot_wallet_user_id user is not ACTIVE'
+          WHEN NOT EXISTS (SELECT 1 FROM internal_kori)
+            THEN 'KORI INTERNAL currency is missing'
+          ELSE NULL
+        END AS error
+        """;
 
     private final PgPool pool;
     private final MetricsCollector metricsCollector;
@@ -46,6 +92,7 @@ public class DbAlertMonitorService {
     private final boolean appHealthCheckEnabled;
     private final String appHealthCheckUrl;
     private final int appHealthCheckTimeoutMs;
+    private final boolean hotWalletConfigCheckEnabled;
     private final Map<String, AlertState> alertStates = new ConcurrentHashMap<>();
 
     public DbAlertMonitorService(PgPool pool,
@@ -63,7 +110,8 @@ public class DbAlertMonitorService {
                                  String catalogProbeSql,
                                  boolean appHealthCheckEnabled,
                                  String appHealthCheckUrl,
-                                 int appHealthCheckTimeoutMs) {
+                                 int appHealthCheckTimeoutMs,
+                                 boolean hotWalletConfigCheckEnabled) {
         this.pool = pool;
         this.metricsCollector = metricsCollector;
         this.notifier = notifier;
@@ -80,6 +128,7 @@ public class DbAlertMonitorService {
         this.appHealthCheckEnabled = appHealthCheckEnabled;
         this.appHealthCheckUrl = appHealthCheckUrl;
         this.appHealthCheckTimeoutMs = appHealthCheckTimeoutMs;
+        this.hotWalletConfigCheckEnabled = hotWalletConfigCheckEnabled;
     }
 
     public static DbAlertMonitorService fromEnv(PgPool pool, MetricsCollector metricsCollector, WebClient webClient) {
@@ -105,7 +154,8 @@ public class DbAlertMonitorService {
             parseStringEnv("DB_ALERT_DB_CATALOG_PROBE_SQL", "SELECT 1 FROM pg_catalog.pg_statistic LIMIT 1"),
             parseBooleanEnv("DB_ALERT_APP_HEALTHCHECK_ENABLED", true),
             parseStringEnv("DB_ALERT_APP_HEALTHCHECK_URL", "http://127.0.0.1:8080/health"),
-            parseIntEnv("DB_ALERT_APP_HEALTHCHECK_TIMEOUT_MS", 3_000, 500, 30_000)
+            parseIntEnv("DB_ALERT_APP_HEALTHCHECK_TIMEOUT_MS", 3_000, 500, 30_000),
+            parseBooleanEnv("DB_ALERT_HOT_WALLET_CONFIG_ENABLED", true)
         );
     }
 
@@ -169,6 +219,7 @@ public class DbAlertMonitorService {
                     null,
                     null,
                     true,
+                    null,
                     null
                 ));
             })
@@ -320,6 +371,22 @@ public class DbAlertMonitorService {
                 "status=ok"
             ),
             1
+        )).compose(v -> processAlert(
+            "hot_wallet_config_invalid",
+            snapshot.hotWalletConfigError() != null,
+            "[KORION] Hot Wallet Config Alert",
+            buildLines(
+                "alerts=HOT_WALLET_CONFIG_INVALID",
+                "database=" + snapshot.databaseName(),
+                "error=" + blankAsDash(snapshot.hotWalletConfigError()),
+                "required=app_config.hot_wallet_user_id + active user + KORI INTERNAL currency"
+            ),
+            "[KORION] Hot Wallet Config Recovered",
+            buildLines(
+                "alerts=HOT_WALLET_CONFIG_OK",
+                "database=" + snapshot.databaseName()
+            ),
+            1
         ));
     }
 
@@ -327,8 +394,9 @@ public class DbAlertMonitorService {
         Future<String> dbProbeFuture = runSqlProbe(dbProbeEnabled, dbProbeSql);
         Future<String> catalogProbeFuture = runSqlProbe(catalogProbeEnabled, catalogProbeSql);
         Future<String> appHealthFuture = runAppHealthProbe();
+        Future<String> hotWalletConfigFuture = runHotWalletConfigProbe();
 
-        return CompositeFuture.all(dbProbeFuture, catalogProbeFuture, appHealthFuture)
+        return CompositeFuture.all(dbProbeFuture, catalogProbeFuture, appHealthFuture, hotWalletConfigFuture)
             .map(ignored -> new DbHealthSnapshot(
                 snapshot.databaseName(),
                 snapshot.maxConnections(),
@@ -344,7 +412,8 @@ public class DbAlertMonitorService {
                 dbProbeFuture.result(),
                 catalogProbeFuture.result(),
                 appHealthFuture.result() == null,
-                appHealthFuture.result()
+                appHealthFuture.result(),
+                hotWalletConfigFuture.result()
             ));
     }
 
@@ -370,6 +439,20 @@ public class DbAlertMonitorService {
             .map(response -> response.statusCode() >= 200 && response.statusCode() < 300
                 ? null
                 : "status=" + response.statusCode())
+            .recover(error -> Future.succeededFuture(safeMessage(error)));
+    }
+
+    private Future<String> runHotWalletConfigProbe() {
+        if (!hotWalletConfigCheckEnabled) {
+            return Future.succeededFuture(null);
+        }
+
+        return pool.query(HOT_WALLET_CONFIG_SQL)
+            .execute()
+            .map(rows -> {
+                Row row = rows.iterator().hasNext() ? rows.iterator().next() : null;
+                return row == null ? "hot wallet config probe returned no rows" : row.getString("error");
+            })
             .recover(error -> Future.succeededFuture(safeMessage(error)));
     }
 

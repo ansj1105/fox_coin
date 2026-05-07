@@ -15,7 +15,8 @@ public record DbHealthSnapshot(
     String dbProbeError,
     String catalogProbeError,
     boolean appHealthUp,
-    String appHealthError
+    String appHealthError,
+    String hotWalletConfigError
 ) {
 
     public double connectionUsageRatio() {
