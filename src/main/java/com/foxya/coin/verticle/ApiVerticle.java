@@ -52,6 +52,8 @@ import com.foxya.coin.deposit.TokenDepositService;
 import com.foxya.coin.exchange.ExchangeHandler;
 import com.foxya.coin.exchange.ExchangeRepository;
 import com.foxya.coin.exchange.ExchangeService;
+import com.foxya.coin.internal.InternalOfflinePayHandler;
+import com.foxya.coin.internal.InternalOfflinePayService;
 import com.foxya.coin.level.LevelHandler;
 import com.foxya.coin.level.LevelService;
 import com.foxya.coin.mining.MiningHandler;
@@ -103,6 +105,7 @@ public class ApiVerticle extends AbstractVerticle {
         JsonObject databaseConfig = config().getJsonObject("database", new JsonObject());
         JsonObject jwtConfig = config().getJsonObject("jwt", new JsonObject());
         JsonObject frontendConfig = config().getJsonObject("frontend", new JsonObject());
+        JsonObject internalConfig = config().getJsonObject("internal", new JsonObject());
         
         int port = httpConfig.getInteger("port", 8080);
         
@@ -151,6 +154,8 @@ public class ApiVerticle extends AbstractVerticle {
         WalletService walletService = new WalletService(pool, walletRepository, currencyRepository, webClient, tronServiceUrl);
         ReferralService referralService = new ReferralService(pool, referralRepository, userRepository);
         TransferService transferService = new TransferService(pool, transferRepository, userRepository, currencyRepository, null); // EventPublisher는 EventVerticle에서 주입
+        InternalOfflinePayService internalOfflinePayService = new InternalOfflinePayService(
+            pool, transferRepository, currencyRepository);
         BonusService bonusService = new BonusService(
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository, 
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
@@ -197,6 +202,8 @@ public class ApiVerticle extends AbstractVerticle {
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
         TransferHandler transferHandler = new TransferHandler(vertx, transferService, jwtAuth);
+        InternalOfflinePayHandler internalOfflinePayHandler = new InternalOfflinePayHandler(
+            vertx, internalOfflinePayService, internalConfig.getString("apiKey", System.getenv("FOXYA_INTERNAL_API_KEY")));
         BonusHandler bonusHandler = new BonusHandler(vertx, bonusService, jwtAuth);
         MiningHandler miningHandler = new MiningHandler(vertx, miningService, jwtAuth);
         LevelHandler levelHandler = new LevelHandler(vertx, levelService, jwtAuth);
@@ -222,6 +229,7 @@ public class ApiVerticle extends AbstractVerticle {
         
         // 공개 API (인증 불필요)
         mainRouter.mountSubRouter("/api/v1/auth", authHandler.getRouter());
+        mainRouter.mountSubRouter("/api/v1/internal/offline-pay", internalOfflinePayHandler.getRouter());
         
         // 레벨 API를 먼저 등록 (구체적인 경로 우선)
         mainRouter.mountSubRouter("/api/v1/levels", levelHandler.getRouter());
@@ -438,4 +446,3 @@ public class ApiVerticle extends AbstractVerticle {
             """;
     }
 }
-

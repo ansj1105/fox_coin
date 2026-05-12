@@ -11,7 +11,11 @@ public enum TransactionType {
     TOKEN_DEPOSIT("TOKEN_DEPOSIT", "토큰 입금"),
     PAYMENT_DEPOSIT("PAYMENT_DEPOSIT", "결제 입금"),
     SWAP("SWAP", "스왑"),
-    EXCHANGE("EXCHANGE", "환전");
+    EXCHANGE("EXCHANGE", "환전"),
+    OFFLINE_PAY_SETTLEMENT("OFFLINE_PAY_SETTLEMENT", "오프라인 페이 정산"),
+    OFFLINE_PAY_RECEIVE("OFFLINE_PAY_RECEIVE", "오프라인 페이 수취"),
+    OFFLINE_PAY_CONFLICT("OFFLINE_PAY_CONFLICT", "오프라인 페이 충돌"),
+    OFFLINE_PAY_COMPENSATION("OFFLINE_PAY_COMPENSATION", "오프라인 페이 보상");
     
     private final String value;
     private final String description;
@@ -33,4 +37,3 @@ public enum TransactionType {
         return null;
     }
 }
-

@@ -60,6 +60,7 @@ services:
     environment:
       TZ: Asia/Seoul
       APP_ENV: ${APP_ENV:-prod}
+      FOXYA_INTERNAL_API_KEY: ${FOXYA_INTERNAL_API_KEY:-}
       # JVM
       JAVA_OPTS: ${JAVA_OPTS:--Xmx1024m -Xms512m -XX:+UseG1GC}
     ports:
