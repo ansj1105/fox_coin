@@ -46,6 +46,11 @@ public class SecurityHandler extends BaseHandler {
         router.route().handler(JWTAuthHandler.create(jwtAuth));
 
         // 거래 비밀번호 설정/변경
+        router.post("/transaction-password/verify-email")
+            .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
+            .handler(verifyTransactionPasswordEmailValidation(parser))
+            .handler(this::verifyTransactionPasswordEmail);
+
         router.post("/transaction-password")
             .handler(AuthUtils.hasRole(UserRole.USER, UserRole.ADMIN))
             .handler(setTransactionPasswordValidation(parser))
@@ -58,8 +63,19 @@ public class SecurityHandler extends BaseHandler {
         return ValidationHandler.builder(parser)
             .body(json(
                 objectSchema()
-                    .requiredProperty("code", stringSchema().with(minLength(6), maxLength(6)))
                     .requiredProperty("newPassword", stringSchema().with(minLength(6), maxLength(6)))
+                    .optionalProperty("code", stringSchema().with(minLength(6), maxLength(6)))
+                    .optionalProperty("confirmPassword", stringSchema().with(minLength(6), maxLength(6)))
+                    .allowAdditionalProperties(false)
+            ))
+            .build();
+    }
+
+    private Handler<RoutingContext> verifyTransactionPasswordEmailValidation(SchemaParser parser) {
+        return ValidationHandler.builder(parser)
+            .body(json(
+                objectSchema()
+                    .requiredProperty("code", stringSchema().with(minLength(6), maxLength(6)))
                     .allowAdditionalProperties(false)
             ))
             .build();
@@ -74,10 +90,22 @@ public class SecurityHandler extends BaseHandler {
         var bodyMap = Utils.getMapFromJsonObject(ctx.getBodyAsJson());
         String code = (String) bodyMap.get("code");
         String newPassword = (String) bodyMap.get("newPassword");
+        String confirmPassword = (String) bodyMap.get("confirmPassword");
 
         log.info("Setting transaction password - userId: {}", userId);
-        response(ctx, userService.setTransactionPassword(userId, code, newPassword));
+        response(ctx, userService.setTransactionPassword(userId, code, newPassword, confirmPassword));
+    }
+
+    /**
+     * 거래 비밀번호 설정 전 이메일 인증 확정
+     */
+    private void verifyTransactionPasswordEmail(RoutingContext ctx) {
+        Long userId = AuthUtils.getUserIdOf(ctx.user());
+
+        var bodyMap = Utils.getMapFromJsonObject(ctx.getBodyAsJson());
+        String code = (String) bodyMap.get("code");
+
+        log.info("Verifying transaction password email - userId: {}", userId);
+        response(ctx, userService.verifyTransactionPasswordEmail(userId, code));
     }
 }
-
-
