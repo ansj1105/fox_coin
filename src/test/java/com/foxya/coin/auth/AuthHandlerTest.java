@@ -631,6 +631,55 @@ public class AuthHandlerTest extends HandlerTestBase {
                         })));
                 })));
         }
+
+        @Test
+        @Order(28)
+        @DisplayName("성공 - legacy ANDROID 디바이스가 MOBILE 슬롯으로 재로그인해도 중복 오류 없이 정리")
+        void reloginLegacyAndroidDeviceWhenMobileSlotExists(VertxTestContext tc) {
+            String legacyDeviceId = "legacy-android-device-relogin-1";
+            String activeMobileDeviceId = "active-mobile-device-relogin-1";
+
+            sqlClient.preparedQuery(
+                    "UPDATE devices SET deleted_at = NOW(), updated_at = NOW() " +
+                        "WHERE user_id = $1 AND deleted_at IS NULL AND (device_type = 'MOBILE' OR device_id IN ($2, $3))"
+                )
+                .execute(Tuple.of(1L, legacyDeviceId, activeMobileDeviceId))
+                .compose(v -> sqlClient.preparedQuery(
+                        "INSERT INTO devices (user_id, device_id, device_type, device_os, app_version, user_agent, last_ip, last_login_at, created_at, updated_at) " +
+                            "VALUES ($1, $2, 'ANDROID', 'ANDROID', '1.0.0', 'test', '127.0.0.1', NOW(), NOW(), NOW()), " +
+                            "($1, $3, 'MOBILE', 'ANDROID', '1.0.0', 'test', '127.0.0.1', NOW(), NOW(), NOW())"
+                    )
+                    .execute(Tuple.of(1L, legacyDeviceId, activeMobileDeviceId)))
+                .onSuccess(v -> {
+                    JsonObject loginRequest = new JsonObject()
+                        .put("loginId", "testuser")
+                        .put("password", "Test1234!@")
+                        .mergeIn(deviceInfo(legacyDeviceId, "MOBILE", "ANDROID"));
+
+                    reqPost(getUrl("/login"))
+                        .sendJson(loginRequest, tc.succeeding(loginRes -> tc.verify(() -> {
+                            expectSuccessAndGetResponse(loginRes, refLoginResponse);
+                            sqlClient.preparedQuery(
+                                    "SELECT device_id, device_type, deleted_at FROM devices " +
+                                        "WHERE user_id = $1 AND device_id IN ($2, $3) ORDER BY device_id"
+                                )
+                                .execute(Tuple.of(1L, legacyDeviceId, activeMobileDeviceId), tc.succeeding(rows -> tc.verify(() -> {
+                                    assertThat(rows.size()).isEqualTo(2);
+                                    rows.forEach(row -> {
+                                        if (legacyDeviceId.equals(row.getString("device_id"))) {
+                                            assertThat(row.getString("device_type")).isEqualTo("MOBILE");
+                                            assertThat(row.getLocalDateTime("deleted_at")).isNull();
+                                        }
+                                        if (activeMobileDeviceId.equals(row.getString("device_id"))) {
+                                            assertThat(row.getLocalDateTime("deleted_at")).isNotNull();
+                                        }
+                                    });
+                                    tc.completeNow();
+                                })));
+                        })));
+                })
+                .onFailure(tc::failNow);
+        }
     }
 
     @Nested

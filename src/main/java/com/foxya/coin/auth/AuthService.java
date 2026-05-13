@@ -280,15 +280,21 @@ public class AuthService extends BaseService {
         String normalizedOs = deviceOs.toUpperCase();
         String slotType = resolveDeviceSlotType(normalizedType);
         LocalDateTime now = LocalDateTime.now();
-        Future<Device> existingByDeviceIdFuture = deviceRepository.getActiveDeviceByUserAndDeviceId(pool, userId, deviceId);
-        Future<Device> existingByTypeFuture = deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
-        return existingByDeviceIdFuture
+        return deviceRepository.getActiveDeviceByUserAndDeviceId(pool, userId, deviceId)
             .compose(existingByDeviceId -> {
                 if (existingByDeviceId != null) {
-                    return deviceRepository.updateDeviceRegistration(pool, existingByDeviceId.getId(), slotType, normalizedOs, appVersion, userAgent, clientIp, now)
+                    return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType)
+                        .compose(activeSlotDevice -> replaceActiveSlotOwnerIfNeeded(userId, deviceId, slotType, activeSlotDevice)
+                            .compose(replacedDevice -> deviceRepository.updateDeviceRegistration(pool, existingByDeviceId.getId(), slotType, normalizedOs, appVersion, userAgent, clientIp, now)
+                                .compose(ignored -> {
+                                    if (replacedDevice == null) {
+                                        return Future.succeededFuture();
+                                    }
+                                    return createNewDeviceLoginNotice(userId, replacedDevice.getDeviceId(), deviceId, slotType);
+                                })))
                         .map(existingByDeviceId);
                 }
-                return existingByTypeFuture;
+                return deviceRepository.getActiveDeviceByUserAndType(pool, userId, slotType);
             })
             .compose(existing -> {
                 if (existing == null) {
@@ -301,6 +307,16 @@ public class AuthService extends BaseService {
                 }
                 return deviceRepository.updateDeviceLogin(pool, existing.getId(), normalizedOs, appVersion, userAgent, clientIp, now);
                 });
+    }
+
+    private Future<Device> replaceActiveSlotOwnerIfNeeded(Long userId, String deviceId, String slotType, Device activeSlotDevice) {
+        if (activeSlotDevice == null || deviceId.equals(activeSlotDevice.getDeviceId())) {
+            return Future.succeededFuture(null);
+        }
+        log.info("Replacing active device slot owner. userId={}, slotType={}, oldDeviceId={}, newDeviceId={}",
+            userId, slotType, activeSlotDevice.getDeviceId(), deviceId);
+        return deviceRepository.softDeleteDeviceByUserAndDeviceId(pool, userId, activeSlotDevice.getDeviceId())
+            .map(activeSlotDevice);
     }
 
     private Future<Void> createDeviceWithUniqueRetry(Long userId, String deviceId, String slotType, String normalizedOs,
@@ -353,15 +369,26 @@ public class AuthService extends BaseService {
         Throwable current = throwable;
         while (current != null) {
             if (current instanceof PgException pgException) {
+                String message = pgException.getMessage();
                 if ("23505".equals(pgException.getCode())
                     && ("ux_devices_user_type_active".equals(pgException.getConstraint())
-                    || "ux_devices_user_device_active".equals(pgException.getConstraint()))) {
+                    || "ux_devices_user_device_active".equals(pgException.getConstraint())
+                    || containsActiveDeviceUniqueIndex(message))) {
                     return true;
                 }
+            }
+            if (containsActiveDeviceUniqueIndex(current.getMessage())) {
+                return true;
             }
             current = current.getCause();
         }
         return false;
+    }
+
+    private boolean containsActiveDeviceUniqueIndex(String message) {
+        return message != null
+            && (message.contains("ux_devices_user_type_active")
+            || message.contains("ux_devices_user_device_active"));
     }
 
     /**

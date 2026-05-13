@@ -36,6 +36,8 @@
 ## SSH Deploy Rule
 
 - On `52.200.97.155`, backend repo update flow should start with `ssh ... ubuntu@52.200.97.155`, `cd /var/www/fox_coin`, then `sudo git status --short`.
+- Current production Foxya containers are `foxya-api`, `foxya-api-2`, `foxya-db-proxy`, `foxya-postgres`, `foxya-redis`, `foxya-nginx`, `foxya-pgbouncer`, `foxya-tron-service`, `foxya-tron-service-2`, `foxya-tron-worker`, `foxya-prometheus`, and `foxya-grafana`.
+- Do not treat `foxya-coin-api`, `foxya-coin-postgres`, or `foxya-coin-redis` as production containers. Those names come from the default `docker-compose.yml` and caused stale monitoring/asset-volume issues when accidentally started on the production host.
 - If the user explicitly asks for `sudo git pull`, try `sudo git pull --rebase origin develop` once before falling back to rsync or manual sync.
 - In production, treat `sudo git pull` as the default pull path for `/var/www/fox_coin` and `/var/www/fox_coin_frontend`; do not rely on the non-sudo user having GitHub credentials.
 - If `/var/www/fox_coin` has a dirty worktree, stop and identify whether the changes are intentional runtime edits, previous hotfixes, or deploy leftovers before pulling.
