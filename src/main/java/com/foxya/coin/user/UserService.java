@@ -732,12 +732,45 @@ public class UserService extends BaseService {
     }
 
     /**
-     * 거래 비밀번호 설정/변경 (이메일 인증 코드 기반)
+     * 거래 비밀번호 설정 전 이메일 인증 확정
      */
-    public Future<Void> setTransactionPassword(Long userId, String code, String newPassword) {
+    public Future<Void> verifyTransactionPasswordEmail(Long userId, String code) {
+        if (code == null || !code.matches("^\\d{6}$")) {
+            return Future.failedFuture(new BadRequestException("인증 코드는 숫자 6자리여야 합니다."));
+        }
+
+        return emailVerificationRepository.getLatestByUserId(pool, userId)
+            .compose(ev -> {
+                if (ev == null || ev.email == null || ev.verificationCode == null) {
+                    return Future.failedFuture(new BadRequestException("이메일 인증 정보가 없습니다."));
+                }
+                if (!ev.verificationCode.equals(code) || ev.expiresAt == null || ev.expiresAt.isBefore(java.time.LocalDateTime.now())) {
+                    return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+                }
+                return emailVerificationRepository.verifyEmail(pool, userId, ev.email, code)
+                    .compose(success -> {
+                        if (!success) {
+                            return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+                        }
+                        return Future.succeededFuture();
+                    });
+            })
+            .mapEmpty();
+    }
+
+    /**
+     * 거래 비밀번호 설정/변경 (이메일 인증 완료 상태 기반)
+     */
+    public Future<Void> setTransactionPassword(Long userId, String code, String newPassword, String confirmPassword) {
         // newPassword: 숫자 6자리
         if (newPassword == null || !newPassword.matches("^\\d{6}$")) {
             return Future.failedFuture(new BadRequestException("거래 비밀번호는 숫자 6자리여야 합니다."));
+        }
+        if (confirmPassword != null && !newPassword.equals(confirmPassword)) {
+            return Future.failedFuture(new BadRequestException("거래 비밀번호가 일치하지 않습니다."));
+        }
+        if ((code == null || code.isBlank()) && confirmPassword == null) {
+            return Future.failedFuture(new BadRequestException("거래 비밀번호 확인값이 필요합니다."));
         }
 
         return emailVerificationRepository.getLatestByUserId(pool, userId)
@@ -748,7 +781,17 @@ public class UserService extends BaseService {
                 if (ev.email == null || ev.email.isBlank()) {
                     return Future.failedFuture(new BadRequestException("이메일 인증이 필요합니다."));
                 }
-                if (!ev.verificationCode.equals(code) || ev.expiresAt == null || ev.expiresAt.isBefore(java.time.LocalDateTime.now())) {
+                boolean codeVerified = code != null
+                    && !code.isBlank()
+                    && ev.verificationCode.equals(code)
+                    && ev.expiresAt != null
+                    && !ev.expiresAt.isBefore(java.time.LocalDateTime.now());
+                boolean emailVerified = Boolean.TRUE.equals(ev.isVerified);
+
+                if (code != null && !code.isBlank() && !codeVerified) {
+                    return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
+                }
+                if ((code == null || code.isBlank()) && !emailVerified) {
                     return Future.failedFuture(new BadRequestException("인증 코드가 유효하지 않거나 만료되었습니다."));
                 }
 

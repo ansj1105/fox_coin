@@ -4518,10 +4518,10 @@ paths:
           description: 인증 실패
 
   # ==================== Security ====================
-  /api/v1/security/transaction-password:
+  /api/v1/security/transaction-password/verify-email:
     post:
-      summary: 거래 비밀번호 설정/변경
-      description: 이메일로 발송된 인증 코드를 기반으로 거래 비밀번호(숫자 6자리)를 설정하거나 변경합니다.
+      summary: 거래 비밀번호 설정용 이메일 인증 확인
+      description: 이메일로 발송된 인증 코드를 확인하고, 거래 비밀번호 입력 단계에서 사용할 이메일 인증 완료 상태를 저장합니다.
       tags: [Security]
       security:
         - BearerAuth: []
@@ -4533,12 +4533,47 @@ paths:
               type: object
               required:
                 - code
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: '^[0-9]{6}$'
+                  description: 이메일로 발송된 6자리 숫자 인증 코드
+                  example: "123456"
+      responses:
+        '200':
+          description: 이메일 인증 확인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 인증 코드가 유효하지 않거나 만료됨
+        '401':
+          description: 인증 실패
+
+  /api/v1/security/transaction-password:
+    post:
+      summary: 거래 비밀번호 설정/변경
+      description: 이메일 인증 완료 상태를 기반으로 거래 비밀번호(숫자 6자리)를 설정하거나 변경합니다. 이전 클라이언트 호환을 위해 code와 newPassword를 함께 보내는 방식도 지원합니다.
+      tags: [Security]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
                 - newPassword
               properties:
                 code:
                   type: string
                   minLength: 6
                   maxLength: 6
+                  pattern: '^[0-9]{6}$'
                   description: 이메일로 발송된 6자리 숫자 인증 코드
                   example: "123456"
                 newPassword:
@@ -4547,6 +4582,13 @@ paths:
                   maxLength: 6
                   pattern: '^[0-9]{6}$'
                   description: 거래 비밀번호 (숫자 6자리 문자열)
+                  example: "123456"
+                confirmPassword:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: '^[0-9]{6}$'
+                  description: 거래 비밀번호 확인값. 신규 플로우에서는 필수이며 newPassword와 일치해야 합니다.
                   example: "123456"
       responses:
         '200':
