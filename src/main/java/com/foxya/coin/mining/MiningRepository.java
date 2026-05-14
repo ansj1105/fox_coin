@@ -30,10 +30,35 @@ public class MiningRepository extends BaseRepository {
         .id(row.getInteger("id"))
         .level(row.getInteger("level"))
         .dailyMaxMining(row.getBigDecimal("daily_max_mining"))
+        .efficiency(row.getBigDecimal("efficiency"))
+        .requiredExp(row.getBigDecimal("required_exp"))
+        .perMinuteMining(row.getBigDecimal("per_minute_mining"))
+        .expectedDays(row.getInteger("expected_days"))
+        .dailyMaxAds(row.getInteger("daily_max_ads"))
+        .storeProductLimit(row.getInteger("store_product_limit"))
+        .badgeCode(row.getString("badge_code"))
+        .photoUrl(row.getString("photo_url"))
         .dailyMaxVideos(row.getInteger("daily_max_videos"))
         .createdAt(row.getLocalDateTime("created_at"))
         .updatedAt(row.getLocalDateTime("updated_at"))
         .build();
+
+    private static final String MINING_LEVEL_COLUMNS = String.join(", ",
+        "id",
+        "level",
+        "daily_max_mining",
+        "efficiency",
+        "required_exp",
+        "per_minute_mining",
+        "expected_days",
+        "daily_max_ads",
+        "store_product_limit",
+        "badge_code",
+        "photo_url",
+        "daily_max_videos",
+        "created_at",
+        "updated_at"
+    );
     
     private static final RowMapper<DailyMining> DAILY_MINING_MAPPER = row -> DailyMining.builder()
         .id(row.getLong("id"))
@@ -66,10 +91,35 @@ public class MiningRepository extends BaseRepository {
         .creditedAmount(row.getBigDecimal("credited_amount"))
         .createdAt(row.getLocalDateTime("created_at"))
         .build();
+
+    public Future<Integer> getActiveMiningBoosterEfficiency(SqlClient client, String type) {
+        String sql = """
+            SELECT efficiency
+            FROM mining_boosters
+            WHERE type = #{type}
+              AND is_enabled = true
+            LIMIT 1
+            """;
+        Map<String, Object> params = new HashMap<>();
+        params.put("type", type);
+
+        return query(client, QueryBuilder.selectStringQuery(sql).build(), params)
+            .map(rows -> {
+                if (!rows.iterator().hasNext()) {
+                    return 0;
+                }
+                Integer efficiency = rows.iterator().next().getInteger("efficiency");
+                return efficiency != null ? efficiency : 0;
+            })
+            .recover(err -> {
+                log.warn("Failed to read mining booster efficiency. type={}, fallback=0", type, err);
+                return Future.succeededFuture(0);
+            });
+    }
     
     public Future<MiningLevel> getMiningLevelByLevel(SqlClient client, Integer level) {
         String sql = QueryBuilder
-            .select("mining_levels", "id", "level", "daily_max_mining", "daily_max_videos", "created_at", "updated_at")
+            .select("mining_levels", MINING_LEVEL_COLUMNS)
             .where("level", Op.Equal, "level")
             .build();
         
@@ -84,7 +134,7 @@ public class MiningRepository extends BaseRepository {
     
     public Future<List<MiningLevel>> getAllMiningLevels(SqlClient client) {
         String sql = QueryBuilder
-            .select("mining_levels", "id", "level", "daily_max_mining", "daily_max_videos", "created_at", "updated_at")
+            .select("mining_levels", MINING_LEVEL_COLUMNS)
             .orderBy("level", Sort.ASC)
             .build();
         

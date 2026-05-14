@@ -192,7 +192,7 @@ public class UserRepository extends BaseRepository {
     }
     
     /**
-     * 경험치(EXP) 증가 (친구 초대 1명당 +0.5 EXP 등)
+     * 경험치(EXP) 증가 (채굴량, 친구 초대 1명당 +1 EXP 등)
      */
     public Future<User> addExp(SqlClient client, Long userId, java.math.BigDecimal delta) {
         if (delta == null || delta.compareTo(java.math.BigDecimal.ZERO) <= 0) {
@@ -257,33 +257,16 @@ public class UserRepository extends BaseRepository {
             SELECT
                 u.id AS user_id,
                 COALESCE(u.level, 1) AS current_level,
-                CASE
-                    WHEN COALESCE(u.exp, 0) >= 520 THEN 9
-                    WHEN COALESCE(u.exp, 0) >= 350 THEN 8
-                    WHEN COALESCE(u.exp, 0) >= 220 THEN 7
-                    WHEN COALESCE(u.exp, 0) >= 130 THEN 6
-                    WHEN COALESCE(u.exp, 0) >= 70 THEN 5
-                    WHEN COALESCE(u.exp, 0) >= 35 THEN 4
-                    WHEN COALESCE(u.exp, 0) >= 15 THEN 3
-                    WHEN COALESCE(u.exp, 0) >= 5 THEN 2
-                    ELSE 1
-                END AS computed_level
+                COALESCE(ml.computed_level, 1) AS computed_level
             FROM users u
+            LEFT JOIN LATERAL (
+                SELECT MAX(level) AS computed_level
+                FROM mining_levels
+                WHERE required_exp <= COALESCE(u.exp, 0)
+            ) ml ON TRUE
             WHERE u.deleted_at IS NULL
               AND u.id > #{after_user_id}
-              AND (
-                CASE
-                    WHEN COALESCE(u.exp, 0) >= 520 THEN 9
-                    WHEN COALESCE(u.exp, 0) >= 350 THEN 8
-                    WHEN COALESCE(u.exp, 0) >= 220 THEN 7
-                    WHEN COALESCE(u.exp, 0) >= 130 THEN 6
-                    WHEN COALESCE(u.exp, 0) >= 70 THEN 5
-                    WHEN COALESCE(u.exp, 0) >= 35 THEN 4
-                    WHEN COALESCE(u.exp, 0) >= 15 THEN 3
-                    WHEN COALESCE(u.exp, 0) >= 5 THEN 2
-                    ELSE 1
-                END
-              ) > COALESCE(u.level, 1)
+              AND COALESCE(ml.computed_level, 1) > COALESCE(u.level, 1)
             ORDER BY u.id ASC
             LIMIT #{limit}
             """;

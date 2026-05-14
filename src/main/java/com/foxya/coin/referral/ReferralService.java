@@ -9,6 +9,7 @@ import com.foxya.coin.common.BaseService;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.common.enums.ReferralTeamTab;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.level.LevelService;
 import com.foxya.coin.notification.entities.Notification;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
@@ -64,13 +65,15 @@ public class ReferralService extends BaseService {
     private final AirdropRepository airdropRepository;
     private final NotificationService notificationService;
     private final SubscriptionService subscriptionService;
+    private final LevelService levelService;
     
     public ReferralService(PgPool pool, ReferralRepository referralRepository, UserRepository userRepository,
                            EmailVerificationRepository emailVerificationRepository, TransferService transferService,
                            ReferralRevenueTierRepository referralRevenueTierRepository,
                            AirdropRepository airdropRepository,
                            NotificationService notificationService,
-                           SubscriptionService subscriptionService) {
+                           SubscriptionService subscriptionService,
+                           LevelService levelService) {
         super(pool);
         this.referralRepository = referralRepository;
         this.userRepository = userRepository;
@@ -80,6 +83,7 @@ public class ReferralService extends BaseService {
         this.airdropRepository = airdropRepository;
         this.notificationService = notificationService;
         this.subscriptionService = subscriptionService;
+        this.levelService = levelService;
     }
     
     /**
@@ -135,8 +139,9 @@ public class ReferralService extends BaseService {
                     });
             })
             .compose(relation -> {
-                // 3. 추천인 EXP +0.5 (초대 1명당 0.5 EXP)
-                return userRepository.addExp(pool, relation.getReferrerId(), new BigDecimal("0.5"))
+                // 3. 추천인 EXP +1 (초대 1명당 1 EXP)
+                return userRepository.addExp(pool, relation.getReferrerId(), BigDecimal.ONE)
+                    .compose(u -> levelService.syncLevelFromExp(relation.getReferrerId()))
                     .compose(u -> updateReferrerStats(relation.getReferrerId()))
                     .compose(v -> grantRegisterAirdropIfFirstTime(userId)
                         .compose(granted -> {

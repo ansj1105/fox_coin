@@ -25,6 +25,13 @@ public class LevelInfoResponseDto {
     public static class LevelInfo {
         private Integer level;
         private BigDecimal dailyMaxMining;
+        private BigDecimal efficiency;
+        private BigDecimal requiredExp;
+        private BigDecimal perMinuteMining;
+        private Integer expectedDays;
+        private Integer dailyMaxAds;
+        private Integer storeProductLimit;
+        private String badgeCode;
+        private String photoUrl;
     }
 }
-

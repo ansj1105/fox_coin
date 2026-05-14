@@ -46,6 +46,10 @@ import java.util.List;
 @Slf4j
 public class MiningService extends BaseService {
     private static final int MAX_SETTLEMENT_SESSIONS_PER_USER_RUN = 100;
+    private static final LocalDate MINING_DECAY_START_DATE = LocalDate.of(2026, 1, 1);
+    private static final String PARTNER_FOXYYA_BOOSTER_TYPE = "PARTNER_FOXYYA";
+    private static final BigDecimal MAX_REFERRAL_MULTIPLIER = BigDecimal.valueOf(1.22);
+    private static final BigDecimal MAX_VIP_MULTIPLIER = BigDecimal.valueOf(1.25);
     
     private final MiningRepository miningRepository;
     private final UserRepository userRepository;
@@ -125,6 +129,14 @@ public class MiningService extends BaseService {
                                 return DailyLimitResponseDto.builder()
                                     .currentLevel(userLevel)
                                     .dailyMaxMining(maxMining)
+                                    .efficiency(miningLevel.getEfficiency())
+                                    .requiredExp(miningLevel.getRequiredExp())
+                                    .perMinuteMining(miningLevel.getPerMinuteMining())
+                                    .expectedDays(miningLevel.getExpectedDays())
+                                    .dailyMaxAds(resolveDailyMaxAds(miningLevel))
+                                    .storeProductLimit(miningLevel.getStoreProductLimit())
+                                    .badgeCode(miningLevel.getBadgeCode())
+                                    .photoUrl(miningLevel.getPhotoUrl())
                                     .todayMiningAmount(todayAmount)
                                     .resetAt(resetAt)
                                     .isLimitReached(isLimitReached)
@@ -142,6 +154,14 @@ public class MiningService extends BaseService {
                     levelInfos.add(LevelInfoResponseDto.LevelInfo.builder()
                         .level(level.getLevel())
                         .dailyMaxMining(level.getDailyMaxMining())
+                        .efficiency(level.getEfficiency())
+                        .requiredExp(level.getRequiredExp())
+                        .perMinuteMining(level.getPerMinuteMining())
+                        .expectedDays(level.getExpectedDays())
+                        .dailyMaxAds(level.getDailyMaxAds())
+                        .storeProductLimit(level.getStoreProductLimit())
+                        .badgeCode(level.getBadgeCode())
+                        .photoUrl(level.getPhotoUrl())
                         .build());
                 }
                 
@@ -330,10 +350,7 @@ public class MiningService extends BaseService {
                 MiningSession settlementPendingSession = settlementPendingSessionFuture.result();
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
                 BigDecimal todayMiningAmount = dailyMining != null ? dailyMining.getMiningAmount() : BigDecimal.ZERO;
-                int[] levelExpCumulative = {5, 15, 35, 70, 130, 220, 350, 520};
-                BigDecimal nextLevelRequired = currentLevel >= 9
-                    ? BigDecimal.valueOf(520)
-                    : BigDecimal.valueOf(levelExpCumulative[currentLevel - 1]);
+                BigDecimal nextLevelRequired = LevelService.getRequiredExpForNextLevel(currentLevel);
 
                 return miningRepository.getMiningLevelByLevel(pool, currentLevel)
                     .map(miningLevel -> {
@@ -353,8 +370,7 @@ public class MiningService extends BaseService {
                         long minutes = remaining.toMinutes() % 60;
                         long seconds = remaining.getSeconds() % 60;
                         String remainingTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
-                        int dailyMaxVideos = miningLevel != null && miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
-                            ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                        int dailyMaxVideos = resolveDailyMaxAds(miningLevel);
                         String miningUntil = (activeSession != null && activeSession.getEndsAt() != null && activeSession.getEndsAt().isAfter(now))
                             ? activeSession.getEndsAt().toString()
                             : null;
@@ -423,6 +439,19 @@ public class MiningService extends BaseService {
         BigDecimal safeDailyMaxMining = dailyMaxMining != null ? dailyMaxMining : BigDecimal.ZERO;
         BigDecimal headroom = safeDailyMaxMining.subtract(safeTodayMiningAmount).max(BigDecimal.ZERO);
         return rawPendingAmount.min(headroom);
+    }
+
+    private int resolveDailyMaxAds(MiningLevel miningLevel) {
+        if (miningLevel == null) {
+            return MAX_AD_WATCH_COUNT;
+        }
+        if (miningLevel.getDailyMaxAds() != null && miningLevel.getDailyMaxAds() > 0) {
+            return miningLevel.getDailyMaxAds();
+        }
+        if (miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0) {
+            return miningLevel.getDailyMaxVideos();
+        }
+        return MAX_AD_WATCH_COUNT;
     }
     
     /**
@@ -535,11 +564,10 @@ public class MiningService extends BaseService {
                         if (miningLevel != null
                             && miningLevel.getDailyMaxMining() != null
                             && miningLevel.getDailyMaxMining().compareTo(BigDecimal.ZERO) > 0
-                            && miningLevel.getDailyMaxVideos() != null
-                            && miningLevel.getDailyMaxVideos() > 0
                             && session.getRatePerHour() != null) {
+                            int dailyMaxVideos = resolveDailyMaxAds(miningLevel);
                             BigDecimal perVideoBase = miningLevel.getDailyMaxMining()
-                                .divide(BigDecimal.valueOf(miningLevel.getDailyMaxVideos()), 18, RoundingMode.DOWN);
+                                .divide(BigDecimal.valueOf(dailyMaxVideos), 18, RoundingMode.DOWN);
                             if (perVideoBase.compareTo(BigDecimal.ZERO) > 0) {
                                 BigDecimal ratio = session.getRatePerHour()
                                     .divide(perVideoBase, 6, RoundingMode.HALF_UP);
@@ -744,8 +772,7 @@ public class MiningService extends BaseService {
                                 if (miningLevel == null) {
                                     return Future.failedFuture(new com.foxya.coin.common.exceptions.NotFoundException("Resource not found."));
                                 }
-                                int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
-                                    ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                                int dailyMaxVideos = resolveDailyMaxAds(miningLevel);
                                 return miningRepository.countSessionsStartedToday(pool, userId, today)
                                     .compose(sessionsToday -> {
                                         if (sessionsToday >= dailyMaxVideos) {
@@ -789,8 +816,7 @@ public class MiningService extends BaseService {
                                         if (miningLevel == null || miningLevel.getDailyMaxMining() == null || miningLevel.getDailyMaxMining().compareTo(BigDecimal.ZERO) <= 0) {
                                             return Future.succeededFuture();
                                         }
-                                        int dailyMaxVideos = miningLevel.getDailyMaxVideos() != null && miningLevel.getDailyMaxVideos() > 0
-                                            ? miningLevel.getDailyMaxVideos() : MAX_AD_WATCH_COUNT;
+                                        int dailyMaxVideos = resolveDailyMaxAds(miningLevel);
                                         return Future.all(
                                             miningRepository.countSessionsStartedToday(pool, userId, today),
                                             miningRepository.getDailyMining(pool, userId, today)
@@ -831,19 +857,56 @@ public class MiningService extends BaseService {
             return Future.succeededFuture(BigDecimal.ZERO);
         }
         return referralService.getInviteMiningBonusMultiplier(userId)
-            .compose(multiplier -> Future.succeededFuture(0)
-                .map(missionEfficiency -> {
-                    int inviteEfficiency = multiplier != null
-                        ? multiplier.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue()
-                        : 0;
-                    int missionEff = missionEfficiency != null ? missionEfficiency : 0;
-                    int totalEfficiency = Math.max(0, inviteEfficiency + missionEff + Math.max(vipBonusEfficiency, 0));
-                    BigDecimal efficiencyMultiplier = BigDecimal.ONE.add(
-                        BigDecimal.valueOf(totalEfficiency)
-                            .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)
+            .compose(referralMultiplier -> miningRepository.getActiveMiningBoosterEfficiency(pool, PARTNER_FOXYYA_BOOSTER_TYPE)
+                .map(partnerEfficiency -> {
+                    BigDecimal activityMultiplier = BigDecimal.ONE;
+                    BigDecimal safeReferralMultiplier = capMultiplier(
+                        referralMultiplier != null ? referralMultiplier : BigDecimal.ONE,
+                        BigDecimal.ONE,
+                        MAX_REFERRAL_MULTIPLIER
                     );
-                    return perVideoBase.multiply(efficiencyMultiplier).setScale(18, RoundingMode.DOWN);
+                    BigDecimal vipMultiplier = capMultiplier(
+                        percentageToMultiplier(vipBonusEfficiency),
+                        BigDecimal.ONE,
+                        MAX_VIP_MULTIPLIER
+                    );
+                    BigDecimal partnerMultiplier = percentageToMultiplier(partnerEfficiency);
+                    BigDecimal periodDecayMultiplier = resolvePeriodDecayMultiplier(LocalDate.now());
+
+                    return perVideoBase
+                        .multiply(activityMultiplier)
+                        .multiply(safeReferralMultiplier)
+                        .multiply(vipMultiplier)
+                        .multiply(periodDecayMultiplier)
+                        .multiply(partnerMultiplier)
+                        .setScale(18, RoundingMode.DOWN);
                 }));
+    }
+
+    private BigDecimal percentageToMultiplier(Integer percent) {
+        int safePercent = Math.max(percent != null ? percent : 0, 0);
+        return BigDecimal.ONE.add(BigDecimal.valueOf(safePercent).divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP));
+    }
+
+    private BigDecimal capMultiplier(BigDecimal value, BigDecimal min, BigDecimal max) {
+        if (value == null) return min;
+        if (value.compareTo(min) < 0) return min;
+        if (value.compareTo(max) > 0) return max;
+        return value;
+    }
+
+    private BigDecimal resolvePeriodDecayMultiplier(LocalDate date) {
+        int serviceYear = Math.max(1, date.getYear() - MINING_DECAY_START_DATE.getYear() + 1);
+        return switch (serviceYear) {
+            case 1 -> BigDecimal.valueOf(1.00);
+            case 2 -> BigDecimal.valueOf(0.80);
+            case 3 -> BigDecimal.valueOf(0.65);
+            case 4 -> BigDecimal.valueOf(0.50);
+            case 5 -> BigDecimal.valueOf(0.40);
+            case 6 -> BigDecimal.valueOf(0.35);
+            case 7 -> BigDecimal.valueOf(0.15);
+            default -> BigDecimal.valueOf(0.07);
+        };
     }
 
     private int resolveVipBonusEfficiency(SubscriptionStatusResponseDto subscriptionStatus) {

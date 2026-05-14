@@ -27,7 +27,14 @@ public class LevelGuideResponseDto {
     public static class LevelInfo {
         private Integer level;
         private BigDecimal requiredExp;
+        private BigDecimal dailyMaxMining;
+        private BigDecimal efficiency;
+        private BigDecimal perMinuteMining;
+        private Integer expectedDays;
+        private Integer dailyMaxAds;
+        private Integer storeProductLimit;
+        private String badgeCode;
+        private String photoUrl;
         private List<String> benefits;
     }
 }
-

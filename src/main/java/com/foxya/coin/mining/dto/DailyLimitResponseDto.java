@@ -17,8 +17,15 @@ import java.time.LocalDateTime;
 public class DailyLimitResponseDto {
     private Integer currentLevel;
     private BigDecimal dailyMaxMining;
+    private BigDecimal efficiency;
+    private BigDecimal requiredExp;
+    private BigDecimal perMinuteMining;
+    private Integer expectedDays;
+    private Integer dailyMaxAds;
+    private Integer storeProductLimit;
+    private String badgeCode;
+    private String photoUrl;
     private BigDecimal todayMiningAmount;
     private LocalDateTime resetAt;
     private Boolean isLimitReached;
 }
-

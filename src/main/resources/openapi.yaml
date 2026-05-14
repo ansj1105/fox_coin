@@ -1597,6 +1597,33 @@ components:
         dailyMaxMining:
           type: number
           format: decimal
+        efficiency:
+          type: number
+          format: decimal
+          nullable: true
+        requiredExp:
+          type: number
+          format: decimal
+          nullable: true
+        perMinuteMining:
+          type: number
+          format: decimal
+          nullable: true
+        expectedDays:
+          type: integer
+          nullable: true
+        dailyMaxAds:
+          type: integer
+          nullable: true
+        storeProductLimit:
+          type: integer
+          nullable: true
+        badgeCode:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
         todayMiningAmount:
           type: number
           format: decimal
@@ -1801,6 +1828,32 @@ components:
         requiredExp:
           type: number
           format: decimal
+        dailyMaxMining:
+          type: number
+          format: decimal
+        efficiency:
+          type: number
+          format: decimal
+          nullable: true
+        perMinuteMining:
+          type: number
+          format: decimal
+          nullable: true
+        expectedDays:
+          type: integer
+          nullable: true
+        dailyMaxAds:
+          type: integer
+          nullable: true
+        storeProductLimit:
+          type: integer
+          nullable: true
+        badgeCode:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
         benefits:
           type: array
           items:
@@ -2600,6 +2653,45 @@ components:
           format: date-time
 
 paths:
+  /api/v1/internal/offline-pay/store-product-policy:
+    get:
+      tags: [Level]
+      summary: Internal Offline Pay store product policy lookup
+      description: Returns the user's current level based Offline Pay store product limit from Foxya DB.
+      parameters:
+        - in: header
+          name: X-Internal-Api-Key
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Policy lookup accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  userId:
+                    type: integer
+                    format: int64
+                  level:
+                    type: integer
+                  storeProductLimit:
+                    type: integer
+                  dailyMaxAds:
+                    type: integer
+                  profilePhotoEnabled:
+                    type: boolean
   /api/v1/internal/withdrawals/coin-manage/{withdrawalId}/state:
     post:
       tags: [Transfer]

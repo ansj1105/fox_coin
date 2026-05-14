@@ -411,7 +411,8 @@ public class ApiVerticle extends AbstractVerticle {
         );
         referralService = new ReferralService(
             pool, referralRepository, userRepository, emailVerificationRepository, transferService,
-            referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService);
+            referralRevenueTierRepository, airdropRepository, notificationService, subscriptionService,
+            levelService);
         miningService = new MiningService(
             pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
             referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
@@ -433,7 +434,7 @@ public class ApiVerticle extends AbstractVerticle {
             internalOfflinePayApiKey = depositScannerApiKey;
         }
         InternalOfflinePayHandler internalOfflinePayHandler = new InternalOfflinePayHandler(
-            vertx, transferService, internalOfflinePayApiKey);
+            vertx, transferService, levelService, internalOfflinePayApiKey);
         InternalConfigHandler internalConfigHandler = new InternalConfigHandler(
             vertx, pool, appConfigRepository, depositScannerApiKey);
         InternalWalletHandler internalWalletHandler = new InternalWalletHandler(

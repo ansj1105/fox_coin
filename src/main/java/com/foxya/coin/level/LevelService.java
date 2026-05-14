@@ -4,6 +4,7 @@ import com.foxya.coin.common.BaseService;
 import com.foxya.coin.level.dto.LevelGuideResponseDto;
 import com.foxya.coin.level.dto.UserLevelResponseDto;
 import com.foxya.coin.mining.MiningRepository;
+import com.foxya.coin.mining.entities.MiningLevel;
 import com.foxya.coin.notification.NotificationService;
 import com.foxya.coin.notification.enums.NotificationType;
 import com.foxya.coin.notification.utils.NotificationI18nUtils;
@@ -16,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 @Slf4j
@@ -26,16 +26,29 @@ public class LevelService extends BaseService {
     private final MiningRepository miningRepository;
     private final NotificationService notificationService;
 
-    private static final BigDecimal[] LEVEL_EXP = {
-        BigDecimal.valueOf(5),
-        BigDecimal.valueOf(15),
-        BigDecimal.valueOf(35),
-        BigDecimal.valueOf(70),
-        BigDecimal.valueOf(130),
-        BigDecimal.valueOf(220),
-        BigDecimal.valueOf(350),
-        BigDecimal.valueOf(520)
+    private static final BigDecimal[] REQUIRED_EXP_BY_LEVEL = {
+        BigDecimal.valueOf(0), BigDecimal.valueOf(4), BigDecimal.valueOf(9), BigDecimal.valueOf(13), BigDecimal.valueOf(18),
+        BigDecimal.valueOf(24), BigDecimal.valueOf(29), BigDecimal.valueOf(35), BigDecimal.valueOf(42), BigDecimal.valueOf(48),
+        BigDecimal.valueOf(55), BigDecimal.valueOf(62), BigDecimal.valueOf(70), BigDecimal.valueOf(77), BigDecimal.valueOf(85),
+        BigDecimal.valueOf(94), BigDecimal.valueOf(102), BigDecimal.valueOf(111), BigDecimal.valueOf(121), BigDecimal.valueOf(130),
+        BigDecimal.valueOf(140), BigDecimal.valueOf(151), BigDecimal.valueOf(161), BigDecimal.valueOf(172), BigDecimal.valueOf(184),
+        BigDecimal.valueOf(195), BigDecimal.valueOf(207), BigDecimal.valueOf(220), BigDecimal.valueOf(232), BigDecimal.valueOf(245),
+        BigDecimal.valueOf(260), BigDecimal.valueOf(274), BigDecimal.valueOf(288), BigDecimal.valueOf(303), BigDecimal.valueOf(318),
+        BigDecimal.valueOf(334), BigDecimal.valueOf(349), BigDecimal.valueOf(365), BigDecimal.valueOf(382), BigDecimal.valueOf(398),
+        BigDecimal.valueOf(416), BigDecimal.valueOf(433), BigDecimal.valueOf(450), BigDecimal.valueOf(469), BigDecimal.valueOf(487),
+        BigDecimal.valueOf(506), BigDecimal.valueOf(525), BigDecimal.valueOf(544), BigDecimal.valueOf(564), BigDecimal.valueOf(584),
+        BigDecimal.valueOf(605), BigDecimal.valueOf(626), BigDecimal.valueOf(647), BigDecimal.valueOf(669), BigDecimal.valueOf(691),
+        BigDecimal.valueOf(714), BigDecimal.valueOf(736), BigDecimal.valueOf(760), BigDecimal.valueOf(783), BigDecimal.valueOf(807),
+        BigDecimal.valueOf(832), BigDecimal.valueOf(856), BigDecimal.valueOf(881), BigDecimal.valueOf(907), BigDecimal.valueOf(932),
+        BigDecimal.valueOf(958), BigDecimal.valueOf(985), BigDecimal.valueOf(1011), BigDecimal.valueOf(1038), BigDecimal.valueOf(1066),
+        BigDecimal.valueOf(1093), BigDecimal.valueOf(1121), BigDecimal.valueOf(1150), BigDecimal.valueOf(1178), BigDecimal.valueOf(1207),
+        BigDecimal.valueOf(1237), BigDecimal.valueOf(1266), BigDecimal.valueOf(1296), BigDecimal.valueOf(1327), BigDecimal.valueOf(1357),
+        BigDecimal.valueOf(1388), BigDecimal.valueOf(1420), BigDecimal.valueOf(1451), BigDecimal.valueOf(1483), BigDecimal.valueOf(1516),
+        BigDecimal.valueOf(1548), BigDecimal.valueOf(1581), BigDecimal.valueOf(1615), BigDecimal.valueOf(1648), BigDecimal.valueOf(1682),
+        BigDecimal.valueOf(1717), BigDecimal.valueOf(1751), BigDecimal.valueOf(1786), BigDecimal.valueOf(1822), BigDecimal.valueOf(1857),
+        BigDecimal.valueOf(1893), BigDecimal.valueOf(1930), BigDecimal.valueOf(1966), BigDecimal.valueOf(2003), BigDecimal.valueOf(2040)
     };
+    private static final int MAX_LEVEL = REQUIRED_EXP_BY_LEVEL.length;
     private static final String LEVEL_UP_NOTICE_TITLE = "Level Up";
     private static final String LEVEL_UP_NOTICE_MESSAGE = "You have reached level %d.";
     private static final String LEVEL_UP_NOTICE_TITLE_KEY = "notifications.levelUp.title";
@@ -63,8 +76,8 @@ public class LevelService extends BaseService {
                 Integer currentLevel = user.getLevel() != null ? user.getLevel() : 1;
                 BigDecimal currentExp = user.getExp() != null ? user.getExp() : BigDecimal.ZERO;
 
-                BigDecimal nextLevelExp = currentLevel >= 9 ? LEVEL_EXP[7] : LEVEL_EXP[currentLevel - 1];
-                BigDecimal currentLevelExp = currentLevel > 1 ? LEVEL_EXP[currentLevel - 2] : BigDecimal.ZERO;
+                BigDecimal nextLevelExp = getRequiredExpForNextLevel(currentLevel);
+                BigDecimal currentLevelExp = getRequiredExpForLevel(currentLevel);
 
                 BigDecimal expNeeded = nextLevelExp.subtract(currentLevelExp);
                 BigDecimal expProgress = currentExp.subtract(currentLevelExp);
@@ -85,22 +98,36 @@ public class LevelService extends BaseService {
         return miningRepository.getAllMiningLevels(pool)
             .map(levels -> {
                 List<LevelGuideResponseDto.LevelInfo> levelInfos = new ArrayList<>();
-                int maxLevels = Math.min(9, levels.size());
-                for (int i = 0; i < maxLevels; i++) {
-                    int level = i + 1;
-                    BigDecimal requiredExp = (i == 0) ? BigDecimal.ZERO : LEVEL_EXP[i - 1];
-                    BigDecimal dailyMaxMining = levels.get(i).getDailyMaxMining();
-                    Integer dailyMaxVideos = levels.get(i).getDailyMaxVideos();
+                for (MiningLevel miningLevel : levels) {
+                    BigDecimal dailyMaxMining = miningLevel.getDailyMaxMining();
+                    Integer dailyMaxAds = miningLevel.getDailyMaxAds() != null && miningLevel.getDailyMaxAds() > 0
+                        ? miningLevel.getDailyMaxAds()
+                        : miningLevel.getDailyMaxVideos();
 
-                    String benefits = String.format("Daily max mining %s KORI", dailyMaxMining.stripTrailingZeros().toPlainString());
-                    if (dailyMaxVideos != null && dailyMaxVideos > 0) {
-                        benefits += String.format(", daily videos %d", dailyMaxVideos);
+                    List<String> benefits = new ArrayList<>();
+                    benefits.add(String.format("Daily max mining %s KORI", dailyMaxMining.stripTrailingZeros().toPlainString()));
+                    if (dailyMaxAds != null && dailyMaxAds > 0) {
+                        benefits.add(String.format("Daily ads %d", dailyMaxAds));
+                    }
+                    if (miningLevel.getStoreProductLimit() != null) {
+                        benefits.add(String.format("Offline Pay store products %d", miningLevel.getStoreProductLimit()));
+                    }
+                    if (miningLevel.getLevel() != null && miningLevel.getLevel() >= 2) {
+                        benefits.add("Profile photo available");
                     }
 
                     levelInfos.add(LevelGuideResponseDto.LevelInfo.builder()
-                        .level(level)
-                        .requiredExp(requiredExp)
-                        .benefits(Arrays.asList(benefits))
+                        .level(miningLevel.getLevel())
+                        .requiredExp(miningLevel.getRequiredExp())
+                        .dailyMaxMining(dailyMaxMining)
+                        .efficiency(miningLevel.getEfficiency())
+                        .perMinuteMining(miningLevel.getPerMinuteMining())
+                        .expectedDays(miningLevel.getExpectedDays())
+                        .dailyMaxAds(miningLevel.getDailyMaxAds())
+                        .storeProductLimit(miningLevel.getStoreProductLimit())
+                        .badgeCode(miningLevel.getBadgeCode())
+                        .photoUrl(miningLevel.getPhotoUrl())
+                        .benefits(benefits)
                         .build());
                 }
 
@@ -112,17 +139,52 @@ public class LevelService extends BaseService {
             });
     }
 
+    public Future<JsonObject> getOfflinePayStorePolicy(Long userId) {
+        return userRepository.getUserById(pool, userId)
+            .compose(user -> {
+                if (user == null) {
+                    throw new com.foxya.coin.common.exceptions.NotFoundException("User not found.");
+                }
+
+                int currentLevel = user.getLevel() != null ? user.getLevel() : 1;
+                return miningRepository.getMiningLevelByLevel(pool, currentLevel)
+                    .map(miningLevel -> {
+                        int storeProductLimit = miningLevel != null && miningLevel.getStoreProductLimit() != null
+                            ? miningLevel.getStoreProductLimit()
+                            : Math.max(0, currentLevel - 1);
+                        int dailyMaxAds = miningLevel != null && miningLevel.getDailyMaxAds() != null
+                            ? miningLevel.getDailyMaxAds()
+                            : ((currentLevel - 1) / 5) + 5;
+                        return new JsonObject()
+                            .put("userId", userId)
+                            .put("level", currentLevel)
+                            .put("storeProductLimit", storeProductLimit)
+                            .put("dailyMaxAds", dailyMaxAds)
+                            .put("profilePhotoEnabled", currentLevel >= 2);
+                    });
+            });
+    }
+
     public static int levelFromExp(BigDecimal exp) {
         if (exp == null || exp.compareTo(BigDecimal.ZERO) < 0) return 1;
-        if (exp.compareTo(LEVEL_EXP[7]) >= 0) return 9;
-        if (exp.compareTo(LEVEL_EXP[6]) >= 0) return 8;
-        if (exp.compareTo(LEVEL_EXP[5]) >= 0) return 7;
-        if (exp.compareTo(LEVEL_EXP[4]) >= 0) return 6;
-        if (exp.compareTo(LEVEL_EXP[3]) >= 0) return 5;
-        if (exp.compareTo(LEVEL_EXP[2]) >= 0) return 4;
-        if (exp.compareTo(LEVEL_EXP[1]) >= 0) return 3;
-        if (exp.compareTo(LEVEL_EXP[0]) >= 0) return 2;
+        for (int level = MAX_LEVEL; level >= 1; level--) {
+            if (exp.compareTo(getRequiredExpForLevel(level)) >= 0) {
+                return level;
+            }
+        }
         return 1;
+    }
+
+    public static BigDecimal getRequiredExpForLevel(int level) {
+        int safeLevel = Math.max(1, Math.min(level, MAX_LEVEL));
+        return REQUIRED_EXP_BY_LEVEL[safeLevel - 1];
+    }
+
+    public static BigDecimal getRequiredExpForNextLevel(int currentLevel) {
+        if (currentLevel >= MAX_LEVEL) {
+            return getRequiredExpForLevel(MAX_LEVEL);
+        }
+        return getRequiredExpForLevel(currentLevel + 1);
     }
 
     public Future<User> syncLevelFromExp(Long userId) {

@@ -2,6 +2,7 @@ package com.foxya.coin.transfer;
 
 import com.foxya.coin.common.BaseHandler;
 import com.foxya.coin.common.exceptions.BadRequestException;
+import com.foxya.coin.level.LevelService;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
@@ -15,11 +16,13 @@ public class InternalOfflinePayHandler extends BaseHandler {
     private static final String HEADER_API_KEY = "X-Internal-Api-Key";
 
     private final TransferService transferService;
+    private final LevelService levelService;
     private final String internalApiKey;
 
-    public InternalOfflinePayHandler(Vertx vertx, TransferService transferService, String internalApiKey) {
+    public InternalOfflinePayHandler(Vertx vertx, TransferService transferService, LevelService levelService, String internalApiKey) {
         super(vertx);
         this.transferService = transferService;
+        this.levelService = levelService;
         this.internalApiKey = internalApiKey;
     }
 
@@ -27,8 +30,32 @@ public class InternalOfflinePayHandler extends BaseHandler {
     public Router getRouter() {
         Router router = Router.router(getVertx());
         router.route().handler(this::checkInternalApiKey);
+        router.get("/store-product-policy").handler(this::getStoreProductPolicy);
         router.post("/settlements/history").handler(this::recordSettlementHistory);
         return router;
+    }
+
+    private void getStoreProductPolicy(RoutingContext ctx) {
+        String rawUserId = ctx.queryParams().get("userId");
+        if (rawUserId == null || rawUserId.isBlank()) {
+            ctx.fail(new BadRequestException("userId required"));
+            return;
+        }
+        try {
+            Long userId = Long.parseLong(rawUserId);
+            if (userId <= 0) {
+                ctx.fail(new BadRequestException("userId must be positive"));
+                return;
+            }
+            levelService.getOfflinePayStorePolicy(userId)
+                .map(policy -> policy.put("status", "OK"))
+                .onSuccess(payload -> ctx.response()
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .end(payload.encode()))
+                .onFailure(ctx::fail);
+        } catch (NumberFormatException exception) {
+            ctx.fail(new BadRequestException("userId must be numeric"));
+        }
     }
 
     private void checkInternalApiKey(RoutingContext ctx) {

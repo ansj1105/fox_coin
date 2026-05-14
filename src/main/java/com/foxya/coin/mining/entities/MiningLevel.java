@@ -18,9 +18,16 @@ public class MiningLevel {
     private Integer id;
     private Integer level;
     private BigDecimal dailyMaxMining;
+    private BigDecimal efficiency;
+    private BigDecimal requiredExp;
+    private BigDecimal perMinuteMining;
+    private Integer expectedDays;
+    private Integer dailyMaxAds;
+    private Integer storeProductLimit;
+    private String badgeCode;
+    private String photoUrl;
     /** 레벨별 일일 시청 가능 영상 수 (MINING_AND_LEVEL_SPEC) */
     private Integer dailyMaxVideos;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
-
