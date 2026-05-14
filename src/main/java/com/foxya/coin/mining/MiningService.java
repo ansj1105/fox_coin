@@ -4,6 +4,7 @@ import com.foxya.coin.auth.EmailVerificationRepository;
 import com.foxya.coin.bonus.BonusRepository;
 import com.foxya.coin.bonus.BonusService;
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.cache.RedisJsonCache;
 import com.foxya.coin.common.enums.RankingPeriod;
 import com.foxya.coin.currency.CurrencyRepository;
 import com.foxya.coin.level.LevelService;
@@ -31,6 +32,7 @@ import com.foxya.coin.wallet.entities.Wallet;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -46,6 +48,7 @@ import java.util.List;
 @Slf4j
 public class MiningService extends BaseService {
     private static final int MAX_SETTLEMENT_SESSIONS_PER_USER_RUN = 100;
+    private static final int LEVEL_INFO_CACHE_TTL_SECONDS = 600;
     private static final LocalDate MINING_DECAY_START_DATE = LocalDate.of(2026, 1, 1);
     private static final String PARTNER_FOXYYA_BOOSTER_TYPE = "PARTNER_FOXYYA";
     private static final BigDecimal MAX_REFERRAL_MULTIPLIER = BigDecimal.valueOf(1.22);
@@ -68,6 +71,7 @@ public class MiningService extends BaseService {
     private final NotificationService notificationService;
     private final SubscriptionService subscriptionService;
     private final OfflinePayCollateralReserveClient offlinePayCollateralReserveClient;
+    private final RedisJsonCache cache;
     private static final int MAX_AD_WATCH_COUNT = 5;
     /** Normalized comment. */
     private static final String BOOSTER_VIDEO_BONUS_TYPE = "BOOSTER_VIDEO";
@@ -82,6 +86,18 @@ public class MiningService extends BaseService {
                          EmailVerificationRepository emailVerificationRepository, LevelService levelService,
                          NotificationService notificationService, SubscriptionService subscriptionService,
                          OfflinePayCollateralReserveClient offlinePayCollateralReserveClient) {
+        this(pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
+            referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
+            notificationService, subscriptionService, offlinePayCollateralReserveClient, null);
+    }
+
+    public MiningService(PgPool pool, MiningRepository miningRepository, UserRepository userRepository,
+                         BonusService bonusService, BonusRepository bonusRepository, WalletRepository walletRepository,
+                         ReferralService referralService, TransferRepository transferRepository, CurrencyRepository currencyRepository,
+                         EmailVerificationRepository emailVerificationRepository, LevelService levelService,
+                         NotificationService notificationService, SubscriptionService subscriptionService,
+                         OfflinePayCollateralReserveClient offlinePayCollateralReserveClient,
+                         RedisAPI redisApi) {
         super(pool);
         this.miningRepository = miningRepository;
         this.userRepository = userRepository;
@@ -96,6 +112,7 @@ public class MiningService extends BaseService {
         this.notificationService = notificationService;
         this.subscriptionService = subscriptionService;
         this.offlinePayCollateralReserveClient = offlinePayCollateralReserveClient;
+        this.cache = new RedisJsonCache(redisApi, "foxya:cache:mining");
     }
     
     public Future<DailyLimitResponseDto> getDailyLimit(Long userId) {
@@ -147,6 +164,10 @@ public class MiningService extends BaseService {
     }
     
     public Future<LevelInfoResponseDto> getLevelInfo() {
+        return cache.getOrLoad("level-info:v1", LEVEL_INFO_CACHE_TTL_SECONDS, LevelInfoResponseDto.class, this::loadLevelInfo);
+    }
+
+    private Future<LevelInfoResponseDto> loadLevelInfo() {
         return miningRepository.getAllMiningLevels(pool)
             .map(levels -> {
                 List<LevelInfoResponseDto.LevelInfo> levelInfos = new ArrayList<>();

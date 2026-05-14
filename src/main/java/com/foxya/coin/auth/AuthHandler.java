@@ -2,6 +2,7 @@ package com.foxya.coin.auth;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.Future;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
@@ -14,6 +15,7 @@ import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.json.schema.SchemaParser;
 import io.vertx.core.MultiMap;
 import com.foxya.coin.common.BaseHandler;
+import com.foxya.coin.common.cache.RedisJsonCache;
 import com.foxya.coin.common.utils.AuthUtils;
 import com.foxya.coin.common.utils.Utils;
 import com.foxya.coin.common.exceptions.BadRequestException;
@@ -28,6 +30,9 @@ import com.foxya.coin.auth.dto.RecoveryResetRequestDto;
 import com.foxya.coin.auth.dto.LoginWithSeedRequestDto;
 import com.foxya.coin.auth.dto.LogoutRequestDto;
 import com.foxya.coin.country.CountryCodeService;
+import com.foxya.coin.auth.dto.CountryOptionResponseDto;
+import com.fasterxml.jackson.core.type.TypeReference;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.vertx.ext.web.validation.builder.Bodies.json;
@@ -37,6 +42,7 @@ import static com.foxya.coin.common.jsonschema.Schemas.*;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.List;
 
 @Slf4j
 public class AuthHandler extends BaseHandler {
@@ -44,14 +50,21 @@ public class AuthHandler extends BaseHandler {
     private final AuthService authService;
     private final CountryCodeService countryCodeService;
     private final JWTAuth jwtAuth;
+    private final RedisJsonCache cache;
     private static final String REFRESH_COOKIE_NAME = "refreshToken";
     private static final long REFRESH_COOKIE_MAX_AGE = 864000L; // 10일
+    private static final int COUNTRIES_CACHE_TTL_SECONDS = 600;
     
     public AuthHandler(Vertx vertx, AuthService authService, CountryCodeService countryCodeService, JWTAuth jwtAuth) {
+        this(vertx, authService, countryCodeService, jwtAuth, null);
+    }
+
+    public AuthHandler(Vertx vertx, AuthService authService, CountryCodeService countryCodeService, JWTAuth jwtAuth, RedisAPI redisApi) {
         super(vertx);
         this.authService = authService;
         this.countryCodeService = countryCodeService;
         this.jwtAuth = jwtAuth;
+        this.cache = new RedisJsonCache(redisApi, "foxya:cache:auth");
     }
     
     @Override
@@ -203,7 +216,13 @@ public class AuthHandler extends BaseHandler {
 
     private void getSignupCountries(RoutingContext ctx) {
         log.info("회원가입 국가코드 목록 조회 요청");
-        response(ctx, countryCodeService.getSignupCountries());
+        Future<List<CountryOptionResponseDto>> future = cache.getOrLoad(
+            "countries:v1",
+            COUNTRIES_CACHE_TTL_SECONDS,
+            new TypeReference<List<CountryOptionResponseDto>>() {},
+            countryCodeService::getSignupCountries
+        );
+        response(ctx, future);
     }
 
     private Handler<RoutingContext> verifySignupEmailValidation(SchemaParser parser) {

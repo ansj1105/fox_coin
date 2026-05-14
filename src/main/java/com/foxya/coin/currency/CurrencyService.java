@@ -1,6 +1,7 @@
 package com.foxya.coin.currency;
 
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.cache.RedisJsonCache;
 import com.foxya.coin.currency.dto.CoinPriceDto;
 import com.foxya.coin.currency.dto.CoinPricesDto;
 import com.foxya.coin.currency.dto.ExchangeRatesDto;
@@ -10,6 +11,7 @@ import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -42,6 +44,7 @@ public class CurrencyService extends BaseService {
     private final ExchangeRateRepository exchangeRateRepository;
     private final CoinPriceRepository coinPriceRepository;
     private final WebClient webClient;
+    private final RedisJsonCache cache;
 
     // Providers
     private static final String DEFAULT_COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
@@ -54,6 +57,7 @@ public class CurrencyService extends BaseService {
 
     private static final long HTTP_TIMEOUT_MS = parseLongEnv("EXCHANGE_RATE_HTTP_TIMEOUT_MS", 10_000L);
     private static final long COIN_PRICE_STALE_MS = parseLongEnv("COIN_PRICE_STALE_MS", 60_000L);
+    private static final int COIN_PRICE_CACHE_TTL_SECONDS = (int) Math.max(1L, Math.min(parseLongEnv("COIN_PRICE_CACHE_TTL_SECONDS", 20L), 300L));
     private static final String KORI_SUNSWAP_PAIR_ADDRESS = "TCHbWJUBZ9DVpaPb6QW9vb31yTSz7sfhQh";
     private static final BigDecimal TRON_SUN_UNIT = new BigDecimal("1000000");
     private static final Set<String> SUPPORTED_COIN_PRICE_CODES = Set.of("BTC", "ETH", "USDT", "TRX", "SOL", "KORI", "KORION");
@@ -85,7 +89,16 @@ public class CurrencyService extends BaseService {
                            ExchangeRateRepository exchangeRateRepository,
                            CoinPriceRepository coinPriceRepository,
                            WebClient webClient) {
-        this(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, DEFAULT_COINGECKO_API_URL, DEFAULT_COINPAPRIKA_API_URL, DEFAULT_TRONGRID_API_URL);
+        this(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, null);
+    }
+
+    public CurrencyService(PgPool pool,
+                           CurrencyRepository currencyRepository,
+                           ExchangeRateRepository exchangeRateRepository,
+                           CoinPriceRepository coinPriceRepository,
+                           WebClient webClient,
+                           RedisAPI redisApi) {
+        this(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, DEFAULT_COINGECKO_API_URL, DEFAULT_COINPAPRIKA_API_URL, DEFAULT_TRONGRID_API_URL, redisApi);
     }
 
     // Visible for tests: lets unit tests point providers to a local mock server.
@@ -97,11 +110,24 @@ public class CurrencyService extends BaseService {
                     String coingeckoApiUrl,
                     String coinpaprikaApiUrl,
                     String trongridApiUrl) {
+        this(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, coingeckoApiUrl, coinpaprikaApiUrl, trongridApiUrl, null);
+    }
+
+    CurrencyService(PgPool pool,
+                    CurrencyRepository currencyRepository,
+                    ExchangeRateRepository exchangeRateRepository,
+                    CoinPriceRepository coinPriceRepository,
+                    WebClient webClient,
+                    String coingeckoApiUrl,
+                    String coinpaprikaApiUrl,
+                    String trongridApiUrl,
+                    RedisAPI redisApi) {
         super(pool);
         this.currencyRepository = currencyRepository;
         this.exchangeRateRepository = exchangeRateRepository;
         this.coinPriceRepository = coinPriceRepository;
         this.webClient = webClient;
+        this.cache = new RedisJsonCache(redisApi, "foxya:cache:currency");
         this.coingeckoApiUrl = (coingeckoApiUrl != null && !coingeckoApiUrl.isBlank()) ? coingeckoApiUrl.trim() : DEFAULT_COINGECKO_API_URL;
         this.coinpaprikaApiUrl = (coinpaprikaApiUrl != null && !coinpaprikaApiUrl.isBlank()) ? coinpaprikaApiUrl.trim() : DEFAULT_COINPAPRIKA_API_URL;
         this.trongridApiUrl = (trongridApiUrl != null && !trongridApiUrl.isBlank()) ? trongridApiUrl.trim() : DEFAULT_TRONGRID_API_URL;
@@ -115,7 +141,10 @@ public class CurrencyService extends BaseService {
     }
 
     public Future<CoinPricesDto> getCoinPrices(Set<String> requestedCodes) {
-        return getCoinPricesFromDb(requestedCodes);
+        Set<String> codes = normalizeCoinPriceCodes(requestedCodes);
+        String cacheKey = "coin-prices:" + String.join(",", new java.util.TreeSet<>(codes));
+        return cache.getOrLoad(cacheKey, COIN_PRICE_CACHE_TTL_SECONDS, CoinPricesDto.class,
+            () -> getCoinPricesFromDb(codes));
     }
 
     public Future<BigDecimal> getSwapExchangeRate(String fromCurrencyCode, String toCurrencyCode) {

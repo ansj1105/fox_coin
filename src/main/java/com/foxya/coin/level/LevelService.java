@@ -1,6 +1,7 @@
 package com.foxya.coin.level;
 
 import com.foxya.coin.common.BaseService;
+import com.foxya.coin.common.cache.RedisJsonCache;
 import com.foxya.coin.level.dto.LevelGuideResponseDto;
 import com.foxya.coin.level.dto.UserLevelResponseDto;
 import com.foxya.coin.mining.MiningRepository;
@@ -13,6 +14,7 @@ import com.foxya.coin.user.entities.User;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -25,6 +27,8 @@ public class LevelService extends BaseService {
     private final UserRepository userRepository;
     private final MiningRepository miningRepository;
     private final NotificationService notificationService;
+    private final RedisJsonCache cache;
+    private static final int LEVEL_GUIDE_CACHE_TTL_SECONDS = 600;
 
     private static final BigDecimal[] REQUIRED_EXP_BY_LEVEL = {
         BigDecimal.valueOf(0), BigDecimal.valueOf(4), BigDecimal.valueOf(9), BigDecimal.valueOf(13), BigDecimal.valueOf(18),
@@ -60,10 +64,16 @@ public class LevelService extends BaseService {
 
     public LevelService(PgPool pool, UserRepository userRepository, MiningRepository miningRepository,
                         NotificationService notificationService) {
+        this(pool, userRepository, miningRepository, notificationService, null);
+    }
+
+    public LevelService(PgPool pool, UserRepository userRepository, MiningRepository miningRepository,
+                        NotificationService notificationService, RedisAPI redisApi) {
         super(pool);
         this.userRepository = userRepository;
         this.miningRepository = miningRepository;
         this.notificationService = notificationService;
+        this.cache = new RedisJsonCache(redisApi, "foxya:cache:level");
     }
 
     public Future<UserLevelResponseDto> getUserLevel(Long userId) {
@@ -95,6 +105,10 @@ public class LevelService extends BaseService {
     }
 
     public Future<LevelGuideResponseDto> getLevelGuide() {
+        return cache.getOrLoad("level-guide:v1", LEVEL_GUIDE_CACHE_TTL_SECONDS, LevelGuideResponseDto.class, this::loadLevelGuide);
+    }
+
+    private Future<LevelGuideResponseDto> loadLevelGuide() {
         return miningRepository.getAllMiningLevels(pool)
             .map(levels -> {
                 List<LevelGuideResponseDto.LevelInfo> levelInfos = new ArrayList<>();

@@ -1,12 +1,14 @@
 package com.foxya.coin.app;
 
 import com.foxya.coin.common.BaseHandler;
+import com.foxya.coin.common.cache.RedisJsonCache;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.pgclient.PgPool;
+import io.vertx.redis.client.RedisAPI;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -19,12 +21,19 @@ public class AppHandler extends BaseHandler {
     private final PgPool pool;
     private final AppConfigRepository appConfigRepository;
     private final String fallbackMinAppVersion;
+    private final RedisJsonCache cache;
+    private static final int APP_CONFIG_CACHE_TTL_SECONDS = 60;
 
     public AppHandler(Vertx vertx, PgPool pool, AppConfigRepository appConfigRepository, String fallbackMinAppVersion) {
+        this(vertx, pool, appConfigRepository, fallbackMinAppVersion, null);
+    }
+
+    public AppHandler(Vertx vertx, PgPool pool, AppConfigRepository appConfigRepository, String fallbackMinAppVersion, RedisAPI redisApi) {
         super(vertx);
         this.pool = pool;
         this.appConfigRepository = appConfigRepository;
         this.fallbackMinAppVersion = fallbackMinAppVersion;
+        this.cache = new RedisJsonCache(redisApi, "foxya:cache:app");
     }
 
     @Override
@@ -44,15 +53,21 @@ public class AppHandler extends BaseHandler {
             }
         }
         boolean isIos = deviceOs != null && "IOS".equalsIgnoreCase(deviceOs.trim());
-        Future<JsonObject> future = appConfigRepository.getMinAppVersion(pool, isIos)
-            .map(dbMin -> {
-                String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : fallbackMinAppVersion;
-                JsonObject data = new JsonObject();
-                if (min != null && !min.isBlank()) {
-                    data.put("minAppVersion", min);
-                }
-                return data;
-            });
+        boolean finalIsIos = isIos;
+        Future<JsonObject> future = cache.getOrLoad(
+            "config:" + (finalIsIos ? "ios" : "default"),
+            APP_CONFIG_CACHE_TTL_SECONDS,
+            JsonObject.class,
+            () -> appConfigRepository.getMinAppVersion(pool, finalIsIos)
+                .map(dbMin -> {
+                    String min = (dbMin != null && !dbMin.isBlank()) ? dbMin : fallbackMinAppVersion;
+                    JsonObject data = new JsonObject();
+                    if (min != null && !min.isBlank()) {
+                        data.put("minAppVersion", min);
+                    }
+                    return data;
+                })
+        );
         response(ctx, future);
     }
 }

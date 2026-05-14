@@ -19,6 +19,10 @@ public class InternalOfflinePayHandler extends BaseHandler {
     private final LevelService levelService;
     private final String internalApiKey;
 
+    public InternalOfflinePayHandler(Vertx vertx, TransferService transferService, String internalApiKey) {
+        this(vertx, transferService, null, internalApiKey);
+    }
+
     public InternalOfflinePayHandler(Vertx vertx, TransferService transferService, LevelService levelService, String internalApiKey) {
         super(vertx);
         this.transferService = transferService;
@@ -45,6 +49,10 @@ public class InternalOfflinePayHandler extends BaseHandler {
             Long userId = Long.parseLong(rawUserId);
             if (userId <= 0) {
                 ctx.fail(new BadRequestException("userId must be positive"));
+                return;
+            }
+            if (levelService == null) {
+                ctx.fail(new IllegalStateException("Level service not configured."));
                 return;
             }
             levelService.getOfflinePayStorePolicy(userId)

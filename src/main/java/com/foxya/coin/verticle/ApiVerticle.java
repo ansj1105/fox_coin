@@ -353,10 +353,10 @@ public class ApiVerticle extends AbstractVerticle {
             pool, bonusRepository, referralRepository, subscriptionRepository, reviewRepository,
             agencyRepository, socialLinkRepository, phoneVerificationRepository);
         LevelService levelService = new LevelService(
-            pool, userRepository, miningRepository, notificationService);
+            pool, userRepository, miningRepository, notificationService, redisApi);
         MiningService miningService;
         NoticeService noticeService = new NoticeService(
-            pool, noticeRepository);
+            pool, noticeRepository, redisApi);
         NoticeNotificationDispatchRepository noticeNotificationDispatchRepository = new NoticeNotificationDispatchRepository();
         NoticeNotificationDispatchService noticeNotificationDispatchService = new NoticeNotificationDispatchService(pool, noticeNotificationDispatchRepository);
         ReviewService reviewService = new ReviewService(
@@ -368,12 +368,12 @@ public class ApiVerticle extends AbstractVerticle {
             pool, rankingRepository);
         BannerRepository bannerRepository = new BannerRepository();
         BannerService bannerService = new BannerService(
-            pool, bannerRepository);
+            pool, bannerRepository, redisApi);
         
         // Normalized comment.
         ExchangeRateRepository exchangeRateRepository = new ExchangeRateRepository();
         CoinPriceRepository coinPriceRepository = new CoinPriceRepository();
-        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient);
+        CurrencyService currencyService = new CurrencyService(pool, currencyRepository, exchangeRateRepository, coinPriceRepository, webClient, redisApi);
         CountryCodeRepository countryCodeRepository = new CountryCodeRepository();
         CountryCodeService countryCodeService = new CountryCodeService(pool, countryCodeRepository);
         
@@ -416,7 +416,7 @@ public class ApiVerticle extends AbstractVerticle {
         miningService = new MiningService(
             pool, miningRepository, userRepository, bonusService, bonusRepository, walletRepository,
             referralService, transferRepository, currencyRepository, emailVerificationRepository, levelService,
-            notificationService, subscriptionService, offlinePayCollateralReserveClient);
+            notificationService, subscriptionService, offlinePayCollateralReserveClient, redisApi);
         String depositScannerApiKey = System.getenv("DEPOSIT_SCANNER_API_KEY");
         if (depositScannerApiKey == null || depositScannerApiKey.isEmpty()) {
             depositScannerApiKey = config().getString("depositScanner.apiKey");
@@ -517,8 +517,8 @@ public class ApiVerticle extends AbstractVerticle {
         }
 
         // Normalized comment.
-        AuthHandler authHandler = new AuthHandler(vertx, authService, countryCodeService, jwtAuth);
-        AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion);
+        AuthHandler authHandler = new AuthHandler(vertx, authService, countryCodeService, jwtAuth, redisApi);
+        AppHandler appHandler = new AppHandler(vertx, pool, appConfigRepository, minAppVersion, redisApi);
         UserHandler userHandler = new UserHandler(vertx, userService, jwtAuth, deviceRepository, pool);
         WalletHandler walletHandler = new WalletHandler(vertx, walletService);
         ReferralHandler referralHandler = new ReferralHandler(vertx, referralService, jwtAuth);
