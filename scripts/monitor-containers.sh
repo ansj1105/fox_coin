@@ -97,14 +97,11 @@ resolve_monitored_container_id() {
 expected_runtime_containers() {
     cat <<EOF
 foxya-api
-foxya-coin-api
 foxya-api-2
 foxya-db-proxy
 foxya-pgbouncer
 foxya-postgres
-foxya-coin-postgres
 foxya-redis
-foxya-coin-redis
 foxya-nginx
 foxya-prometheus
 foxya-grafana
@@ -200,12 +197,6 @@ inspect_runtime_invariants() {
     if docker ps -q --filter "name=^foxya-db-proxy$" | grep -q .; then
         if ! docker exec foxya-db-proxy getent hosts postgres >/dev/null 2>&1; then
             issues+=("db-proxy=backend-unresolved")
-        fi
-    fi
-
-    if docker ps -q --filter "name=^foxya-coin-api$" | grep -q .; then
-        if ! docker exec foxya-coin-api getent hosts foxya-runtime-db >/dev/null 2>&1; then
-            issues+=("app=runtime-db-alias")
         fi
     fi
 

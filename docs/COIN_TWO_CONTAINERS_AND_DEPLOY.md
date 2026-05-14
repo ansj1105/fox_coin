@@ -9,7 +9,7 @@
 | API 1 | `foxya-api` | `app` | 8080 (호스트) | Nginx upstream 대상 |
 | API 2 | `foxya-api-2` | `app2` | 없음 (내부만) | Nginx upstream 대상 |
 
-- **이미지**: 둘 다 `foxya-coin-api:${APP_VERSION:-latest}` (같은 빌드 결과 사용)
+- **이미지**: 둘 다 `foxya-api:${APP_VERSION:-latest}` (같은 빌드 결과 사용)
 - **Nginx**: `nginx/nginx.conf`의 `upstream foxya_api`에 `foxya-api:8080`, `foxya-api-2:8080` 등록 → 라운드로빈
 - **효과**: 한 대만 재시작해도 다른 한 대가 트래픽 처리 → **무중단 배포** 가능
 
@@ -50,7 +50,7 @@ docker compose -f docker-compose.prod.yml build app
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-- `app`만 빌드하면 `app`/`app2` 둘 다 같은 이미지(`foxya-coin-api:latest`)를 사용합니다.
+- `app`만 빌드하면 `app`/`app2` 둘 다 같은 이미지(`foxya-api:latest`)를 사용합니다.
 - `up -d` 시 postgres, db-proxy, redis, app, app2, tron-service, nginx 등 전체 기동.
 
 ### 업데이트 배포 (무중단, 한 대씩 재시작)
@@ -106,7 +106,7 @@ cd /var/www/fox_coin
 또는 직접:
 
 ```bash
-docker tag foxya-coin-api:backup_20250101120000 foxya-coin-api:latest
+docker tag foxya-api:backup_20250101120000 foxya-api:latest
 docker compose -f docker-compose.prod.yml up -d --no-deps app
 docker compose -f docker-compose.prod.yml up -d --no-deps app2
 ```

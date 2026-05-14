@@ -123,7 +123,7 @@ services:
       dockerfile: Dockerfile.prod
       args:
         - APP_ENV=${APP_ENV:-prod}
-    image: foxya-coin-api:${APP_VERSION:-latest}
+    image: foxya-api:${APP_VERSION:-latest}
     container_name: foxya-api
     environment:
       TZ: Asia/Seoul
@@ -221,7 +221,7 @@ services:
       dockerfile: Dockerfile.prod
       args:
         - APP_ENV=${APP_ENV:-prod}
-    image: foxya-coin-api:${APP_VERSION:-latest}
+    image: foxya-api:${APP_VERSION:-latest}
     container_name: foxya-api-2
     environment:
       TZ: Asia/Seoul

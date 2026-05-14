@@ -184,7 +184,7 @@ jib {
         }
     }
     to {
-        image = "foxya-coin-api"
+        image = "foxya-api"
         tags = setOf("latest", version.toString())
     }
     container {

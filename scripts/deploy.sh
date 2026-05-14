@@ -330,7 +330,7 @@ deploy() {
     if [ -f "${COMPOSE_FILE}" ]; then
         BACKUP_TAG=$(date +%Y%m%d_%H%M%S)
         log_info "현재 이미지 백업 중... (tag: ${BACKUP_TAG})"
-        docker tag foxya-coin-api:latest foxya-coin-api:backup_${BACKUP_TAG} 2>/dev/null || true
+        docker tag foxya-api:latest foxya-api:backup_${BACKUP_TAG} 2>/dev/null || true
     fi
     
     # 최신 코드 가져오기
@@ -389,7 +389,7 @@ update() {
     
     # 이전 버전 백업 (롤백용)
     BACKUP_TAG=$(date +%Y%m%d_%H%M%S)
-    docker tag foxya-coin-api:latest foxya-coin-api:backup_${BACKUP_TAG} 2>/dev/null || true
+    docker tag foxya-api:latest foxya-api:backup_${BACKUP_TAG} 2>/dev/null || true
     
     # 이미지 한 번 빌드 (app, app2 동일 이미지 사용)
     log_info "이미지 빌드 중..."
@@ -458,7 +458,7 @@ rollback() {
     cd "${DEPLOY_DIR}"
     
     # 백업 이미지 목록 확인
-    BACKUPS=$(docker images foxya-coin-api --format "{{.Tag}}" | grep "backup_" | head -5)
+    BACKUPS=$(docker images foxya-api --format "{{.Tag}}" | grep "backup_" | head -5)
     
     if [ -z "$BACKUPS" ]; then
         log_error "백업 이미지가 없습니다."
@@ -478,7 +478,7 @@ rollback() {
     ensure_runtime_db_stack_ready
 
     # 롤백 실행 (두 컨테이너 모두 이전 이미지로)
-    docker tag foxya-coin-api:${ROLLBACK_TAG} foxya-coin-api:latest
+    docker tag foxya-api:${ROLLBACK_TAG} foxya-api:latest
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app
     sleep 10
     docker-compose -f ${COMPOSE_FILE} up -d --no-deps app2
